@@ -346,6 +346,15 @@ t04 FAIL (slot key: current stays ak47), t06 FAIL (crouch key: crouched = false;
   `825f6b53d3cf44b0_0` x4070, `0ff5e965b6e24263_58` x515, `2548028a75587510_49` x451, `651eef0e181d2161_58` x327,
   `57b5d8d0323b8a62_13` x326, `fe54649fd6408bd7_66` x291 (material without normal_enabled + normal_texture, or a
   ShaderMaterial without a bound *normal* texture).
+- t16 validation with 2 runs (`HZS_T16_RUNS=2`, `v02-h`, no speed_mult on main -> 8 s legs + teleports, 30/30
+  cells each): run 1 exit 0 (261 s, RSS 2139 MB, VRAM 1527 MB), run 2 wrote its PASS result and logged
+  `quitting (0)` at 01:01:43, then `[warn] world exit: worker task 424751 still running after 10 s, not waiting for
+  it` at 01:01:53 and the process ended at ~01:02:36 with exit code -1073741819 (0xC0000005 access violation).
+  RSS run 2 2355 MB (+10 % of run 1), VRAM equal, 0 `[error]` lines.
+- Finding F9 (hra): crash on quit while a world worker task (cell load) is still running - the main thread stops
+  waiting after 10 s and the engine tears down under the running task. Reproduce: teleport across cells and quit
+  within ~1 s (t16run does this after its last waypoint). Fix: cancel/finish the task (or keep waiting) before the
+  world is freed.
 
 ## Log
 - 2026-10-09 runner, libs and all 13 scenario scripts written against the documented API; stub verification above.
