@@ -30,5 +30,5 @@ common/physics_ticks_per_second=64
 [rendering]
 
 anti_aliasing/quality/msaa_3d=1
-mesh_lod/lod_change/threshold_pixels=2.0
+mesh_lod/lod_change/threshold_pixels=4.0
 environment/defaults/default_clear_color=Color(0.55, 0.7, 0.85, 1)

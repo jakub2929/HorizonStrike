@@ -347,11 +347,11 @@ static func _lod_class(aabb: AABB, scale: float, plant: bool) -> Array:
 	var s := maxf(aabb.size.x, maxf(aabb.size.y, aabb.size.z)) * scale
 	var k := 0.7 if plant else 1.0
 	if s < 1.5:
-		return [128.0, 70.0 * k, false]
+		return [128.0, 55.0 * k, false]
 	if s < 4.0:
-		return [128.0, 170.0 * k, false]
+		return [128.0, 130.0 * k, false]
 	if s < 12.0:
-		return [256.0, 450.0 * k, true]
+		return [256.0, 380.0 * k, false]
 	return [512.0, 0.0, true]
 
 

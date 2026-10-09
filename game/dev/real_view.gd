@@ -68,8 +68,45 @@ func _run() -> void:
 			RenderingServer.viewport_get_measured_render_time_cpu(vp_rid), RenderingServer.viewport_get_measured_render_time_gpu(vp_rid),
 			Performance.get_monitor(Performance.RENDER_TOTAL_OBJECTS_IN_FRAME), Performance.get_monitor(Performance.OBJECT_NODE_COUNT),
 			Performance.get_monitor(Performance.PHYSICS_3D_ACTIVE_OBJECTS), Performance.get_monitor(Performance.PHYSICS_3D_COLLISION_PAIRS)])
+	if _arg("--gpu-breakdown", "") != "":
+		await _breakdown()
 	print("REAL done")
 	quit(0)
+
+
+func _gpu_ms() -> float:
+	var vp := root.get_viewport_rid()
+	RenderingServer.viewport_set_measure_render_time(vp, true)
+	await _wait(1.5)
+	var acc := 0.0
+	for i in 20:
+		await process_frame
+		acc += RenderingServer.viewport_get_measured_render_time_gpu(vp)
+	return acc / 20.0
+
+
+func _set_group(name: String, on: bool) -> void:
+	for c in _game.world.loaded.values():
+		var n: Node3D = (c as Node).get_node_or_null(name)
+		if n:
+			n.visible = on
+
+
+func _breakdown() -> void:
+	var sun: DirectionalLight3D = _game.main.get_node("Sun")
+	print("GPU base %.1f ms" % await _gpu_ms())
+	sun.shadow_enabled = false
+	print("GPU no shadows %.1f ms" % await _gpu_ms())
+	sun.shadow_enabled = true
+	_set_group("Instances", false)
+	print("GPU no instances %.1f ms" % await _gpu_ms())
+	_set_group("Instances", true)
+	_set_group("Vegetation", false)
+	print("GPU no vegetation %.1f ms" % await _gpu_ms())
+	_set_group("Vegetation", true)
+	_set_group("Terrain", false)
+	print("GPU no terrain %.1f ms" % await _gpu_ms())
+	_set_group("Terrain", true)
 
 
 func _count(n: Node) -> int:
