@@ -216,6 +216,7 @@ func apply_damage(dmg: float, armor_ratio: float, source: Variant, cause: String
 		return
 	var r := Combat.apply_armor(dmg, armor_ratio, armor)
 	var hp := float(r["health"])
+	Game.player_damaged.emit(hp, cause)
 	if invulnerable and cause != "kill_player":
 		Log.info("player hit by %s for %.1f (invulnerable)" % [cause, hp])
 		Game.hud_message.emit("Hit: %s (%.0f)" % [cause, hp])

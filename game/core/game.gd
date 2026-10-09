@@ -11,6 +11,8 @@ signal player_died
 signal player_respawned(campfire_id: String)
 signal kill_reward(machine_type: String, weapon_id: String, amount: int)
 signal hud_message(text: String)
+## Every hit on the player (also while invulnerable: amount = the health damage it would have dealt).
+signal player_damaged(amount: float, cause: String)
 
 const Sheets := preload("res://core/sheets.gd")
 const Combat := preload("res://core/combat.gd")

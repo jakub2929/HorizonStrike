@@ -78,6 +78,8 @@ func _t05() -> void:
 	var hits := [0]
 	var cb := func(m, _o, n): if m == w: states.append(n)
 	_game.machine_state_changed.connect(cb)
+	var hb := func(_a, _c): hits[0] += 1
+	_game.player_damaged.connect(hb)
 	states.append(w.state)
 	var t := 0.0
 	var walked := false
@@ -88,7 +90,7 @@ func _t05() -> void:
 		t += 0.25
 		if not get_nodes_in_group("machine_projectiles").is_empty():
 			projectile = true
-		if "attack" in states and (projectile or p.health < 100.0):
+		if "attack" in states and (projectile or hits[0] > 0):
 			break
 		if t > 15.0 and not walked:
 			walked = true
@@ -98,10 +100,11 @@ func _t05() -> void:
 			p.scripted_move = Vector2.ZERO
 	p.scripted = false
 	_game.machine_state_changed.disconnect(cb)
+	_game.player_damaged.disconnect(hb)
 	w.ai_enabled = false
 	var seq := ",".join(states)
 	var ordered := _ordered(states, [["idle", "patrol"], ["suspicious"], ["alert"], ["attack"]])
-	_report("t05", ordered and (projectile or hits[0] > 0 or true), "states %s, projectile %s, %.1f s, walked %s" % [seq, projectile, t, walked])
+	_report("t05", ordered and (projectile or hits[0] > 0), "states %s, projectile %s, hits %d, %.1f s, walked %s" % [seq, projectile, hits[0], t, walked])
 	p.invulnerable = false
 
 
