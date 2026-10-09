@@ -26,6 +26,16 @@ everything on Melty. Report decisions you make in your final report so the orche
 - Sheets are the source of truth: change the sheet first, then regenerate (`python tools/gen_sheets.py`), then code.
   Never hand-edit `game/generated/` or `converter/src/Hzs.Generated/`.
 
+## Content is data, not code (content contract)
+- The game never hard-codes a file, bone, mesh or path from HZD or CS2. It only knows **roles and named points**
+  defined per row in the sheets and in the converter's per-asset `meta.json`.
+- Every machine and weapon row carries a content contract: `content_model` (cache-relative model file),
+  `bone_roles` (role -> bone name, e.g. head, spine, tail, leg_fl_upper/lower/foot ..., for weapons hand_r, hand_l),
+  `points` (named points -> bone + local offset: weak spots, muzzle, eject, fx, hit/impact points). The same for
+  world cells: `cell.json` is the contract (terrain file, instances, campfires, spawns, vegetation).
+- Goal: all content can later be replaced by own models and terrain only by swapping files and sheets. Code that
+  names a game-specific bone or file is a bug.
+
 ## Tools on this PC
 - .NET SDK 8.0.425 and 10.0.401 (`dotnet`), Python 3.12 (`python`), Node, CMake, git, ffmpeg, Java 21.
 - Godot 4.7.2 editor: `C:\Users\bezdo\AppData\Local\Microsoft\WinGet\Packages\GodotEngine.GodotEngine_Microsoft.Winget.Source_8wekyb3d8bbwe\Godot_v4.7.2-stable_win64_console.exe`
