@@ -244,3 +244,8 @@ Full per-site table: `docs/notes/svet.md`. No placement references `ai/groups`, 
   BC7 6-14 s/MPix too slow; own mode-6 BC7 116 ms/MPix, PSNR 32.7 dB); DDS DX10 headers; normal BC5 + ORM BC1 from HZD
   texture sets; instances[].kind; start 3x3 textures ~232 MiB incl. normals/ORM; whole world 159 s / 5.15 GB.
 - D56 terrain.albedo_px (converter) is the single source of terrain texture size; cache.terrain_texture_px deprecated.
+- svet V3 done (8525693, not merged yet): Sawtooth 1100 / Scrapper 220 / Broadhead 175 HP (HZD, non-corrupted);
+  weak spots canister / power cell + radar / 2 canisters (HZD x1.5); Sawtooth mesh skinned to the Ravager rig ->
+  builder reads helpers from own then shared rig; Broadhead uses Strider AI perception (45 m / 12 deg); site_map
+  prepared: direwolf->sawtooth (1 site, 1), hyena->scrapper (2 sites, 7), longhorn->broadhead (23 sites, 86);
+  PAS_Direwolf (5,-3) has no objects in the archives.
