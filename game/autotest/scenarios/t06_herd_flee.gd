@@ -40,14 +40,27 @@ func _run(ctx):
 		await ctx.call_api(g, "teleport", [away])
 		var calmed: bool = await ctx.wait_until(func(): return herd.all(func(m): return is_instance_valid(m) and calm.has(str(m.get("state")))), 90.0)
 		note("herd was disturbed at arrival; calm after waiting: %s" % str(calmed))
-	var center := _centroid(herd)
-	var placed: Dictionary = await Sites.place_player_facing(ctx, center, DIST_M, ctx.player_pos() - center)
-	data.placement = {"distance_m": DIST_M, "line_of_sight": placed.get("los")}
+	var sus_thr: float = o.f(o.machine("grazer", "suspicious_threshold"))
+	# crouch before approaching; if a grazer still notices the player while being placed (sight is probabilistic at
+	# this distance), back off, let the herd calm down and place again (up to 3 attempts)
 	await _crouch(ctx, p, true)
 	await Combat.equip(ctx, "glock")
-	await ctx.wait(0.5)
+	var placed: Dictionary = {}
+	for attempt in 3:
+		var center := _centroid(herd)
+		placed = await Sites.place_player_facing(ctx, center, DIST_M, ctx.player_pos() - center)
+		await _crouch(ctx, p, true)
+		await ctx.wait(0.5)
+		if herd.all(func(m): return calm.has(str(m.get("state"))) and float(m.get("suspicion")) < sus_thr):
+			break
+		note("attempt %d: herd noticed the player during setup; backing off" % (attempt + 1))
+		var back: Vector3 = _centroid(herd) + (ctx.player_pos() - _centroid(herd)).normalized() * 150.0
+		var by: Variant = await ctx.ground_y(back.x, back.z)
+		back.y = float(by) + 0.3 if by != null else back.y + 30.0
+		await ctx.call_api(g, "teleport", [back])
+		await ctx.wait_until(func(): return herd.all(func(m): return is_instance_valid(m) and calm.has(str(m.get("state"))) and float(m.get("suspicion")) < sus_thr * 0.5), 90.0)
+	data.placement = {"distance_m": DIST_M, "line_of_sight": placed.get("los")}
 
-	var sus_thr: float = o.f(o.machine("grazer", "suspicious_threshold"))
 	var before := herd.map(func(m): return {"state": str(m.get("state")), "suspicion": m.get("suspicion")})
 	data.herd_before = before
 	check("setup: herd undetected (calm states, suspicion < %s)" % str(sus_thr), herd.all(func(m): return calm.has(str(m.get("state"))) and float(m.get("suspicion")) < sus_thr), str(before))
