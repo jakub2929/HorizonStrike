@@ -150,3 +150,9 @@ Full per-site table: `docs/notes/svet.md`. No placement references `ai/groups`, 
   flee distance, fire() point/distance, magenta splotch, cache size from disk).
 - D40 (test) Scenario order t03 before t02, s03 before t06; t04 accounts for CS range falloff; t09 allows cells within
   2 of start after bootstrap; t10 cap reserve 50 MiB; s02 re-shoots from 6 m when the Watcher is too small.
+- 2026-10-09 hra fix round merged (f14594f): instance collisions split into bodies of <=256 shapes (no Jolt errors over
+  3x3; engine errors mirrored into latest.log), cache size measured from disk (t10 PASS: max 806 MB vs cap 1368 MiB,
+  6 evictions), herd flees to flee_distance_m then re-homes (t06 PASS 29.4 -> 84.9 m), fire() returns point/distance,
+  pink splotch was an eye light (now emissive only). Runner on real data: t05,t06,t10,s01-s03 PASS.
+- D41 (hra) Transparent meshes wider than 64 m (HZD far-forest impostors) render only beyond 220 m and have no
+  collision; transparency follows glTF alphaMode/alphaCutoff/doubleSided only.
