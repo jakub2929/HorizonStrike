@@ -408,3 +408,14 @@ Sites of the new machines (svet 0.2 V3, hzsconv hzd-sites after site_map type:di
   water RenderEffects / ShaderResources (compiled water shading). Tile 4,-3: 31 surfaces, 182-299 m, following the
   valleys and the river (Godot render cache-svetwork/shots/water_4_-3_0.png). cell.json format 7 water.instances
   (meshes exported like the world meshes; hzd_content water.layer); systems render.water filled.
+
+## 0.2 V6 occluders + HLOD (2026-10-09)
+- MeshRef carries the glb POSITION bounds and "all materials opaque" (read from the exported glb JSON, cached).
+- occluders: boxes for opaque building / rock instances with a world edge >= 8 m (render.occluder_min_size_m),
+  mesh bounds x 0.8, largest 256; terrain grid 33 x 33 (16 m) = local minimum of the heights - 1 m.
+- hlod.glb: per instance the finest HZD LOD with <= 400 vertices (LodMeshResource chain; else the coarsest), largest
+  buildings / rocks >= 4 m first until 20000 triangles; vertex colour = linear average of the material colour map at
+  16 px (stone for colourised rocks). 4_-3: 256 boxes, hlod 19998 triangles from 108 instances (mostly the big rocks,
+  the village's parts are smaller than the rocks).
+- hra's DDS test (release-hra-h3) runs hzsconv from this worktree's bin; while it runs, builds go to
+  scratchpad/hzsout (no overwrite of DLLs in use).

@@ -15,7 +15,7 @@ namespace Hzs.Decima.World;
 public static class CellConverter
 {
     /// <summary>cell.json "format"; bump when the cell layout changes so old cells are converted again.</summary>
-    public const int Format = 7;
+    public const int Format = 8;
 
     public static long Convert(ConvContext ctx, Resolver res, int x, int y, IProgressSink progress)
     {
@@ -74,13 +74,16 @@ public static class CellConverter
             var usedMeshes = new SortedSet<string>(StringComparer.Ordinal);
             var usedTex = new SortedSet<string>(StringComparer.Ordinal);
             var tint = albedoImg is null ? null : new GroundTint(albedoImg, x, y);
+            var lodInstances = new List<LodInstance>();
             foreach (var p in placements)
             {
                 if (ids.GetValueOrDefault((p.MeshFile, p.MeshUuid)) is not { } m) continue;
                 usedMeshes.Add(m.Id);
                 foreach (var t in m.Textures) usedTex.Add(t);
                 var g = Assets.Space.M(p.World);
-                var inst = new JsonObject { ["mesh"] = m.Id, ["kind"] = KindOf(p.MeshFile), ["xf"] = new JsonArray(Assets.Space.Xf(g).Select(v => (JsonNode)Math.Round(v, 4)).ToArray()) };
+                var kind = KindOf(p.MeshFile);
+                lodInstances.Add(new LodInstance(m, g, kind, p.MeshFile, p.MeshUuid));
+                var inst = new JsonObject { ["mesh"] = m.Id, ["kind"] = kind, ["xf"] = new JsonArray(Assets.Space.Xf(g).Select(v => (JsonNode)Math.Round(v, 4)).ToArray()) };
                 if (m.Colorized && tint?.At(g.M41, g.M43) is { } c)
                     inst["tint"] = new JsonArray(Math.Round(c.X, 3), Math.Round(c.Y, 3), Math.Round(c.Z, 3));
                 instances.Add(inst);
@@ -200,6 +203,20 @@ public static class CellConverter
             }
             catch (Exception ex) { ctx.Log.Warn($"cell {x},{y}: terrain layers: {ex.Message}"); }
 
+            // culling and distance rendering: occluders + merged coarse LOD proxy (hlod.glb)
+            JsonObject? occluders = null, hlod = null;
+            try
+            {
+                occluders = CellLod.Occluders(terrain, lodInstances);
+                var origin = new System.Numerics.Vector3(x * TerrainReader.TileSize, 0f, -(y + 1) * TerrainReader.TileSize);
+                if (CellLod.Hlod(meshes, new Materials(res, 16), lodInstances, origin) is { } h)
+                {
+                    File.WriteAllBytes(Path.Combine(tmp, "hlod.glb"), h.Glb);
+                    hlod = new JsonObject { ["file"] = "hlod.glb", ["triangles"] = h.Triangles, ["instances"] = h.Instances };
+                }
+            }
+            catch (Exception ex) { ctx.Log.Warn($"cell {x},{y}: occluders / hlod: {ex.Message}"); }
+
             // machine sites (variant B)
             var sites = new RobotSites(res, ctx.Log).ForTile(x, y);
             JsonObject SpawnJson(Spawn sp) => new()
@@ -240,6 +257,8 @@ public static class CellConverter
                 ["instances"] = instances,
                 ["vegetation"] = vegetation,
                 ["water"] = water,
+                ["occluders"] = occluders,
+                ["hlod"] = hlod,
                 ["campfires"] = campfires,
                 ["spawns"] = spawns,
                 ["spawns_skipped"] = skipped,

@@ -5,7 +5,8 @@
 Prints one summary line: terrain realness, height file size check, NaN count, height range, instance/mesh counts,
 missing shared meshes, campfires, spawns (types) and vegetation channels, then one line per channel with its species
 (max_instances, effect range). --textures checks the cell's image files and the shared textures it lists (png/jpg
-count, DDS formats, full mip chains). --seam compares the shared edge with an
+count, DDS formats, full mip chains). A render line lists occluder boxes, the terrain occluder grid, HLOD triangles,
+water surfaces and terrain layers. --seam compares the shared edge with an
 adjacent cell (max height difference in meters). --preview writes a hillshade PNG of the heights (north up).
 Pure standard library. Exit code 0 when the cell parses, 1 otherwise.
 """
@@ -156,6 +157,11 @@ def main():
         "campfires": len(cell.get("campfires") or []),
         "spawns": len(spawns), "spawn_types": sorted({"%s(orig %s)" % (s.get("type"), s.get("orig_type")) for s in spawns}),
         "vegetation": veg.get("channels") if isinstance(veg, dict) else None,
+        "occluder_boxes": len(((cell.get("occluders") or {}).get("boxes")) or []),
+        "occluder_terrain": ((cell.get("occluders") or {}).get("terrain") or {}).get("res"),
+        "hlod_triangles": (cell.get("hlod") or {}).get("triangles"),
+        "water_surfaces": len(((cell.get("water") or {}).get("instances")) or []),
+        "terrain_layers": [l.get("name") for l in (((t.get("layers") or {}).get("layers")) or [])],
         "species": [{"channel": s.get("channel"), "name": s.get("name"), "max_instances": s.get("max_instances"),
                      "effect_range": s.get("effect_range")} for s in (veg.get("species") or [])] if isinstance(veg, dict) else [],
     }
@@ -166,6 +172,8 @@ def main():
               "campfires=%d spawns=%d %s vegetation=%s" % (
                   info["cell"], info["real"], bytes_ok, nan, rng, info["min_m"] or 0, info["max_m"] or 0, info["instances"],
                   info["meshes"], info["meshes_missing"], info["campfires"], info["spawns"], info["spawn_types"], info["vegetation"]))
+        print("  render occluder_boxes=%d occluder_terrain=%s hlod_triangles=%s water_surfaces=%d terrain_layers=%s" % (
+            info["occluder_boxes"], info["occluder_terrain"], info["hlod_triangles"], info["water_surfaces"], info["terrain_layers"]))
         for ch in info["vegetation"] or []:
             names = ["%s(max %s%s)" % (s["name"], s["max_instances"],
                                         " effect %s..%s" % tuple(s["effect_range"]) if s.get("effect_range") else "")
