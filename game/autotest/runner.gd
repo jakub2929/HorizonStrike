@@ -96,7 +96,7 @@ func _main() -> void:
 		var host: String = HOSTED.get(id, id)
 		var row: Dictionary = AutotestSheet.row(host)
 		if row.get("process") == "child" and not is_child:
-			_limit_s += CHILD_TIMEOUT_S.get(_child_lead(host).get("id", ""), 600.0) + 30.0
+			_limit_s += _child_timeout(_child_lead(host)) + 30.0
 		elif SCENARIOS.has(host):
 			_limit_s += SCENARIOS[host].new().timeout_s + 10.0
 	ctx.note("scenarios: %s (global limit %d s)" % [",".join(ids), int(_limit_s)])
@@ -261,7 +261,7 @@ func _run_child(id: String) -> Array:
 	OS.unset_environment(CHILD_ENV)
 	if pid <= 0:
 		return _child_fail(group, "could not start child process", {"argv": argv})
-	var timeout_s: float = CHILD_TIMEOUT_S.get(lead.id, 600.0)
+	var timeout_s: float = _child_timeout(lead)
 	var t0 := Time.get_ticks_msec()
 	var last_note := t0
 	while OS.is_process_running(pid) and Time.get_ticks_msec() - t0 < int(timeout_s * 1000.0):
@@ -303,6 +303,20 @@ func _run_child(id: String) -> Array:
 				d["summary"] = "child exit code %d - %s" % [code, d.get("summary", "")]
 		out.append({"id": gid, "name": str(AutotestSheet.row(gid).get("name", gid)), "pass": ok, "details": d})
 	return out
+
+
+func _child_timeout(lead: Dictionary) -> float:
+	## the child runs the scenarios listed after --autotest in the lead row: their own watchdogs + start-up margin
+	if CHILD_TIMEOUT_S.has(lead.get("id", "")):
+		return CHILD_TIMEOUT_S[lead.id]
+	var ea: Array = lead.get("extra_args", [])
+	var i := ea.find("--autotest")
+	var total := 0.0
+	if i >= 0 and i + 1 < ea.size():
+		for id in str(ea[i + 1]).split(",", false):
+			if SCENARIOS.has(id):
+				total += SCENARIOS[id].new().timeout_s
+	return total + 300.0 if total > 0.0 else 600.0
 
 
 func _child_fail(group: PackedStringArray, why: String, info: Dictionary) -> Array:

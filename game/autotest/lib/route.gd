@@ -79,3 +79,4 @@ func _leg(wp: Vector3, timeout_s: float, on_cell: Callable) -> void:
 			await ctx.frames(1)
 	info.seconds = snappedf((Time.get_ticks_msec() - t0) / 1000.0, 0.1)
 	legs.append(info)
+	ctx.note("route leg %d -> %s: %s s, jumps %d, teleported %s, cells visited %d" % [legs.size(), info.to, str(info.seconds), info.jumps, str(info.teleported), cells_visited.size()])
