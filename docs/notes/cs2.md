@@ -34,6 +34,40 @@
   attributes/"in game price" "650", model_world models/weapons/w_eq_armor.vmdl.
 - gamemode_competitive.cfg: `cvar<tabs>value`, `//` comments.
 
+## Viewmodel facts (C2)
+- VRF glTF export bakes the conversion: translations x 0.0254 (m), skeleton roots get
+  `CreateFromYawPitchRoll(0, -pi/2, -pi/2)` (source +X fwd/+Y left/+Z up -> glTF +Z/+X/+Y), meshes baked; the
+  asset faces +Z. We wrap every exported scene in a node turned 180 deg about Y -> Godot -Z forward.
+- Clips: `AnimationClip` (vnmclip_c) -> `new ClipAnimation(clip)`, `DecodeFrame(new Frame(skel, []))`, locals in
+  source units; `Skeleton.FromSkeletonResource(loader, clip.SkeletonName)`. VRF `ClipAnimation.Fps` = 1 for single
+  pose clips (idle): we use 30 fps and write two keys so the clip has a length.
+- Clip skeleton viewmodel.vnmskel (56 bones) has its root_motion at the **eye**: view.glb origin = camera position.
+  The arms model (weapons/models/shared/arms/weapon_arms.vmdl, 82 bones incl. twist/pelvis/legs) uses the same bone
+  names and parents, so clip locals drive its joints by name (bind poses differ, skinning does not care).
+- Secondary track (e.g. ak47.vnmskel, attachable prop) is local to the arms bone `wpn`
+  (viewmodel.vnmskel m_secondarySkeletons attach bone): its root stays identity. The weapon model's skeleton
+  (same bone names) is re-parented under `wpn`, its root written without the axis turn.
+- Clip list per weapon = `m_resources` of the weapon graph (`view_anim_graph`, recursing nested graphs). Names:
+  draw=draw_*, idle=idle_* (shortest), fire=shoot1_*/light_miss1_* (knife)/throw_overhand_* (grenades),
+  fire2=heavy_miss1_* (knife), pullpin=pullpin_*, reload=reload_* (shortest), inspect=lookat01_*.
+  Additive clips (e.g. shared idle_from_activity_m249) are composed over the idle pose, never the A-pose bind.
+- Clip sound events: `NmSoundEvent` (`StartTime` in seconds, `Name` = soundevent).
+- Not done: AnimConstraintTiltTwist (forearm twist bones stay at rest relative to the lower arm).
+
+## Asset facts (C2)
+- VRF writes 4096 px PNGs; SharpGLTF/our edits leave the replaced image data orphaned in BIN (AK world.glb 57 MB of
+  which 3.7 MB referenced). `Glb.Compact()` rebuilds BIN from referenced buffer views only.
+- Textures: downscaled to `cache.texture_max_px` (1024), opaque -> JPEG q90 4:4:4, alpha -> PNG.
+- Weapon models carry `body_legacy` + `body_hd`: legacy meshes are filtered (MeshFilter).
+- "Failed to find shader csgo_weapon.vfx" (stderr): shader VPKs are not loaded; VRF falls back to texture-name
+  channel mapping (base color, normal, ORM come out right).
+- Sound events: soundevents/*.vsndevts_c (21063 events), `vsnd_files_track_01` = list; child events (distant
+  layers) are skipped. vsnd: PCM WAV (header synthesized by VRF) or MP3. File name = lower(after first '.').
+- Godot 4.7.2 runtime GLTFDocument loads view.glb as one Skeleton3D (90 bones) with 5 animations; screenshots of
+  idle/reload/inspect show the arms holding the gun with the real CS2 clips (C:\meshy\_tools\cache-cs2work\shots).
+
 ## Log
 - C1 2026-10-09: `cs2 --only-stats` -> `36 2700 [0.0006, 0.0005] 650 0`; all 470 bound cells type-check against
   the sheet column types and match every `_evidence` number.
+- C2 2026-10-09: AK-47 slice: view.glb (draw idle fire reload inspect, skins 2, max_texture_px 1024, 5.3 MB),
+  world.glb 3.2 MB, anim_events.json, icon.svg, snd/ 14 files (single x3, clipout, clipin, boltpull, draw, ...).

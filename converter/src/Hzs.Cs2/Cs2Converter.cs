@@ -31,11 +31,26 @@ public static class Cs2Converter
         using var guard = StdoutGuard.Begin(ctx.Log);
         using var src = Cs2Source.Open(ctx.Cs2Dir);
         var data = new Cs2Data(src);
-        var bytes = StatsConverter.Write(ctx, data);
+        var weapons = StatsConverter.ResolveWeapons(ctx, data);
+        var bytes = StatsConverter.Write(ctx, weapons, StatsConverter.ResolveSystems(ctx, data));
         ctx.Log.Info($"cs2 stats: {ctx.Cache.Cs2WeaponsJson}");
-        progress.Report("weapons", 0, 1);
         if (opt.OnlyStats) return bytes;
-        progress.Report("weapons", 1, 1);
+
+        var rows = Hzs.Generated.WeaponsSheet.All.Where(r => opt.Only is null || opt.Only.Contains(r.Id)).ToList();
+        var assets = new WeaponAssets(ctx, src, new SoundExport(src, ctx.Log));
+        var problems = 0;
+        for (var i = 0; i < rows.Count; i++)
+        {
+            ctx.Ct.ThrowIfCancellationRequested();
+            progress.Report("weapons", i, rows.Count);
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            problems += assets.Convert(rows[i], weapons[rows[i].Id] as System.Text.Json.Nodes.JsonObject).Count;
+            var dirBytes = Sizes.DirBytes(ctx.Cache.Cs2Weapon(rows[i].Id));
+            bytes += dirBytes;
+            ctx.Log.Info($"{rows[i].Id}: {dirBytes / 1024} KiB in {sw.Elapsed.TotalSeconds:F1} s");
+        }
+        progress.Report("weapons", rows.Count, rows.Count);
+        ctx.Log.Info($"cs2 assets: {rows.Count} items, {problems} problems (see warnings above)");
         return bytes;
     }
 

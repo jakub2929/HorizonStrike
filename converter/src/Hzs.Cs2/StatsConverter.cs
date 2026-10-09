@@ -14,10 +14,8 @@ internal static class StatsConverter
 {
     public static string SystemsJson(CachePaths cache) => Path.Combine(cache.Cs2, "systems.json");
 
-    public static long Write(ConvContext ctx, Cs2Data data)
+    public static long Write(ConvContext ctx, JsonObject weapons, JsonObject systems)
     {
-        var weapons = ResolveWeapons(ctx, data);
-        var systems = ResolveSystems(ctx, data);
         Atomic.WriteJson(ctx.Cache.Cs2WeaponsJson, weapons);
         Atomic.WriteJson(SystemsJson(ctx.Cache), systems);
         return new FileInfo(ctx.Cache.Cs2WeaponsJson).Length + new FileInfo(SystemsJson(ctx.Cache)).Length;
