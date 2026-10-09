@@ -123,3 +123,21 @@ hzd/cells/<x>_<y>/albedo.png, normal.png, splat.png (as available)
 `game/autotest/`; each writes `{id, name, pass, details}` into `<out>/results.json`; screenshots via the game's own
 viewport (`get_viewport().get_texture().get_image().save_png`) so only the game is captured. Scenario list =
 `BRIEF.md` "Autotest".
+
+## Game API used by the autotest (hra implements, test consumes)
+Autoload `Game` (`res://core/game.gd`). The boot code instances `res://autotest/runner.gd` (owned by test) when
+`--autotest` is on the command line; the runner drives the game only through this API and real gameplay code paths
+(no shortcuts that bypass the systems under test).
+- Signals: `world_ready`, `cell_loaded(cell: Vector2i)`, `machine_state_changed(machine, old: String, new: String)`,
+  `money_changed(value: int)`, `player_died`, `player_respawned(campfire_id: String)`, `kill_reward(machine_type: String, weapon_id: String, amount: int)`.
+- State: `money: int`, `player` (Node3D: `inventory: Array[String]` weapon ids, `current_weapon: String`,
+  `health: float`, `armor: float`), `last_campfire_id: String`, `hzd_missing: bool`, `machines: Array`,
+  `cache_cap_bytes: int`, `bootstrap_seconds: float`, `cells_converted: int`.
+- Methods: `spawn_machine(type: String, pos: Vector3) -> Node`, `buy(item_id: String) -> bool` (same path as the
+  wheel), `open_buy_wheel()`, `close_buy_wheel()`, `equip(weapon_id: String)`, `aim_at(target: Node3D, part: String)`
+  (`part` = "body" or a weak-spot name; points the player camera at it), `fire() -> Dictionary` (one real shot:
+  `{hit, target, part, damage}`), `kill_player()` (lethal damage through the normal damage path),
+  `teleport(pos: Vector3)`, `campfires_near(pos: Vector3, radius: float) -> Array`, `cache_bytes() -> int`,
+  `screenshot(path: String)`.
+- Machine node: `machine_type: String`, `state: String` (idle, patrol, graze, suspicious, alert, attack, flee, dead),
+  `health: float`, `suspicion: float`, `weak_spots() -> Array[String]`.

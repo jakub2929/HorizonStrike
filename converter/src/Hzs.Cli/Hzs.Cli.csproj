@@ -1,0 +1,18 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="..\Hzs.Common\Hzs.Common.csproj" />
+    <ProjectReference Include="..\Hzs.Cs2\Hzs.Cs2.csproj" />
+    <ProjectReference Include="..\Hzs.Decima\Hzs.Decima.csproj" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <AssemblyName>hzsconv</AssemblyName>
+    <RootNamespace>Hzs.Cli</RootNamespace>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+</Project>
