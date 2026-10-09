@@ -1,12 +1,13 @@
 extends "res://autotest/lib/scenario.gd"
-## s03 Screenshot: Grazer herd in the landscape, from a raised point 40-60 m from a real herd site (cells [5,-2] /
-## [3,-2]). Checks: not blank, >= 3 Grazers inside the frustum and not occluded (ray test), real terrain in the
+## s03 Screenshot: Grazer herd in the landscape, from a point 40-60 m from a real herd site (cells [5,-2] / [3,-2]),
+## the first candidate view verified from the camera. Checks: not blank, >= 3 Grazers inside the frustum and not occluded (ray test), real terrain in the
 ## cell (cell.json terrain.real), vegetation instances around the player.
 
 const Frame := preload("res://autotest/lib/frame.gd")
 const Sites := preload("res://autotest/lib/sites.gd")
 
 const NEED := 3
+const MAX_TRIES := 10
 
 
 func _init() -> void:
@@ -46,18 +47,42 @@ func _run(ctx):
 	for m in herd:
 		center += (m as Node3D).global_position
 	center /= herd.size()
-	var view: Dictionary = await _raised_point(ctx, center, herd)
-	data.view_point = {"pos": str(view.get("pos")), "height_above_herd_m": view.get("rise"), "distance_m": view.get("dist"), "members_visible_when_chosen": view.get("seen")}
-	await ctx.call_api(g, "teleport", [view.pos])
+	# candidate view points (rings 40/50/60 m x 16 directions on loaded ground), best first by the herd members a ray
+	# from eye height reaches; each one is then verified from the real camera with the same check as below, and the
+	# screenshot is taken at the first that shows >= NEED unoccluded grazers (composition used to be flaky: one
+	# grazer behind vegetation). None verified -> the best one is captured and the check fails.
+	var cands: Array = await _candidates(ctx, center, herd)
+	data.candidates = cands.size()
 	var marker := Node3D.new()
 	marker.name = "AutotestHerdMarker"
 	ctx.runner.add_child(marker)
 	marker.global_position = center + Vector3(0, 1.0, 0)
-	await ctx.call_api(g, "aim_at", [marker, "body"])
-	await ctx.wait(2.0)
+	var tried := []
+	var chosen: Dictionary = {}
+	for c in cands.slice(0, MAX_TRIES):
+		await ctx.call_api(g, "teleport", [c.pos])
+		await ctx.call_api(g, "aim_at", [marker, "body"])
+		await ctx.wait(1.0)
+		await ctx.call_api(g, "aim_at", [marker, "body"])
+		await ctx.physics_frames(2)
+		var v: Dictionary = _visibility(ctx)
+		tried.append({"pos": str(c.pos), "dist": c.dist, "rise": c.rise, "estimate": c.seen, "verified": v.visible})
+		if v.visible >= NEED:
+			chosen = c
+			break
+	data.view_tries = tried
+	if chosen.is_empty() and not cands.is_empty():
+		note("no candidate view verified >= %d unoccluded grazers; capturing from the best estimate" % NEED)
+		chosen = cands[0]
+		await ctx.call_api(g, "teleport", [chosen.pos])
+		await ctx.call_api(g, "aim_at", [marker, "body"])
+		await ctx.wait(1.0)
 	await ctx.call_api(g, "aim_at", [marker, "body"])
 	await ctx.physics_frames(2)
+	data.view_point = {"pos": str(chosen.get("pos")), "height_above_herd_m": chosen.get("rise"), "distance_m": chosen.get("dist"), "members_visible_estimate": chosen.get("seen")}
 	var shot: Dictionary = await ctx.screenshot("herd_landscape.png")
+	# the check is evaluated for the frame that was saved (camera and herd unchanged: herd AI is off)
+	var vis: Dictionary = _visibility(ctx)
 	marker.queue_free()
 	for m in herd:
 		if is_instance_valid(m) and "ai_enabled" in m:
@@ -65,23 +90,8 @@ func _run(ctx):
 	data.screenshot = shot
 	check("file exists (fresh)", shot.get("exists", false) and shot.get("fresh", false), shot.get("path"))
 	check("not blank (luma stddev > 10)", float(shot.get("luma_stddev", 0.0)) > 10.0, str(shot.get("luma_stddev")))
-
-	var cam: Camera3D = ctx.camera()
-	var world: World3D = ctx.runner.get_viewport().get_world_3d()
-	var seen := []
-	await ctx.physics_frames(1)
-	for m in ctx.machines_of("grazer"):
-		if str(m.get("state")) == "dead" or cam == null:
-			continue
-		var box := Frame.global_aabb(m)
-		var c := box.get_center()
-		if not cam.is_position_in_frustum(c):
-			continue
-		var los: Dictionary = Frame.line_of_sight(world, cam.global_position, c, m, ctx.player_rids())
-		seen.append({"name": str(m.name), "frac_h": Frame.screen_box(cam, box).frac_h, "clear": los.clear, "by": los.by})
-	data.grazers_in_frustum = seen
-	var visible := seen.filter(func(s): return s.clear).size()
-	check(">= %d grazers inside the frustum and not occluded" % NEED, visible >= NEED, "%d in frustum, %d unoccluded" % [seen.size(), visible])
+	data.grazers_in_frustum = vis.seen
+	check(">= %d grazers inside the frustum and not occluded" % NEED, vis.visible >= NEED, "%d in frustum, %d unoccluded (view %d of %d tried)" % [vis.seen.size(), vis.visible, tried.size(), mini(cands.size(), MAX_TRIES)])
 
 	var pcv: Variant = ctx.cell_of(ctx.player_pos())
 	var pc: Vector2i = pcv if pcv != null else cell
@@ -104,14 +114,14 @@ func _run(ctx):
 	return true
 
 
-func _raised_point(ctx, center: Vector3, herd: Array) -> Dictionary:
-	## ground 40-60 m from the herd (loaded collision only) from which the most herd members are unoccluded (one ray
-	## from eye height to each member's centre); ties go to the nearer ring, then the higher point
+func _candidates(ctx, center: Vector3, herd: Array) -> Array:
+	## ground points 40-60 m from the herd (loaded collision only) with the number of herd members reachable by a ray
+	## from eye height; sorted: more members, nearer ring, higher ground
 	var world: World3D = ctx.runner.get_viewport().get_world_3d()
-	var best := {}
+	var out := []
 	for r in [40.0, 50.0, 60.0]:
-		for i in 24:
-			var d := Vector3.FORWARD.rotated(Vector3.UP, TAU * i / 24.0)
+		for i in 16:
+			var d := Vector3.FORWARD.rotated(Vector3.UP, TAU * i / 16.0)
 			var p: Vector3 = center + d * r
 			var gy: Variant = await ctx.ground_y(p.x, p.z)
 			if gy == null:
@@ -120,14 +130,33 @@ func _raised_point(ctx, center: Vector3, herd: Array) -> Dictionary:
 			var eye := p + Vector3(0, 1.6, 0)
 			var seen := 0
 			for m in herd:
-				if not is_instance_valid(m):
-					continue
-				var los: Dictionary = Frame.line_of_sight(world, eye, Frame.global_aabb(m).get_center(), m, ctx.player_rids())
-				if los.clear:
+				if is_instance_valid(m) and Frame.line_of_sight(world, eye, Frame.global_aabb(m).get_center(), m, ctx.player_rids()).clear:
 					seen += 1
-			if seen > 0 and (best.is_empty() or seen > int(best.seen) or (seen == int(best.seen) and r == float(best.dist) and p.y > float(best.pos.y))):
-				best = {"pos": p, "rise": snappedf(p.y - center.y, 0.1), "dist": r, "seen": seen}
-	if best.is_empty():
-		best = {"pos": center + Vector3(50.0, 10.0, 0.0), "rise": 10.0, "dist": 50.0, "seen": 0}
-		note("no loaded ground with a view of the herd; used +50 m east, +10 m up")
-	return best
+			if seen > 0:
+				out.append({"pos": p, "rise": snappedf(p.y - center.y, 0.1), "dist": r, "seen": seen})
+	var better := func(a, b) -> bool:
+		if a.seen != b.seen:
+			return a.seen > b.seen
+		if a.dist != b.dist:
+			return a.dist < b.dist
+		return a.pos.y > b.pos.y
+	out.sort_custom(better)
+	return out
+
+
+func _visibility(ctx) -> Dictionary:
+	## grazers whose centre is inside the camera frustum, and how many of them a ray from the camera reaches
+	var cam: Camera3D = ctx.camera()
+	var world: World3D = ctx.runner.get_viewport().get_world_3d()
+	var seen := []
+	if cam != null:
+		for m in ctx.machines_of("grazer"):
+			if str(m.get("state")) == "dead":
+				continue
+			var box := Frame.global_aabb(m)
+			var c := box.get_center()
+			if not cam.is_position_in_frustum(c):
+				continue
+			var los: Dictionary = Frame.line_of_sight(world, cam.global_position, c, m, ctx.player_rids())
+			seen.append({"name": str(m.name), "frac_h": Frame.screen_box(cam, box).frac_h, "clear": los.clear, "by": los.by})
+	return {"seen": seen, "visible": seen.filter(func(x): return x.clear).size()}
