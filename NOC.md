@@ -9,3 +9,4 @@ Když nevíš, kde jsi: přečti NOC.md a MODLOG.md a pokračuj od posledního z
   upraven. Hotovo: brief 0.2, pravidlo testů přes vstup. Běží: agent plan (sheety 3 nových strojů, rozpis 0.2).
   Další: po planu spustit svet, hra, stroje, test.
 - 22:10 0.1.1 LIVE (mod_status: live version 0.1.1, one click yes); listing ukazuje nový řádek Controls a screenshoty. Běží: plan. Další: svet/hra/stroje/test po planu.
+- 22:12 Plan 0.2 hotový a sloučený (sheety bez site_map, PLAN-0.2.md). Běží: spouštím svet, hra, stroje, test (fáze A měření). Další: H1 profil načítání, V0 audit textur, M0 bench, T1 baseline 0.1.1.

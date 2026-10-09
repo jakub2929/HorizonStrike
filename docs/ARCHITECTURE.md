@@ -197,3 +197,10 @@ Sheet columns (machines and weapons): `content_model` (cache-relative path), `bo
 converter found (sheet cells reference roles/points by name; the game reads names, never bone strings in code).
 World cells: `cell.json` (above) is the contract; the game must work with any producer of that format (own terrain
 included). Weak spots, attack origins, hit FX and muzzle flashes are always looked up by point name.
+
+## 0.2 revisions (2026-10-09)
+- New executor "stroje" owns game/machines/** except spawner.gd (hra); frozen interface in docs/PLAN-0.2.md.
+- cell.json additions: instances[].kind, terrain.layers, water, occluders, hlod; textures as .dds (BC1/3/5/7).
+- Game API additions: signal cell_insert_started(cell), player.speed_mult (test setup only), machine.current_attack,
+  machine.weak_points(part); machine states add stalk, scavenge.
+- Dev-only tools: tools/frametime_graph.py, game/dev/machine_bench.gd.

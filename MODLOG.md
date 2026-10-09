@@ -228,3 +228,14 @@ Full per-site table: `docs/notes/svet.md`. No placement references `ai/groups`, 
 - 0.1.1: user approved; Controls line updated in the listing; publish -> in_review.
 - Phase 2 (0.2) started: docs/BRIEF-0.2.md; rule "tests drive the player's input" added to CLAUDE.md (D48).
 - 0.1.1 live (mod_status live version 0.1.1); public page shows the updated Controls line.
+- 0.2 plan merged (sheets machines 6 rows, machine_attacks 16, systems +render/perf, autotest t12-t16/r01-r04;
+  site_map for new machines held back until models + AI exist). Converter already converts all 6 machines
+  (broadhead 159 joints, 2.17 m). docs/PLAN-0.2.md.
+- D49 New archetypes predator (Sawtooth) / scavenger (Scrapper); Broadhead = herd with defend_charge; kill_reward_mult
+  4.5 / 2.5 / 2.0 = round_to_0.5(1 + log2(hzd_health/90)) (Strider 2.0 kept for armour).
+- D50 Sheet columns behaviour + anim (owner stroje); systems groups render + perf; autotest kind record.
+- D51 Fixed time of day 9.0 h (HZD bakes lighting at 9.0); atmosphere from nora_mothers_heart_cycle (hypothesis, svet).
+- D52 Texture formats by role: world albedo BC1, alpha albedo BC7, hero BC7, normal BC5, ORM BC1, terrain masks BC7.
+- D53 Perf measured at 1920x1080 without vsync on perf.route_cells; stress = 20 child runs over 30 cells.
+- D54 Before/after shot poses defined anew; "before" shots taken with the 0.1.1 build.
+- D55 Ownership split hra/stroje per docs/PLAN-0.2.md.
