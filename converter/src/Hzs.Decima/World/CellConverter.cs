@@ -15,7 +15,7 @@ namespace Hzs.Decima.World;
 public static class CellConverter
 {
     /// <summary>cell.json "format"; bump when the cell layout changes so old cells are converted again.</summary>
-    public const int Format = 5;
+    public const int Format = 8;
 
     public static long Convert(ConvContext ctx, Resolver res, int x, int y, IProgressSink progress)
     {
@@ -74,13 +74,16 @@ public static class CellConverter
             var usedMeshes = new SortedSet<string>(StringComparer.Ordinal);
             var usedTex = new SortedSet<string>(StringComparer.Ordinal);
             var tint = albedoImg is null ? null : new GroundTint(albedoImg, x, y);
+            var lodInstances = new List<LodInstance>();
             foreach (var p in placements)
             {
                 if (ids.GetValueOrDefault((p.MeshFile, p.MeshUuid)) is not { } m) continue;
                 usedMeshes.Add(m.Id);
                 foreach (var t in m.Textures) usedTex.Add(t);
                 var g = Assets.Space.M(p.World);
-                var inst = new JsonObject { ["mesh"] = m.Id, ["kind"] = KindOf(p.MeshFile), ["xf"] = new JsonArray(Assets.Space.Xf(g).Select(v => (JsonNode)Math.Round(v, 4)).ToArray()) };
+                var kind = KindOf(p.MeshFile);
+                lodInstances.Add(new LodInstance(m, g, kind, p.MeshFile, p.MeshUuid));
+                var inst = new JsonObject { ["mesh"] = m.Id, ["kind"] = kind, ["xf"] = new JsonArray(Assets.Space.Xf(g).Select(v => (JsonNode)Math.Round(v, 4)).ToArray()) };
                 if (m.Colorized && tint?.At(g.M41, g.M43) is { } c)
                     inst["tint"] = new JsonArray(Math.Round(c.X, 3), Math.Round(c.Y, 3), Math.Round(c.Z, 3));
                 instances.Add(inst);
@@ -151,6 +154,69 @@ public static class CellConverter
             }
             catch (Exception ex) { ctx.Log.Warn($"cell {x},{y}: vegetation: {ex.Message}"); }
 
+            // water surfaces: the tile's water layer (StaticMeshInstances of water meshes; the game applies its water shader)
+            JsonObject? water = null;
+            try
+            {
+                var wp = new Placements(res, ctx.Log).ForLayerFile($"{WorldTiles.TileDir(x, y)}/{HzdNames.Fill("water.layer", ("x", x.ToString()), ("y", y.ToString()))}");
+                if (wp.Count > 0)
+                {
+                    var wids = new System.Collections.Concurrent.ConcurrentDictionary<(string, Guid), MeshRef?>();
+                    Parallel.ForEach(wp.Select(q => (q.MeshFile, q.MeshUuid)).Distinct(), new ParallelOptions { MaxDegreeOfParallelism = 4, CancellationToken = ctx.Ct },
+                        u => wids[u] = meshes.Ensure(u.MeshFile, u.MeshUuid, written));
+                    var winst = new JsonArray();
+                    foreach (var q in wp)
+                    {
+                        if (wids.GetValueOrDefault((q.MeshFile, q.MeshUuid)) is not { } m) continue;
+                        usedMeshes.Add(m.Id);
+                        foreach (var t in m.Textures) usedTex.Add(t);
+                        var g = Assets.Space.M(q.World);
+                        winst.Add(new JsonObject { ["mesh"] = m.Id, ["xf"] = new JsonArray(Assets.Space.Xf(g).Select(v => (JsonNode)Math.Round(v, 4)).ToArray()) });
+                    }
+                    if (winst.Count > 0)
+                        water = new JsonObject
+                        {
+                            ["instances"] = winst,
+                            ["source"] = HzdNames.Fill("water.layer", ("x", x.ToString()), ("y", y.ToString())),
+                        };
+                }
+            }
+            catch (Exception ex) { ctx.Log.Warn($"cell {x},{y}: water: {ex.Message}"); }
+
+            // terrain material layers: shared layer textures + per-cell blend masks (fallback from HZD world data)
+            JsonObject? layers = null;
+            try
+            {
+                var mpx = HzdNames.Int("terrain.mask_px");
+                var veg2 = new Vegetation(res, ctx.Log);
+                var roads = WorldData.Channel(res, x, y, HzdNames.Str("terrain.roads_map"), HzdNames.Str("terrain.roads_type"), mpx);
+                var masks = TerrainLayers.Masks(terrain, veg2.Effect(x, y, mpx), veg2.Density(x, y),
+                    Array.IndexOf(Vegetation.Channels, HzdNames.Str("terrain.grass_channel")), roads, mpx);
+                File.WriteAllBytes(Path.Combine(tmp, "masks.dds"), Dds.Encode(masks, Dds.Parse(Hzs.Generated.SystemsSheet.RenderTextureFormatMasks.Value), false, MipMode.Data));
+                layers = new JsonObject
+                {
+                    ["masks"] = "masks.dds",
+                    ["channels"] = new JsonArray(TerrainLayers.MaskChannels.Select(c => (JsonNode)c).ToArray()),
+                    ["layers"] = TerrainLayers.EnsureShared(ctx.Cache, res, written),
+                    ["source"] = "fallback: snow = ecotope effect, rock = slope, grass = undergrowth density, dirt = roads + rest",
+                };
+            }
+            catch (Exception ex) { ctx.Log.Warn($"cell {x},{y}: terrain layers: {ex.Message}"); }
+
+            // culling and distance rendering: occluders + merged coarse LOD proxy (hlod.glb)
+            JsonObject? occluders = null, hlod = null;
+            try
+            {
+                occluders = CellLod.Occluders(terrain, lodInstances);
+                var origin = new System.Numerics.Vector3(x * TerrainReader.TileSize, 0f, -(y + 1) * TerrainReader.TileSize);
+                if (CellLod.Hlod(meshes, new Materials(res, 16), lodInstances, origin) is { } h)
+                {
+                    File.WriteAllBytes(Path.Combine(tmp, "hlod.glb"), h.Glb);
+                    hlod = new JsonObject { ["file"] = "hlod.glb", ["triangles"] = h.Triangles, ["instances"] = h.Instances };
+                }
+            }
+            catch (Exception ex) { ctx.Log.Warn($"cell {x},{y}: occluders / hlod: {ex.Message}"); }
+
             // machine sites (variant B)
             var sites = new RobotSites(res, ctx.Log).ForTile(x, y);
             JsonObject SpawnJson(Spawn sp) => new()
@@ -185,10 +251,14 @@ public static class CellConverter
                     ["normal"] = normal,
                     ["normal_space"] = normal is null ? null : "world_xz",
                     ["normal_source"] = normalSource,
+                    ["layers"] = layers,
                     ["source"] = terrain.Source,
                 },
                 ["instances"] = instances,
                 ["vegetation"] = vegetation,
+                ["water"] = water,
+                ["occluders"] = occluders,
+                ["hlod"] = hlod,
                 ["campfires"] = campfires,
                 ["spawns"] = spawns,
                 ["spawns_skipped"] = skipped,

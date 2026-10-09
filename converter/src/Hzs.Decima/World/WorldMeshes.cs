@@ -8,8 +8,11 @@ using Hzs.Decima.Core;
 
 namespace Hzs.Decima.World;
 
-/// <summary>An exported shared mesh: id, colour texture ids, and whether a material is colourised (stone x AO).</summary>
-public sealed record MeshRef(string Id, string[] Textures, bool Colorized);
+/// <summary>
+/// An exported shared mesh: id, texture ids, whether a material is colourised (stone x AO), its mesh-local bounds
+/// (Godot axes) and whether every material is opaque.
+/// </summary>
+public sealed record MeshRef(string Id, string[] Textures, bool Colorized, System.Numerics.Vector3 Min, System.Numerics.Vector3 Max, bool Opaque);
 
 /// <summary>
 /// Shared static meshes of the world: hzd/meshes/&lt;meshid&gt;.glb (Godot space, mesh-local, no transform) and their
@@ -59,7 +62,49 @@ public sealed class WorldMeshes(Resolver res, CachePaths cache, Log log, int tex
         // without re-reading the glb
         var side = Path.Combine(MeshDir, id + ".tex");
         var lines = File.Exists(side) ? File.ReadAllLines(side).Where(l => l.Length > 0).ToArray() : [];
-        return new MeshRef(id, lines.Where(l => !l.StartsWith('#')).ToArray(), lines.Contains(ColorizedFlag));
+        var (min, max, opaque) = _info.GetOrAdd(id, i => GlbInfo(Path.Combine(MeshDir, i + ".glb")));
+        return new MeshRef(id, lines.Where(l => !l.StartsWith('#')).ToArray(), lines.Contains(ColorizedFlag), min, max, opaque);
+    }
+
+    private readonly ConcurrentDictionary<string, (System.Numerics.Vector3, System.Numerics.Vector3, bool)> _info = new();
+
+    /// <summary>Bounds of the POSITION accessors and "no MASK/BLEND material" of an exported glb.</summary>
+    private static (System.Numerics.Vector3 Min, System.Numerics.Vector3 Max, bool Opaque) GlbInfo(string path)
+    {
+        var min = new System.Numerics.Vector3(float.MaxValue); var max = new System.Numerics.Vector3(float.MinValue);
+        var opaque = true;
+        try
+        {
+            using var f = File.OpenRead(path);
+            Span<byte> head = stackalloc byte[20];
+            if (f.Read(head) != 20) return (default, default, false);
+            var json = new byte[BitConverter.ToInt32(head[12..16])];
+            f.ReadExactly(json);
+            var j = JsonNode.Parse(json)!;
+            var acc = j["accessors"]!.AsArray();
+            foreach (var mesh in j["meshes"]?.AsArray() ?? [])
+                foreach (var prim in mesh!["primitives"]!.AsArray())
+                {
+                    var a = acc[prim!["attributes"]!["POSITION"]!.GetValue<int>()]!;
+                    var mn = a["min"]!.AsArray(); var mx = a["max"]!.AsArray();
+                    min = System.Numerics.Vector3.Min(min, new(mn[0]!.GetValue<float>(), mn[1]!.GetValue<float>(), mn[2]!.GetValue<float>()));
+                    max = System.Numerics.Vector3.Max(max, new(mx[0]!.GetValue<float>(), mx[1]!.GetValue<float>(), mx[2]!.GetValue<float>()));
+                }
+            foreach (var m in j["materials"]?.AsArray() ?? [])
+                if (m?["alphaMode"]?.GetValue<string>() is "MASK" or "BLEND") opaque = false;
+        }
+        catch (Exception) { return (default, default, false); }
+        return min.X <= max.X ? (min, max, opaque) : (default, default, false);
+    }
+
+    /// <summary>A coarse LOD of the mesh (finest LOD with at most <paramref name="maxVertices"/> vertices, else the coarsest), HZD axes.</summary>
+    public MeshData? ReadLow(string file, Guid uuid, int maxVertices)
+    {
+        var core = res.TryFile(file);
+        var obj = core?.Find(uuid);
+        if (core is null || obj is null) return null;
+        try { return MeshReader.ReadBudget(res, core, obj, maxVertices).Mesh; }
+        catch (Exception) { return null; }
     }
 
     /// <summary>

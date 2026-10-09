@@ -55,6 +55,17 @@ public sealed class Placements(Resolver res, Log log)
         return _out;
     }
 
+    /// <summary>Placements of one layer file (e.g. the tile's water layer), empty when the file is missing.</summary>
+    public List<Placement> ForLayerFile(string path)
+    {
+        _out.Clear();
+        var file = res.TryFile(path);
+        if (file is null) return [];
+        try { VisitRoots(file, Matrix4x4.Identity, Path.GetFileName(path), 0); }
+        catch (Exception ex) { log.Warn($"layer {path}: {ex.Message}"); }
+        return [.. _out];
+    }
+
     /// <summary>
     /// Visual meshes of a placement target (PrefabResource, instance, collection or mesh resource) with prefab-local
     /// transforms; shadow/occluder chains are skipped like in the world layers.
