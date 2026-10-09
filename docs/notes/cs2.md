@@ -80,3 +80,8 @@
   atomic write, other fields kept: checked with a pre-seeded hzd_build). A full conversion first removes the cs2
   stamp, so an interrupted run is redone. 2nd run: `cs2 up to date (25815307)`, `done: 0 bytes`, 350 files unchanged.
   serve bootstrap during a full CS2 conversion: 0 non-JSON stdout lines (StdoutGuard).
+- C5 2026-10-09: tools/build.ps1 `Build-Converter` (self-contained win-x64 publish, not trimmed/single-file,
+  no pdb/xml; libSkiaSharp.pdb 89 MB removed; licenses/ from the packages) + THIRD_PARTY_NOTICES.txt.
+  dist/converter = 97 MB; `dist\converter\hzsconv.exe --help` exit 0; the published exe converts ak47.
+  Note: the worktree guard refuses to launch powershell from the agent's Bash tool, so build.ps1 itself was not
+  executed by cs2; its exact publish command and copies were run by hand with the same arguments.
