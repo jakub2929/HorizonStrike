@@ -9,6 +9,7 @@ extends "res://autotest/lib/scenario.gd"
 const InputSim := preload("res://autotest/lib/inputsim.gd")
 const Route := preload("res://autotest/lib/route.gd")
 const FrameRec := preload("res://autotest/lib/framerec.gd")
+const Proc := preload("res://autotest/lib/proc.gd")
 ## walking time per route leg; a leg not reached by then ends with a teleport to its waypoint (Nora's mountains and
 ## settlements block straight walking; the same procedure runs on every build, so the frame times stay comparable)
 const LEG_WALK_S := 45.0
@@ -43,6 +44,7 @@ func _run(ctx):
 	check("start 3x3 loaded", ring, str(start_c))
 	await ctx.wait(float(o.f(o.system("perf.settle_s"))))
 
+	data.other_load_start = await _others(ctx)
 	var rec := FrameRec.new()
 	rec.name = "AutotestFrameRec"
 	ctx.runner.add_child(rec)
@@ -58,14 +60,15 @@ func _run(ctx):
 	var t0 := Time.get_ticks_msec()
 	var turned := 0.0
 	var prev: Vector2 = inp.yaw_pitch()
+	var yaw0: float = prev.x
 	while (Time.get_ticks_msec() - t0) / 1000.0 < dur:
-		var dt := get_process_delta(ctx)
-		var dx: float = (TAU / dur * dt) / float(inp.rad_per_px)
-		inp.look(dx, 0.0)
+		# closed loop: the target yaw advances at 360 deg / perf.start_measure_s
+		var target: float = yaw0 - TAU * ((Time.get_ticks_msec() - t0) / 1000.0) / dur
+		var err: Vector2 = inp.look_step(target, 0.0, 120.0)
 		await ctx.frames(1)
 		var now: Vector2 = inp.yaw_pitch()
 		turned += absf(wrapf(now.x - prev.x, -PI, PI))
-		inp.learn_sensitivity(prev, now, dx)
+		inp.learn_sensitivity(prev, now, clampf(-err.x / inp.rad_per_px, -120.0, 120.0))
 		prev = now
 	data.start_turn_deg = snappedf(rad_to_deg(turned), 0.1)
 
@@ -86,6 +89,9 @@ func _run(ctx):
 	rec.phase = "done"
 	await ctx.frames(2)
 
+	data.other_load_end = await _others(ctx)
+	if not (data.other_load_start as Array).is_empty() or not (data.other_load_end as Array).is_empty():
+		note("other game/converter processes ran during the measurement (frame times may be affected): %s / %s" % [str(data.other_load_start), str(data.other_load_end)])
 	var csv: String = ctx.out_dir.path_join("frametimes.csv")
 	rec.write_csv(csv)
 	var st_start: Dictionary = rec.stats("start")
@@ -124,6 +130,26 @@ func _run(ctx):
 	rec.queue_free()
 	Engine.max_fps = int(data.max_fps_before)
 	return true
+
+
+static func _others(ctx) -> Array:
+	## other running game / editor / converter processes (not this one and not its converter): they share the GPU and
+	## CPU, so the frame times of a run are only comparable without them
+	var r: Dictionary = await ctx.run_cmd(Proc.system32("tasklist.exe"), PackedStringArray(["/FO", "CSV", "/NH"]))
+	var mine := [OS.get_process_id(), int(ctx.game.get("converter_pid")) if ctx.game != null and "converter_pid" in ctx.game else 0]
+	var out := []
+	for raw in str(r.get("out", "")).split("
+"):
+		var f := raw.strip_edges().split("\",\"")
+		if f.size() < 2:
+			continue
+		var img := f[0].trim_prefix("\"").to_lower()
+		var pid := int(f[1].trim_suffix("\""))
+		if mine.has(pid):
+			continue
+		if img.begins_with("godot") or img.begins_with("horizonstrike") or img.begins_with("hzsconv"):
+			out.append("%s %d" % [img, pid])
+	return out
 
 
 static func get_process_delta(ctx) -> float:

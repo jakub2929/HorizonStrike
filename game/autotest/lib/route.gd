@@ -64,8 +64,8 @@ func walk(waypoints: Array, leg_timeout_s: float = 300.0, on_cell: Callable = Ca
 			await ctx.frames(1)
 			if on_phase.is_valid():
 				on_phase.call("")
-			if path.is_empty():
-				path = [target]
+			if path.size() < 2:
+				path = [p, target]  # no terrain plan (data not loaded yet): head straight for the target
 			for k in range(1, path.size()):
 				await _go(path[k], info, on_cell, k == path.size() - 1)
 				info.subs += 1
@@ -77,6 +77,11 @@ func walk(waypoints: Array, leg_timeout_s: float = 300.0, on_cell: Callable = Ca
 			await ctx.call_api(ctx.game, "teleport", [Vector3(wp.x, float(gy) + 0.5 if gy != null else pe.y + 30.0, wp.z)])
 			leg_teleports += 1
 			info.reached_by_walking = false
+			var tc: Variant = ctx.cell_of(wp)
+			if tc != null and not cells_visited.has("%d_%d" % [tc.x, tc.y]):
+				cells_visited["%d_%d" % [tc.x, tc.y]] = true
+				if on_cell.is_valid():
+					on_cell.call("%d_%d" % [tc.x, tc.y])
 			ctx.note("route: leg time %d s used up %.0f m before %s - teleport to the waypoint" % [int(leg_timeout_s), Vector2(wp.x - pe.x, wp.z - pe.z).length(), str(wp.round())])
 			await ctx.physics_frames(5)
 		from = wp
