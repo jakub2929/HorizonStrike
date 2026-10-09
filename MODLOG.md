@@ -190,3 +190,12 @@ Full per-site table: `docs/notes/svet.md`. No placement references `ai/groups`, 
   idle sites yield.
 - 2026-10-09 svet 6074fe1 merged: WorldMeshes.Ensure re-exports missing glb/.tex/textures; CellUpToDate requires all referenced files (GC regen verified in one serve session).
 - 2026-10-09 hra 634a156 merged: three data races fixed (mesh_library dicts read by workers, job dict written during task, converter queues unguarded). Segfault not reproduced in 122 runs before/after (original 1/4). D46 worker code never reads dictionaries the main thread writes; shared state only via mutex-guarded sets or pre-allocated slots.
+- 2026-10-09 Release candidate rc5 (main): `tools/build.ps1` -> converter 96.6 MB + game 104.5 MB; package preflight
+  CLEAN; full autotest on the release exe launched as Melty does (+ --autotest): 14/14 PASS, 0 engine errors, no
+  `mesh missing`; t09 bootstrap 71.8 s, world_ready 73.4 s after start with only cell 4_-3 (345.8 MiB), 3x3 ring
+  12.4 s later (793.3 MiB); t10 max 904 MB under a 1.51 GB cap with 24 evictions.
+- 2026-10-09 Melty: inspect_package / validate_recipe valid / one_click_check "yes"; listing text updated (title Horizon
+  Strike, MIT, madeBy EM, remix allowed); upload 70a3517b-a6fe-4520-b4ee-99764e8d8bfc (HorizonStrike-0.1.0.zip,
+  82,462,465 B, sha256 c9919d5b...ce06); release 0.1.0 = a59fbb25-0e99-4374-a5bf-1251e18ff67a (draft, publishable,
+  findings: review-level only); screenshots buy_wheel (cover), watcher_alert, herd_landscape from the rc5 autotest.
+  Not published – waiting for the user's yes.
