@@ -168,12 +168,14 @@ func _material(m: Dictionary) -> Material:
 	mat.albedo_color = m["color"]
 	if str(m["image"]) != "":
 		mat.albedo_texture = _texture(str(m["image"]))
+	# alpha only where the glTF material says so (alphaMode MASK/BLEND, alphaCutoff, doubleSided)
 	if m["alpha"]:
 		if m["blend"]:
 			mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA_DEPTH_PRE_PASS
 		else:
 			mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA_SCISSOR
 			mat.alpha_scissor_threshold = float(m["cutoff"])
+			mat.alpha_antialiasing_mode = BaseMaterial3D.ALPHA_ANTIALIASING_ALPHA_TO_COVERAGE
 	if m["double_sided"]:
 		mat.cull_mode = BaseMaterial3D.CULL_DISABLED
 	mat.roughness = float(m["roughness"])

@@ -330,6 +330,7 @@ static func instantiate(data: Dictionary, meshes: RefCounted) -> Node3D:
 		if v["channel"] == "trees":
 			n_shapes += _add_collision(objects, meshes, str(v["mesh"]), ve, v["xfs"])
 	root.set_meta("collision_shapes", n_shapes)
+	root.set_meta("collision_bodies", objects.get_child_count())
 	# campfires
 	for cf in info.get("campfires", []):
 		var p: Array = cf.get("pos", [0, 0, 0])
@@ -362,6 +363,9 @@ static func _add_chunked(parent: Node3D, id: String, e: Dictionary, xfs: Array, 
 	if not xfs.is_empty():
 		scale = (xfs[0] as Transform3D).basis.get_scale().abs().x
 	var cls := _lod_class(aabb, scale, bool(e.get("plant", false)))
+	# huge alpha-tested meshes are distant impostors (e.g. combined forest billboards spanning hundreds of metres):
+	# only drawn from afar, never up close
+	var impostor := _is_impostor(e, scale)
 	var chunk: float = cls[0]
 	var buckets := {}
 	for xf in xfs:
@@ -377,7 +381,10 @@ static func _add_chunked(parent: Node3D, id: String, e: Dictionary, xfs: Array, 
 		center.y = (list[0] as Transform3D).origin.y
 		var mmi := _multimesh(id, mesh, list, center)
 		mmi.position = center
-		if float(cls[1]) > 0.0:
+		if impostor:
+			mmi.visibility_range_begin = maxf(220.0, maxf(aabb.size.x, aabb.size.z) * scale * 0.6)
+			mmi.visibility_range_begin_margin = 20.0
+		elif float(cls[1]) > 0.0:
 			mmi.visibility_range_end = float(cls[1]) + chunk * 0.5
 			mmi.visibility_range_end_margin = 15.0
 			mmi.visibility_range_fade_mode = GeometryInstance3D.VISIBILITY_RANGE_FADE_SELF
@@ -388,9 +395,16 @@ static func _add_chunked(parent: Node3D, id: String, e: Dictionary, xfs: Array, 
 ## Collision for objects big enough to block a player; shapes are spread over several static bodies (one Jolt
 ## compound per body must stay small). Primitive shapes (tree trunks) drop the instance scale (Jolt only scales
 ## them uniformly); triangle meshes keep it.
+static func _is_impostor(e: Dictionary, scale: float) -> bool:
+	var aabb: AABB = e["aabb"]
+	return bool(e.get("plant", false)) and maxf(aabb.size.x, aabb.size.z) * scale > 64.0
+
+
 static func _add_collision(parent: Node3D, meshes: RefCounted, id: String, e: Dictionary, xfs: Array) -> int:
 	var aabb: AABB = e["aabb"]
 	var plant: bool = e.get("plant", false)
+	if _is_impostor(e, 1.0):
+		return 0
 	if not plant and maxf(aabb.size.x, aabb.size.z) < MIN_COLLISION_SIZE_M and aabb.size.y < 0.8:
 		return 0
 	var sh: Shape3D = meshes.get_shape(id)

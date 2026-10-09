@@ -88,6 +88,17 @@ Rules I follow: no class_name lookups across files (everything via preload, so a
 - D36 implemented: machine health = hzd_health x combat.machine_health_scale (new hra-owned systems row, 1.0).
 - Obstacle avoidance (feelers) added after herds piled up on real rocks/fences.
 
+- Fix round (test findings): F6 cache size = measured cell folder + immediate full folder rescan (done.bytes only
+  logged); F7 flee until flee_distance_m, then home moves there; F5 verified: every 3x3 cell's instances in static
+  bodies of <= 256 shapes (e.g. 5_-3: 58,907 shapes in 231 bodies), 0 engine errors - engine errors/warnings are now
+  mirrored into latest.log (core/engine_logger.gd, verified with a push_error probe); fire() returns point/distance;
+  pink splotch = the Watcher eye OmniLight tinting snow in its shadow -> removed (emissive eye only); striped
+  "slabs" = combined distant forest billboards (alpha MASK, 140-490 m wide) -> alpha meshes wider than 64 m are
+  impostors drawn only beyond >= 220 m and get no collision; alpha only from the glTF alphaMode (no texture guess).
+- Runner from test, editor build, real data (run1: C:\meshy\_tools\autotest-hra\run1, run2: ...\run2): t10, s01,
+  t05, s02, s03, t06 all PASS (exit 0); t10 Game.cache_bytes max 806 MB vs disk 810 MB, 6 evictions; t06 29.4 ->
+  84.9 m.
+
 ## Notes for teammates (relay via main)
 - test (t10): real cells outside the start area are ~11 MB (meshes/textures shared), 5 steps east add ~164 MB, so
   cap = bytes + reserve(600) + 300 MiB never evicts (target = cap - reserve). Use e.g. cap = bytes + reserve + 50 MiB

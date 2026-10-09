@@ -46,6 +46,18 @@ static func error(msg: String) -> void:
 	_write("error", msg)
 
 
+## For the engine logger: written to the file only (no print, which would loop back into the logger).
+static func write_raw(level: String, msg: String) -> void:
+	var ms := int(fmod(Time.get_unix_time_from_system(), 1.0) * 1000.0)
+	var line := "%s.%03d [%d] [%s] %s" % [Time.get_time_string_from_system(), ms, _pid, level, msg]
+	_mutex.lock()
+	if _file:
+		_file.seek_end()
+		_file.store_line(line)
+		_file.flush()
+	_mutex.unlock()
+
+
 static func _write(level: String, msg: String) -> void:
 	var ms := int(fmod(Time.get_unix_time_from_system(), 1.0) * 1000.0)
 	var line := "%s.%03d [%d] [%s] %s" % [Time.get_time_string_from_system(), ms, _pid, level, msg]

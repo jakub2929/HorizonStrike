@@ -147,6 +147,7 @@ func _process(delta: float) -> void:
 	if _stream_timer <= 0.0:
 		_stream_timer = 0.25
 		_update_streaming()
+	_poll_size()
 	_size_timer -= delta
 	if _size_timer <= 0.0:
 		_size_timer = Sheets.sys_num("cache.size_refresh_s", 5.0)
@@ -237,8 +238,12 @@ func _on_converter_event(e: Dictionary) -> void:
 				failed.erase(c)
 				request_ids.erase(id)
 				Game.cells_converted += 1
-				_add_bytes(int(e.get("bytes", 0)))
-				Log.info("cell %s converted (%d bytes, cache %d)" % [c, int(e.get("bytes", 0)), _cache_bytes])
+				# never trust the converter's byte report: measure the cell folder, and re-anchor on a full folder scan
+				# right away (shared meshes/textures the job wrote are caught by that scan)
+				var cb := FsUtil.dir_bytes(cell_dir(c))
+				_add_bytes(cb)
+				_size_timer = 0.0
+				Log.info("cell %s converted (folder %d bytes, reported %d, cache %d)" % [c, cb, int(e.get("bytes", 0)), _cache_bytes])
 				enforce_cap()
 		"error":
 			if request_ids.has(id):
@@ -336,8 +341,9 @@ func _poll_builds() -> void:
 				campfire_positions[start_cf] = sp
 		site_records[c] = data["info"].get("spawns", [])
 		spawner.on_cell_loaded(c, site_records[c])
-		Log.info("cell %s loaded in %d ms (real terrain %s, %d instances, %d vegetation)" % [c, Time.get_ticks_msec() - int(job["t0"]),
-			data.get("real", false), cell_data[c]["instances"], cell_data[c]["veg_count"]])
+		Log.info("cell %s loaded in %d ms (real terrain %s, %d instances, %d vegetation, %d collision shapes in %d static bodies of <= %d)" % [c,
+			Time.get_ticks_msec() - int(job["t0"]), data.get("real", false), cell_data[c]["instances"], cell_data[c]["veg_count"],
+			int(node.get_meta("collision_shapes", 0)), int(node.get_meta("collision_bodies", 0)), CellBuilder.SHAPES_PER_BODY])
 		Game.cell_loaded.emit(c)
 		return  # at most one cell instantiated per frame
 
@@ -394,14 +400,19 @@ func _add_bytes(n: int) -> void:
 	_delta_since_scan += n
 
 
-func _refresh_size_async() -> void:
-	if _size_task >= 0:
-		if not WorkerThreadPool.is_task_completed(_size_task):
-			return
+## Applies a finished background folder scan: the cache size is what is on disk (+ changes made since it started).
+func _poll_size() -> void:
+	if _size_task >= 0 and WorkerThreadPool.is_task_completed(_size_task):
 		WorkerThreadPool.wait_for_task_completion(_size_task)
-		# the scan may have missed what changed while it ran: keep those deltas (over-counting is the safe side)
 		_cache_bytes = int(_size_result[0]) + _delta_since_scan
 		_size_task = -1
+
+
+func _refresh_size_async() -> void:
+	_poll_size()
+	if _size_task >= 0:
+		_size_timer = 0.2   # a scan is still running: try again shortly
+		return
 	var root := cache_root
 	var res := _size_result
 	_delta_since_scan = 0
