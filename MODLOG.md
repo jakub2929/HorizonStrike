@@ -286,3 +286,6 @@ Full per-site table: `docs/notes/svet.md`. No placement references `ai/groups`, 
   max 17.2 % of 12 cores vs unthrottled 27.9 % / 45.6 % (6 cells 43.3 s vs 16.7 s); tiny DDS padded to 4x4
   (WorldMeshes.Format 5); cell.json `sheets` hash -> site_map/hzd_content/machines(id, herd)/render/streaming changes
   reconvert stale cells.
+- Merged stroje 2545ce1: calm machines always go through `suspicious` first (0.8 s guard/predator/pack, 0.4 s herd),
+  also for calls from other machines and shots; immediate alert only when hit by the player or the player is within
+  max(3 m, immediate_alert_m/4). t05 PASS 2x on real data, t06 PASS; AI bench PASS for all 6 in 4 scenarios.
