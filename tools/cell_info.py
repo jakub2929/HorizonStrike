@@ -4,7 +4,9 @@
 
 Prints one summary line: terrain realness, height file size check, NaN count, height range, instance/mesh counts,
 missing shared meshes, campfires, spawns (types) and vegetation channels, then one line per channel with its species
-(max_instances, effect range). --seam compares the shared edge with an
+(max_instances, effect range). --textures checks the cell's image files and the shared textures it lists (png/jpg
+count, DDS formats, full mip chains). A render line lists occluder boxes, the terrain occluder grid, HLOD triangles,
+water surfaces and terrain layers. --seam compares the shared edge with an
 adjacent cell (max height difference in meters). --preview writes a hillshade PNG of the heights (north up).
 Pure standard library. Exit code 0 when the cell parses, 1 otherwise.
 """
@@ -83,6 +85,55 @@ def hillshade(heights, w, h, spacing):
     return out
 
 
+DXGI = {71: "BC1", 72: "BC1", 77: "BC3", 78: "BC3", 83: "BC5", 98: "BC7", 99: "BC7"}
+SRGB = {72, 78, 99}
+
+
+def dds_info(path):
+    """(format, srgb, w, h, mips, mips_ok) of a DDS written by the converter, or None."""
+    with open(path, "rb") as f:
+        d = f.read()
+    if len(d) < 148 or d[:4] != b"DDS " or d[84:88] != b"DX10":
+        return None
+    h, w, mips = struct.unpack_from("<III", d, 12)[0], struct.unpack_from("<I", d, 16)[0], struct.unpack_from("<I", d, 28)[0]
+    dxgi = struct.unpack_from("<I", d, 128)[0]
+    fmt = DXGI.get(dxgi, "dxgi%d" % dxgi)
+    bb = 8 if fmt == "BC1" else 16
+    size, mw, mh = 0, w, h
+    for _ in range(mips):
+        size += max(1, (mw + 3) // 4) * max(1, (mh + 3) // 4) * bb
+        mw, mh = max(1, mw // 2), max(1, mh // 2)
+    full = max(w, h).bit_length()
+    return fmt, dxgi in SRGB, w, h, mips, mips == full and len(d) == 148 + size
+
+
+def textures(cell_dir, cell):
+    """--textures: image files of the cell and the shared textures it lists: png/jpg count, DDS formats, mip chains."""
+    files = [os.path.join(cell_dir, f) for f in sorted(os.listdir(cell_dir)) if f.lower().endswith((".png", ".jpg", ".jpeg", ".dds"))]
+    tex_dir = os.path.normpath(os.path.join(cell_dir, "..", "..", "textures"))
+    for t in cell.get("textures") or []:
+        for ext in (".dds", ".png"):
+            if os.path.exists(os.path.join(tex_dir, t + ext)):
+                files.append(os.path.join(tex_dir, t + ext))
+                break
+    png = [f for f in files if not f.lower().endswith(".dds")]
+    formats, bad, total = {}, [], 0
+    for f in files:
+        if f in png:
+            continue
+        i = dds_info(f)
+        if i is None or not i[5]:
+            bad.append(os.path.basename(f))
+            continue
+        key = "%s%s" % (i[0], "_srgb" if i[1] else "")
+        formats[key] = formats.get(key, 0) + 1
+        total += os.path.getsize(f)
+    print("textures files=%d png_jpg=%d dds=%d formats=%s mips_ok=%s bytes=%d" % (
+        len(files), len(png), len(files) - len(png), dict(sorted(formats.items())), not bad, total))
+    if bad:
+        print("  bad dds:", ", ".join(bad[:10]))
+
+
 def main():
     args = sys.argv[1:]
     if not args:
@@ -106,6 +157,11 @@ def main():
         "campfires": len(cell.get("campfires") or []),
         "spawns": len(spawns), "spawn_types": sorted({"%s(orig %s)" % (s.get("type"), s.get("orig_type")) for s in spawns}),
         "vegetation": veg.get("channels") if isinstance(veg, dict) else None,
+        "occluder_boxes": len(((cell.get("occluders") or {}).get("boxes")) or []),
+        "occluder_terrain": ((cell.get("occluders") or {}).get("terrain") or {}).get("res"),
+        "hlod_triangles": (cell.get("hlod") or {}).get("triangles"),
+        "water_surfaces": len(((cell.get("water") or {}).get("instances")) or []),
+        "terrain_layers": [l.get("name") for l in (((t.get("layers") or {}).get("layers")) or [])],
         "species": [{"channel": s.get("channel"), "name": s.get("name"), "max_instances": s.get("max_instances"),
                      "effect_range": s.get("effect_range")} for s in (veg.get("species") or [])] if isinstance(veg, dict) else [],
     }
@@ -116,6 +172,8 @@ def main():
               "campfires=%d spawns=%d %s vegetation=%s" % (
                   info["cell"], info["real"], bytes_ok, nan, rng, info["min_m"] or 0, info["max_m"] or 0, info["instances"],
                   info["meshes"], info["meshes_missing"], info["campfires"], info["spawns"], info["spawn_types"], info["vegetation"]))
+        print("  render occluder_boxes=%d occluder_terrain=%s hlod_triangles=%s water_surfaces=%d terrain_layers=%s" % (
+            info["occluder_boxes"], info["occluder_terrain"], info["hlod_triangles"], info["water_surfaces"], info["terrain_layers"]))
         for ch in info["vegetation"] or []:
             names = ["%s(max %s%s)" % (s["name"], s["max_instances"],
                                         " effect %s..%s" % tuple(s["effect_range"]) if s.get("effect_range") else "")
@@ -124,6 +182,8 @@ def main():
     if "--seam" in args:
         mx, mean = seam(cell_dir, args[args.index("--seam") + 1])
         print("seam_max_delta_m=%.4f seam_mean_delta_m=%.4f" % (mx, mean))
+    if "--textures" in args:
+        textures(cell_dir, cell)
     if "--preview" in args:
         out = args[args.index("--preview") + 1]
         step = max(1, w // 512)

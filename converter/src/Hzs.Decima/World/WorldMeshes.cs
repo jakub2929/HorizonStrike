@@ -8,8 +8,11 @@ using Hzs.Decima.Core;
 
 namespace Hzs.Decima.World;
 
-/// <summary>An exported shared mesh: id, colour texture ids, and whether a material is colourised (stone x AO).</summary>
-public sealed record MeshRef(string Id, string[] Textures, bool Colorized);
+/// <summary>
+/// An exported shared mesh: id, texture ids, whether a material is colourised (stone x AO), its mesh-local bounds
+/// (Godot axes) and whether every material is opaque.
+/// </summary>
+public sealed record MeshRef(string Id, string[] Textures, bool Colorized, System.Numerics.Vector3 Min, System.Numerics.Vector3 Max, bool Opaque);
 
 /// <summary>
 /// Shared static meshes of the world: hzd/meshes/&lt;meshid&gt;.glb (Godot space, mesh-local, no transform) and their
@@ -27,7 +30,7 @@ public sealed class WorldMeshes(Resolver res, CachePaths cache, Log log, int tex
     /// glb asset.extras.format of shared meshes; bump when mesh/texture export changes. Meshes of another format are
     /// exported again (same id, overwritten atomically) together with their textures.
     /// </summary>
-    public const int Format = 2;
+    public const int Format = 4;
 
     private const string ColorizedFlag = "#colorized";
 
@@ -59,7 +62,49 @@ public sealed class WorldMeshes(Resolver res, CachePaths cache, Log log, int tex
         // without re-reading the glb
         var side = Path.Combine(MeshDir, id + ".tex");
         var lines = File.Exists(side) ? File.ReadAllLines(side).Where(l => l.Length > 0).ToArray() : [];
-        return new MeshRef(id, lines.Where(l => !l.StartsWith('#')).ToArray(), lines.Contains(ColorizedFlag));
+        var (min, max, opaque) = _info.GetOrAdd(id, i => GlbInfo(Path.Combine(MeshDir, i + ".glb")));
+        return new MeshRef(id, lines.Where(l => !l.StartsWith('#')).ToArray(), lines.Contains(ColorizedFlag), min, max, opaque);
+    }
+
+    private readonly ConcurrentDictionary<string, (System.Numerics.Vector3, System.Numerics.Vector3, bool)> _info = new();
+
+    /// <summary>Bounds of the POSITION accessors and "no MASK/BLEND material" of an exported glb.</summary>
+    private static (System.Numerics.Vector3 Min, System.Numerics.Vector3 Max, bool Opaque) GlbInfo(string path)
+    {
+        var min = new System.Numerics.Vector3(float.MaxValue); var max = new System.Numerics.Vector3(float.MinValue);
+        var opaque = true;
+        try
+        {
+            using var f = File.OpenRead(path);
+            Span<byte> head = stackalloc byte[20];
+            if (f.Read(head) != 20) return (default, default, false);
+            var json = new byte[BitConverter.ToInt32(head[12..16])];
+            f.ReadExactly(json);
+            var j = JsonNode.Parse(json)!;
+            var acc = j["accessors"]!.AsArray();
+            foreach (var mesh in j["meshes"]?.AsArray() ?? [])
+                foreach (var prim in mesh!["primitives"]!.AsArray())
+                {
+                    var a = acc[prim!["attributes"]!["POSITION"]!.GetValue<int>()]!;
+                    var mn = a["min"]!.AsArray(); var mx = a["max"]!.AsArray();
+                    min = System.Numerics.Vector3.Min(min, new(mn[0]!.GetValue<float>(), mn[1]!.GetValue<float>(), mn[2]!.GetValue<float>()));
+                    max = System.Numerics.Vector3.Max(max, new(mx[0]!.GetValue<float>(), mx[1]!.GetValue<float>(), mx[2]!.GetValue<float>()));
+                }
+            foreach (var m in j["materials"]?.AsArray() ?? [])
+                if (m?["alphaMode"]?.GetValue<string>() is "MASK" or "BLEND") opaque = false;
+        }
+        catch (Exception) { return (default, default, false); }
+        return min.X <= max.X ? (min, max, opaque) : (default, default, false);
+    }
+
+    /// <summary>A coarse LOD of the mesh (finest LOD with at most <paramref name="maxVertices"/> vertices, else the coarsest), HZD axes.</summary>
+    public MeshData? ReadLow(string file, Guid uuid, int maxVertices)
+    {
+        var core = res.TryFile(file);
+        var obj = core?.Find(uuid);
+        if (core is null || obj is null) return null;
+        try { return MeshReader.ReadBudget(res, core, obj, maxVertices).Mesh; }
+        catch (Exception) { return null; }
     }
 
     /// <summary>
@@ -76,7 +121,27 @@ public sealed class WorldMeshes(Resolver res, CachePaths cache, Log log, int tex
         return (map.TryUpdate(key, fresh, lz) ? fresh : map[key]).Value;
     }
 
-    private string TexPath(string texId) => Path.Combine(TextureDir, texId + ".png");
+    private string TexPath(string texId) => Path.Combine(TextureDir, texId + TexExt);
+
+    /// <summary>Shared texture files: DDS (BC1 opaque / BC7 cut-out colour, sRGB, full mips; see <see cref="Dds"/>).</summary>
+    public const string TexExt = ".dds";
+    private static readonly BcFormat AlbedoFormat = Dds.Parse(Hzs.Generated.SystemsSheet.RenderTextureFormatAlbedo.Value);
+    private static readonly BcFormat AlbedoAlphaFormat = Dds.Parse(Hzs.Generated.SystemsSheet.RenderTextureFormatAlbedoAlpha.Value);
+    private static readonly BcFormat NormalFormat = Dds.Parse(Hzs.Generated.SystemsSheet.RenderTextureFormatNormal.Value);
+    private static readonly BcFormat OrmFormat = Dds.Parse(Hzs.Generated.SystemsSheet.RenderTextureFormatOrm.Value);
+    private readonly ConcurrentDictionary<string, Lazy<string?>> _maps = new();
+
+    /// <summary>Normal (BC5 linear, XY) or ORM (BC1 linear) texture id of a surface-map key, exported when missing; null if undecodable.</summary>
+    private string? MapTexture(string key, bool normal, StrongBox<long> written) =>
+        Fresh(_maps, key, () => new Lazy<string?>(() =>
+        {
+            var img = _mats.Map(key);
+            if (img is null) return null;
+            var tid = $"{Murmur3.PathHash(key):x16}";
+            var dds = normal ? Dds.Encode(img, NormalFormat, false, MipMode.Normal) : Dds.Encode(img, OrmFormat, false, MipMode.Data);
+            WriteShared(TexPath(tid), dds, written);
+            return tid;
+        }, LazyThreadSafetyMode.ExecutionAndPublication), v => v is null || File.Exists(TexPath(v)));
 
     /// <summary>glb, sidecar and every texture the sidecar lists exist on disk.</summary>
     private bool MeshFilesPresent(string id)
@@ -95,7 +160,7 @@ public sealed class WorldMeshes(Resolver res, CachePaths cache, Log log, int tex
         if (File.Exists(Path.Combine(MeshDir, id + ".empty"))) return false;
         try
         {
-            var (md, lod, lods) = MeshReader.ReadBudget(res, core, obj, maxVertices);
+            var (md, lod, lods) = Timers.Time("mesh_read", () => MeshReader.ReadBudget(res, core, obj, maxVertices));
             if (md is null || md.Prims.Count == 0 || md.Prims.All(p => p.Idx.Length == 0))
             {
                 WriteShared(Path.Combine(MeshDir, id + ".empty"), [], written);
@@ -110,17 +175,24 @@ public sealed class WorldMeshes(Resolver res, CachePaths cache, Log log, int tex
             {
                 if (prim.Idx.Length == 0) continue;
                 var choice = _mats.ForEffect(prim.Effect, known: k => _textures.TryGetValue(k, out var lz) && lz.IsValueCreated && lz.Value is { } kt && File.Exists(TexPath(kt.Id)));
-                var key = choice?.Key ?? "";
+                var (nk, ok) = _mats.SurfaceMaps(prim.Effect, choice?.Colorized == true);
+                var key = $"{choice?.Key}|{nk}|{ok}";
                 if (!matCache.TryGetValue(key, out var mat))
                 {
+                    var nid = nk is null ? null : MapTexture(nk, true, written);
+                    var oid = ok is null ? null : MapTexture(ok, false, written);
+                    int? nTex = nid is null ? null : glb.ImageUri($"../textures/{nid}{TexExt}", nid);
+                    int? oTex = oid is null ? null : glb.ImageUri($"../textures/{oid}{TexExt}", oid);
+                    if (nid is not null) texIds.Add(nid);
+                    if (oid is not null) texIds.Add(oid);
                     var tex = choice is null ? null : choice.Color is { } img ? Texture(key, img, written) : _textures.TryGetValue(key, out var done) ? done.Value : null;
                     if (tex is { } t)
                     {
                         texIds.Add(t.Id);
                         colorized |= choice!.Colorized;
-                        mat = glb.Material($"m{matCache.Count}", glb.ImageUri($"../textures/{t.Id}.png", t.Id), alphaMask: t.Alpha, doubleSided: t.Alpha);
+                        mat = glb.Material($"m{matCache.Count}", glb.ImageUri($"../textures/{t.Id}{TexExt}", t.Id), nTex, alphaMask: t.Alpha, doubleSided: t.Alpha, ormTex: oTex);
                     }
-                    else mat = glb.Material($"m{matCache.Count}", null, baseColor: [0.5f, 0.5f, 0.5f, 1f]);
+                    else mat = glb.Material($"m{matCache.Count}", null, nTex, baseColor: [0.5f, 0.5f, 0.5f, 1f], ormTex: oTex);
                     matCache[key] = mat;
                 }
                 var pos = (float[])prim.Pos.Clone();
@@ -159,7 +231,8 @@ public sealed class WorldMeshes(Resolver res, CachePaths cache, Log log, int tex
         {
             var tid = $"{Murmur3.PathHash(key):x16}";
             var alpha = img.Channels == 4 && HasCutout(img);
-            WriteShared(TexPath(tid), img.ToPng(), written); // a texture is decoded only for a mesh being exported
+            var dds = alpha ? Dds.Encode(img, AlbedoAlphaFormat, true, MipMode.Cutout) : Dds.Encode(img, AlbedoFormat, true, MipMode.Color);
+            WriteShared(TexPath(tid), dds, written); // a texture is decoded only for a mesh being exported
             return (tid, alpha);
         }, LazyThreadSafetyMode.ExecutionAndPublication), v => v is null || File.Exists(TexPath(v.Value.Id)));
 

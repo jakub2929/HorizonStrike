@@ -14,6 +14,8 @@ var world: Node3D
 var sites := {}            # site id -> {id, type, count, pos, radius, cell, alive, members, cleared_at, active}
 var _metas := {}           # machine type -> meta.json dict
 var _timer := 0.0
+var _queue: Array = []     # herd members still to spawn: [site, member index, herd size, herd Array] (one per frame)
+var _warm: Array = []      # warm-up machines to free next frame
 var _rng := RandomNumberGenerator.new()
 
 
@@ -62,7 +64,32 @@ func on_cell_unloaded(c: Vector2i) -> void:
 			_deactivate(s)
 
 
+## Builds one machine of every type off-screen and frees it next frame: the first machine of a type loads its model
+## and computes its hitbox boxes (100+ ms); doing that while the loading screen is up keeps it out of play.
+func warm_up() -> void:
+	for type in Sheets.machine_ids():
+		var meta := meta_for(type)
+		if meta.get("mock", false):
+			continue
+		var t0 := Time.get_ticks_msec()
+		var m := Machine.new()
+		m.setup(type, meta)
+		world.add_child(m)
+		m.global_position = Vector3(0.0, -5000.0, 0.0)
+		m.set("ai_enabled", false)
+		_warm.append(m)
+		Log.info("spawner: warmed up %s in %d ms" % [type, Time.get_ticks_msec() - t0])
+
+
 func _process(delta: float) -> void:
+	for m in _warm:
+		if is_instance_valid(m):
+			m.queue_free()
+	_warm.clear()
+	# herd members enter one per frame (a whole herd in one frame was a 100+ ms hitch)
+	if not _queue.is_empty():
+		var q: Array = _queue.pop_front()
+		_spawn_member(q[0], int(q[1]), int(q[2]), q[3])
 	_timer -= delta
 	if _timer > 0.0:
 		return
@@ -94,9 +121,9 @@ func _process(delta: float) -> void:
 			_activate(s)
 
 
-## Active machines (alive, not freed; corpses do not count).
+## Active machines (alive, not freed; corpses do not count) plus herd members still queued.
 func _active_count() -> int:
-	var n := 0
+	var n := _queue.size()
 	for m in Game.machines:
 		if is_instance_valid(m) and not m.is_queued_for_deletion() and not m.is_dead():
 			n += 1
@@ -153,23 +180,30 @@ func _activate(s: Dictionary) -> void:
 		return
 	s["active"] = true
 	var herd: Array = []
-	for i in n:
-		var a := TAU * i / maxf(n, 1) + _rng.randf() * 0.5
-		var r := _rng.randf_range(2.0, minf(float(s["radius"]) * 0.5, 12.0))
-		var pos: Vector3 = s["pos"] + Vector3(cos(a) * r, 0.0, sin(a) * r)
-		var gh: float = world.height_at(pos)
-		if not is_nan(gh):
-			pos.y = gh + 0.2
-		var m := spawn(s["type"], pos, s)
-		herd.append(m)
-	for m in herd:
-		m.herd = herd
 	s["members"] = herd
+	for i in n:
+		_queue.append([s, i, n, herd])
 	Log.info("site %s active: %d %s (orig %s) at %s" % [s["id"], n, s["type"], s["orig_type"], s["pos"]])
+
+
+## One herd member; the herd Array is shared, so members spawned earlier see the later ones.
+func _spawn_member(s: Dictionary, i: int, n: int, herd: Array) -> void:
+	if not s["active"] or not is_same(s["members"], herd):
+		return
+	var a := TAU * i / maxf(n, 1) + _rng.randf() * 0.5
+	var r := _rng.randf_range(2.0, minf(float(s["radius"]) * 0.5, 12.0))
+	var pos: Vector3 = s["pos"] + Vector3(cos(a) * r, 0.0, sin(a) * r)
+	var gh: float = world.height_at(pos)
+	if not is_nan(gh):
+		pos.y = gh + 0.2
+	var m := spawn(s["type"], pos, s)
+	herd.append(m)
+	m.herd = herd
 
 
 func _deactivate(s: Dictionary) -> void:
 	s["active"] = false
+	_queue = _queue.filter(func(q): return q[0] != s)
 	for m in s["members"]:
 		if is_instance_valid(m) and not m.is_dead():
 			m.queue_free()

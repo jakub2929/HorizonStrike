@@ -18,6 +18,8 @@ public sealed class Materials(Resolver res, int maxPx)
     private static readonly string[] Bad = HzdNames.List("materials.never_base_color");
     private static readonly string[] Standalone = HzdNames.List("materials.standalone_color");
     private readonly ConcurrentDictionary<Ref, bool> _alphaSets = new();
+    private static readonly string[] NotOwnMaps = HzdNames.List("materials.never_surface_maps");
+    private readonly ConcurrentDictionary<string, Func<Image?>> _maps = new();
 
     /// <summary>Key of the texture; Colorized = no colour map, neutral stone x AO (HZD colours these by ecotope at runtime).</summary>
     public sealed record Choice(string Key, Image? Color, bool Colorized);
@@ -32,17 +34,7 @@ public sealed class Materials(Resolver res, int maxPx)
     public Choice? ForEffect(Obj? effect, Func<string, bool>? acceptPath = null, Func<string, bool>? known = null)
     {
         if (effect is null) return null;
-        var refs = new List<Ref>();
-        foreach (var set in effect.Structs("TechniqueSets"))
-            foreach (var tech in set.Structs("RenderTechniques"))
-                foreach (var tb in tech.Structs("TextureBindings"))
-                {
-                    var r = tb.Ref("TextureResource");
-                    if (r.IsNull || r.Path is null) continue;
-                    if (acceptPath is not null && !acceptPath(r.Path)) continue;
-                    if (Tier(r.Path) < 0) continue;
-                    if (!refs.Contains(r)) refs.Add(r);
-                }
+        var refs = Bound(effect, acceptPath).Where(r => Tier(r.Path!) >= 0).ToList();
         // cut-out mask bound next to the colour map (e.g. grass: colour + translucency texture and an alpha-only set)
         Ref? alphaRef = refs.FirstOrDefault(HasAlpha) is { Path: not null } ar ? ar : null;
         // per source tier (asset folder, shared shader libraries, texture library): 1) the colour map of a bound texture
@@ -68,6 +60,146 @@ public sealed class Materials(Resolver res, int maxPx)
                     _images.TryRemove(key, out _);
                 }
         return null;
+    }
+
+    /// <summary>Texture resources bound by the effect's techniques (with a path), in binding order.</summary>
+    private static List<Ref> Bound(Obj effect, Func<string, bool>? acceptPath)
+    {
+        var refs = new List<Ref>();
+        foreach (var set in effect.Structs("TechniqueSets"))
+            foreach (var tech in set.Structs("RenderTechniques"))
+                foreach (var tb in tech.Structs("TextureBindings"))
+                {
+                    var r = tb.Ref("TextureResource");
+                    if (r.IsNull || r.Path is null) continue;
+                    if (acceptPath is not null && !acceptPath(r.Path)) continue;
+                    if (!refs.Contains(r)) refs.Add(r);
+                }
+        return refs;
+    }
+
+    /// <summary>
+    /// Keys of the normal map and the ORM map (R occlusion, G roughness, B metallic = 0) of an effect, from the
+    /// PackingInfo channel types of its bound texture sets (Normal X/Y = type 3 source channel 0/1, AO = 5,
+    /// Roughness = 6); null when the effect has none. Load the images with <see cref="Map"/>. For colourised assets the
+    /// AO is already in the colour (stone x AO), so the ORM occlusion stays 1.
+    /// </summary>
+    public (string? NormalKey, string? OrmKey) SurfaceMaps(Obj? effect, bool colorized, Func<string, bool>? acceptPath = null)
+    {
+        if (effect is null) return (null, null);
+        var refs = Bound(effect, acceptPath).Where(r => Tiers.Any(t => r.Path!.StartsWith(t, StringComparison.Ordinal))
+            && !NotOwnMaps.Any(b => r.Path!.Contains(b, StringComparison.OrdinalIgnoreCase)));
+        var (normal, ao, rough) = Scan(refs);
+        string? nk = null, ok = null;
+        if (normal is { } n)
+        {
+            nk = $"n:{n.R.Path}#{n.R.Uuid}/{n.E}/{n.Cx}{n.Cy}";
+            _maps.TryAdd(nk, () => NormalOf(n.R, n.E, n.Cx, n.Cy));
+        }
+        if (ao is not null && !colorized || rough is not null)
+        {
+            var a = colorized ? null : ao;
+            ok = $"o:{(a is { } x ? $"{x.R.Path}#{x.R.Uuid}/{x.E}/{x.C}" : "-")}|{(rough is { } y ? $"{y.R.Path}#{y.R.Uuid}/{y.E}/{y.C}" : "-")}";
+            _maps.TryAdd(ok, () => OrmOf(a, rough));
+        }
+        return (nk, ok);
+    }
+
+    /// <summary>Colour, normal (X, Y) and ORM images of one texture-set file (e.g. a terrain layer); null parts are missing.</summary>
+    public (Image? Color, Image? Normal, Image? Orm) SetMaps(string setPath)
+    {
+        var file = res.TryFile(setPath);
+        var set = file?.Objects.FirstOrDefault(o => o.TypeName == "TextureSet");
+        if (set is null) return (null, null, null);
+        var r = new Ref(RefKind.ExternalRef, set.Uuid, setPath);
+        var color = ColorOf(r, null);
+        var (normal, ao, rough) = Scan([r]);
+        var n = normal is { } nn ? NormalOf(nn.R, nn.E, nn.Cx, nn.Cy) : null;
+        var o = ao is not null || rough is not null ? OrmOf(ao, rough) : null;
+        return (color, n, o);
+    }
+
+    /// <summary>First normal (type 3 source 0/1 in one entry), AO (5) and roughness (6) channels of the sets, in order.</summary>
+    private ((Ref R, int E, int Cx, int Cy)? Normal, (Ref R, int E, int C)? Ao, (Ref R, int E, int C)? Rough) Scan(IEnumerable<Ref> refs)
+    {
+        (Ref R, int E, int Cx, int Cy)? normal = null;
+        (Ref R, int E, int C)? ao = null, rough = null;
+        foreach (var r in refs)
+        {
+            if (SetOf(r, out _) is not { } set) continue;
+            var entries = set.Structs("Entries").ToList();
+            for (var i = 0; i < entries.Count; i++)
+            {
+                var p = (uint)entries[i].Long("PackingInfo");
+                int cx = -1, cy = -1;
+                for (var c = 0; c < 4; c++)
+                {
+                    var b = (p >> (c * 8)) & 0xFF;
+                    if (b == 0x80) continue;
+                    var (type, src) = ((int)(b & 0x0F), (int)((b >> 4) & 3));
+                    if (type == 3 && src == 0) cx = c;
+                    if (type == 3 && src == 1) cy = c;
+                    if (type == 5 && ao is null) ao = (r, i, c);
+                    if (type == 6 && rough is null) rough = (r, i, c);
+                }
+                if (normal is null && cx >= 0 && cy >= 0) normal = (r, i, cx, cy);
+            }
+        }
+        return (normal, ao, rough);
+    }
+
+    /// <summary>Image of a key from <see cref="SurfaceMaps"/> (null when it cannot be decoded).</summary>
+    public Image? Map(string key)
+    {
+        if (!_maps.TryGetValue(key, out var load)) return null;
+        try { return load(); }
+        catch (Exception) { return null; } // e.g. BC6 normal maps of a few snow variants
+    }
+
+    private Image? Channels(Ref r, int entry, out CoreFile? file, int px = 0)
+    {
+        if (px <= 0) px = maxPx;
+        var set = SetOf(r, out file);
+        var e = set?.Structs("Entries").ElementAtOrDefault(entry);
+        if (e is null || res.Deref(file!, e.Ref("Texture")) is not { } texObj) return null;
+        var tex = HzdTexture.Parse(texObj);
+        return tex.Decode(res.Archive, tex.MipFor(px)).Fit(px);
+    }
+
+    /// <summary>Tangent-space normal X, Y (unorm, +Y up like glTF: HZD maps are curl-free with that sign) as a 2-channel image.</summary>
+    private Image? NormalOf(Ref r, int entry, int cx, int cy)
+    {
+        var img = Channels(r, entry, out _);
+        if (img is null || cx >= img.Channels || cy >= img.Channels) return null;
+        var n = img.Width * img.Height;
+        var o = new byte[n * 2];
+        for (var i = 0; i < n; i++) { o[i * 2] = img.Pixels[i * img.Channels + cx]; o[i * 2 + 1] = img.Pixels[i * img.Channels + cy]; }
+        return new Image(img.Width, img.Height, 2, o);
+    }
+
+    private Image? OrmOf((Ref R, int E, int C)? ao, (Ref R, int E, int C)? rough)
+    {
+        // occlusion and roughness are low-frequency: half the colour resolution
+        var a = ao is { } x ? Channels(x.R, x.E, out _, maxPx / 2) : null;
+        var g = rough is { } y ? Channels(y.R, y.E, out _, maxPx / 2) : null;
+        if (a is null && g is null) return null;
+        int w = Math.Max(4, Math.Max(a?.Width ?? 0, g?.Width ?? 0)), h = Math.Max(4, Math.Max(a?.Height ?? 0, g?.Height ?? 0));
+        var o = new byte[w * h * 3];
+        static byte At(Image? im, int c, int x, int y, int w, int h, byte def)
+        {
+            if (im is null || c >= im.Channels) return def;
+            var sx = (int)((long)x * im.Width / w); var sy = (int)((long)y * im.Height / h);
+            return im.Pixels[(sy * im.Width + sx) * im.Channels + c];
+        }
+        for (var yy = 0; yy < h; yy++)
+            for (var xx = 0; xx < w; xx++)
+            {
+                var i = (yy * w + xx) * 3;
+                o[i] = At(a, ao?.C ?? 0, xx, yy, w, h, 255);
+                o[i + 1] = At(g, rough?.C ?? 0, xx, yy, w, h, 204);
+                o[i + 2] = 0;
+            }
+        return new Image(w, h, 3, o);
     }
 
     /// <summary>0 = the asset's own textures (models/), 1 = shared shader libraries, 2 = texture library; -1 = never base colour.</summary>
