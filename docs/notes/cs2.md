@@ -71,3 +71,7 @@
   the sheet column types and match every `_evidence` number.
 - C2 2026-10-09: AK-47 slice: view.glb (draw idle fire reload inspect, skins 2, max_texture_px 1024, 5.3 MB),
   world.glb 3.2 MB, anim_events.json, icon.svg, snd/ 14 files (single x3, clipout, clipin, boltpull, draw, ...).
+- C3 2026-10-09: all 14 rows in 59 s: 27 glb (13 view + 14 world) pass glb_info, `_errors` [], 0 asset problems,
+  cs2/ = 115 MiB. cs2/ui: armor.svg, kevlar.svg, snd/buy_0..2.wav. Godot 4.7.2: 16 SVGs load
+  (Image.load_svg_from_buffer), 288 sounds load (AudioStreamWAV/MP3.load_from_file), all 12 viewmodels render
+  holding their weapon (contact sheets in C:\meshy\_tools\cache-cs2work\shots).

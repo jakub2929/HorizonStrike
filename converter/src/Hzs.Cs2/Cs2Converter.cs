@@ -37,8 +37,10 @@ public static class Cs2Converter
         if (opt.OnlyStats) return bytes;
 
         var rows = Hzs.Generated.WeaponsSheet.All.Where(r => opt.Only is null || opt.Only.Contains(r.Id)).ToList();
-        var assets = new WeaponAssets(ctx, src, new SoundExport(src, ctx.Log));
-        var problems = 0;
+        var sounds = new SoundExport(src, ctx.Log);
+        var assets = new WeaponAssets(ctx, src, sounds);
+        var problems = UiAssets.Convert(ctx, src, sounds).Count;
+        bytes += Sizes.DirBytes(UiAssets.Dir(ctx.Cache));
         for (var i = 0; i < rows.Count; i++)
         {
             ctx.Ct.ThrowIfCancellationRequested();

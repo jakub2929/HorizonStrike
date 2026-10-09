@@ -71,16 +71,21 @@ internal sealed partial class SoundExport(Cs2Source src, Log log)
         Directory.CreateDirectory(dir);
         var n = 0;
         foreach (var vsnd in files)
-        {
-            var path = vsnd.EndsWith("_c", StringComparison.OrdinalIgnoreCase) ? vsnd : vsnd + "_c";
-            using var res = src.Load(path);
-            if (res?.DataBlock is not Sound sound) { problems.Add($"{soundEvent}: {vsnd} not found"); continue; }
-            var (bytes, ext) = Encode(sound);
-            if (bytes is null) { problems.Add($"{soundEvent}: {vsnd} unsupported format {sound.SoundType}/{sound.AudioFormat}"); continue; }
-            File.WriteAllBytes(Path.Combine(dir, $"{shortName}_{n}.{ext}"), bytes);
-            n++;
-        }
+            if (WriteFile(vsnd, Path.Combine(dir, $"{shortName}_{n}"), problems)) n++;
         return n;
+    }
+
+    /// <summary>Decode one vsnd (path with or without _c) to target + ".wav"/".mp3".</summary>
+    public bool WriteFile(string vsnd, string targetWithoutExt, List<string> problems)
+    {
+        var path = vsnd.EndsWith("_c", StringComparison.OrdinalIgnoreCase) ? vsnd : vsnd + "_c";
+        using var res = src.Load(path);
+        if (res?.DataBlock is not Sound sound) { problems.Add($"{vsnd} not found"); return false; }
+        var (bytes, ext) = Encode(sound);
+        if (bytes is null) { problems.Add($"{vsnd}: unsupported format {sound.SoundType}/{sound.AudioFormat}"); return false; }
+        Directory.CreateDirectory(Path.GetDirectoryName(targetWithoutExt)!);
+        File.WriteAllBytes($"{targetWithoutExt}.{ext}", bytes);
+        return true;
     }
 
     private static (byte[]? Bytes, string Ext) Encode(Sound sound)
