@@ -227,3 +227,4 @@ Full per-site table: `docs/notes/svet.md`. No placement references `ai/groups`, 
   544104e6-b3f9-404e-ade4-4aadf27346e8 (draft, publishable, one click yes). Waiting for the user's yes.
 - 0.1.1: user approved; Controls line updated in the listing; publish -> in_review.
 - Phase 2 (0.2) started: docs/BRIEF-0.2.md; rule "tests drive the player's input" added to CLAUDE.md (D48).
+- 0.1.1 live (mod_status live version 0.1.1); public page shows the updated Controls line.
