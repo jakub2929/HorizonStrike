@@ -56,3 +56,5 @@ Journal and decision log (orchestrator-owned). Newest entries at the bottom of e
 ## Log
 - 2026-10-09 Melty draft created: modId `6e2ecdda-6217-40c2-b016-e6940db6aee4`, slug `horizon-strike`,
   Studio https://melty.gg/studio/6e2ecdda-6217-40c2-b016-e6940db6aee4 (title, games, MIT, madeBy EM; text later).
+- 2026-10-09 CS2 updated by the user: buildid 25738536 -> 25815307 (StateFlags 4, fully installed). All CS2 evidence
+  and conversions from now on refer to build 25815307.
