@@ -17,7 +17,6 @@ var _parsed := {}      # id -> reader output ({} = failed)            (worker + 
 var _images := {}      # texture name -> Image (null while decoding)   (worker + main, mutex)
 var _entries := {}     # id -> {mesh, aabb, plant, tris, faces}        (main)
 var _textures := {}    # texture name -> ImageTexture                  (main)
-var _tex_alpha := {}   # texture name -> true when its alpha channel cuts holes (worker + main, mutex)
 var _materials := {}   # key -> Material                               (main)
 var _shapes := {}      # id -> Shape3D or null                         (main)
 var _mutex := Mutex.new()
@@ -114,11 +113,6 @@ func _load_image(tex_name: String) -> Image:
 	if img == null or img.is_empty():
 		return null
 	if not img.is_compressed():
-		var am := img.detect_alpha()
-		if am != Image.ALPHA_NONE:
-			_mutex.lock()
-			_tex_alpha[tex_name] = true
-			_mutex.unlock()
 		img.generate_mipmaps()
 		img.compress(Image.COMPRESS_S3TC, Image.COMPRESS_SOURCE_SRGB)
 	return img
@@ -172,18 +166,9 @@ func _material(m: Dictionary) -> Material:
 		return _materials[key]
 	var mat := StandardMaterial3D.new()
 	mat.albedo_color = m["color"]
-	var cutout := false
 	if str(m["image"]) != "":
 		mat.albedo_texture = _texture(str(m["image"]))
-		_mutex.lock()
-		cutout = _tex_alpha.has(str(m["image"]))
-		_mutex.unlock()
-	if not m["alpha"] and cutout:
-		# the material names no alpha mode but its texture has holes (foliage cards): treat it as MASK, two-sided
-		mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA_SCISSOR
-		mat.alpha_scissor_threshold = 0.5
-		mat.alpha_antialiasing_mode = BaseMaterial3D.ALPHA_ANTIALIASING_ALPHA_TO_COVERAGE
-		mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+	# alpha only where the glTF material says so (alphaMode MASK/BLEND, alphaCutoff, doubleSided)
 	if m["alpha"]:
 		if m["blend"]:
 			mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA_DEPTH_PRE_PASS

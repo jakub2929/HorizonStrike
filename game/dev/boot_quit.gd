@@ -19,6 +19,8 @@ func _run() -> void:
 	while not game.is_world_ready and Time.get_ticks_msec() - t0 < 60000:
 		await process_frame
 	print("world_ready=%s" % game.is_world_ready)
+	if ua.has("--probe-logger"):
+		push_error("hzs logger probe")
 	var t1 := Time.get_ticks_msec()
 	while Time.get_ticks_msec() - t1 < int(stay * 1000):
 		await process_frame

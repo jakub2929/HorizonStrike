@@ -48,6 +48,7 @@ func _ready() -> void:
 	Log.open(Paths.log_file(), not args.autotest)
 	Log.info("Horizon Strike %s (Godot %s) pid %d" % [VERSION, Engine.get_version_info().get("string", "?"), OS.get_process_id()])
 	Log.info("args: " + args.describe())
+	OS.add_logger(load("res://core/engine_logger.gd").new())
 	InputSetup.setup()
 	Settings.load_from(Paths.settings_file(), Sheets.sys_num("cache.default_cap_gib", 4.0))
 	Game.cache_cap_bytes = int(Settings.get_value("cache_cap_bytes", int(4.0 * Settings.GIB)))
