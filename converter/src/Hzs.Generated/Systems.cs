@@ -39,7 +39,7 @@ public static class SystemsSheet
     public static readonly SystemsRow CombatFallSafeSpeedU = new("combat.fall_safe_speed_u", "combat", "float", "580", "u/s", "no fall damage below");
     public static readonly SystemsRow CombatFallFatalSpeedU = new("combat.fall_fatal_speed_u", "combat", "float", "1024", "u/s", "fall damage reaches 100 at");
     public static readonly SystemsRow RespawnTarget = new("respawn.target", "respawn", "string", "last_campfire", "-", "respawn at the last activated campfire (BRIEF)");
-    public static readonly SystemsRow RespawnStartCampfire = new("respawn.start_campfire", "respawn", "string", "TODO", "-", "campfire id in cell [4,-3] nearest the Mother's Heart location marker (levels/worlds/world/leveldata/locationmarkers.core); used before any campfire is activated");
+    public static readonly SystemsRow RespawnStartCampfire = new("respawn.start_campfire", "respawn", "string", "Campfire_x04_y-03_01", "-", "campfire id in cell [4,-3] nearest the Mother's Heart location marker (levels/worlds/world/leveldata/locationmarkers.core); used before any campfire is activated");
     public static readonly SystemsRow RespawnCampfireActivateRadiusM = new("respawn.campfire_activate_radius_m", "respawn", "float", "4.0", "m", "walking this close activates a campfire");
     public static readonly SystemsRow RespawnLoadoutRule = new("respawn.loadout_rule", "respawn", "string", "inventory = weapons rows with start_loadout = true; other weapons, grenades and armor are lost", "-", "BRIEF");
     public static readonly SystemsRow RespawnKeepMoney = new("respawn.keep_money", "respawn", "bool", "true", "-", "money is kept (BRIEF)");
@@ -101,10 +101,10 @@ public static class SystemsSheet
     public static readonly SystemsRow CacheTextureMaxPx = new("cache.texture_max_px", "cache", "int", "1024", "px", "max texture edge for weapons, machines, meshes (CS2 AK color map is 4096 / 20 MB PNG)");
     public static readonly SystemsRow CacheTerrainTexturePx = new("cache.terrain_texture_px", "cache", "int", "1024", "px", "terrain albedo/normal per cell");
     public static readonly SystemsRow AudioMusicSource = new("audio.music_source", "audio", "string", "sounds/music/world/world.core + levels/worlds/world/leveldata/music_world.core", "-", "HZD world music (MusicResource, streaming banks)");
-    public static readonly SystemsRow AudioMusicExploreTrack = new("audio.music_explore_track", "audio", "string", "TODO", "-", "exploration track/preset id from audio.music_source");
+    public static readonly SystemsRow AudioMusicExploreTrack = new("audio.music_explore_track", "audio", "string", "exploration_nora_02_flutetheme", "-", "exploration track/preset id from audio.music_source");
     public static readonly SystemsRow AudioMusicCombatTrigger = new("audio.music_combat_trigger", "audio", "string", "any machine in attack state within 80 m of the player", "-", "switch to combat music");
     public static readonly SystemsRow AudioMusicCrossfadeS = new("audio.music_crossfade_s", "audio", "float", "2.0", "s", "music crossfade");
-    public static readonly SystemsRow AudioAmbienceTrack = new("audio.ambience_track", "audio", "string", "TODO", "-", "Nora daytime ambience loop from sounds/environments/");
+    public static readonly SystemsRow AudioAmbienceTrack = new("audio.ambience_track", "audio", "string", "sounds/environments/senv_fauna_forestconiferous", "-", "Nora daytime ambience loop from sounds/environments/");
     public static readonly SystemsRow AudioMachineMaxDistanceM = new("audio.machine_max_distance_m", "audio", "float", "60", "m", "3D machine sound range");
     public static readonly SystemsRow AudioPlayerWeapon2d = new("audio.player_weapon_2d", "audio", "bool", "true", "-", "own weapon sounds are non-positional");
     public static readonly SystemsRow SpawningActivationRadiusM = new("spawning.activation_radius_m", "spawning", "float", "250", "m", "machines simulate within");

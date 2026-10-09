@@ -4,10 +4,16 @@
     <ProjectReference Include="..\Hzs.Common\Hzs.Common.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- MIT; BC1-BC7 decoding. Same version ValveResourceFormat 20.0.6980 already brings in for Hzs.Cs2. -->
+    <PackageReference Include="TinyBCSharp" Version="0.1.2" />
+  </ItemGroup>
+
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
 
 </Project>

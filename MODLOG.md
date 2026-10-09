@@ -80,6 +80,8 @@ Journal and decision log (orchestrator-owned). Newest entries at the bottom of e
 - D30 (cs2) Serve mode keeps stdout protocol-only (VRF stdout redirected to the log). Manifest gains `cs2_format`;
   a full run clears the cs2 stamp first so an interrupted conversion repeats. Shared helper Hzs.Common/ManifestFile.cs.
 - D31 Teammate agents cannot message each other (executor/tester tool sets lack SendMessage); the orchestrator relays.
+- D32 Content contract: code is content-agnostic; machines/weapons carry content_model, bone_roles, points in sheets
+  and meta.json; world via cell.json; content swappable by files + sheets (rule in CLAUDE.md).
 
 ## Site mapping (variant B)
 (to be filled when spawn sites are decoded)
