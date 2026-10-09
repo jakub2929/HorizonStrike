@@ -69,8 +69,95 @@ function Build-Converter {
 # END Build-Converter
 # ============================================================================================================
 
+# ============================================================================================================
+# BEGIN Build-Game (owner: hra)
+#   Godot 4.7.2 export of game/ with the preset "Windows Desktop" (game/export_presets.cfg: pck embedded, no
+#   console wrapper, dev/ excluded, product name/company/icon our own) -> <Dist>/HorizonStrike.exe, plus
+#   <Dist>/licenses/Godot-LICENSES.txt (engine + bundled libraries, from the engine itself), README.txt and
+#   LICENSE.txt (MIT, EM) when the repository has none. Godot: -Godot <exe>, $env:GODOT, or the WinGet install.
+# ============================================================================================================
+function Build-Game {
+    param(
+        [Parameter(Mandatory)][string]$Dist,
+        [string]$Godot = $env:GODOT
+    )
+    if (-not $Godot) {
+        $Godot = Join-Path $env:LOCALAPPDATA 'Microsoft/WinGet/Packages/GodotEngine.GodotEngine_Microsoft.Winget.Source_8wekyb3d8bbwe/Godot_v4.7.2-stable_win64_console.exe'
+    }
+    if (-not (Test-Path -LiteralPath $Godot)) { throw "Godot 4.7.2 not found: $Godot (pass -Godot or set GODOT)" }
+    $gameDir = Join-Path $RepoRoot 'game'
+    New-Item -ItemType Directory -Force -Path $Dist | Out-Null
+    $exe = Join-Path (Resolve-Path -LiteralPath $Dist) 'HorizonStrike.exe'
+    $log = Join-Path ([IO.Path]::GetTempPath()) 'hzs-build-game.log'
+
+    # import pass first (fresh checkouts have no .godot/), then the release export
+    & $Godot --headless --path $gameDir --import *> $log
+    if ($LASTEXITCODE -ne 0) { throw "Godot import failed ($LASTEXITCODE), see $log" }
+    if (Test-Path -LiteralPath $exe) { Remove-Item -LiteralPath $exe }
+    & $Godot --headless --path $gameDir --export-release 'Windows Desktop' $exe *>> $log
+    if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $exe)) { throw "Godot export failed ($LASTEXITCODE), see $log" }
+    $pck = [IO.Path]::ChangeExtension($exe, '.pck')
+    if (Test-Path -LiteralPath $pck) { throw "unexpected separate pck (embed_pck should be on): $pck" }
+
+    $licenses = Join-Path $Dist 'licenses'
+    New-Item -ItemType Directory -Force -Path $licenses | Out-Null
+    & $Godot --headless --path $gameDir --script res://dev/print_licenses.gd -- (Join-Path (Resolve-Path -LiteralPath $licenses) 'Godot-LICENSES.txt') *>> $log
+    if ($LASTEXITCODE -ne 0) { throw "writing Godot licenses failed ($LASTEXITCODE), see $log" }
+
+    $license = Join-Path $RepoRoot 'LICENSE.txt'
+    if (Test-Path -LiteralPath $license) {
+        Copy-Item -LiteralPath $license -Destination $Dist -Force
+    } else {
+        Set-Content -LiteralPath (Join-Path $Dist 'LICENSE.txt') -Encoding ascii -Value @'
+MIT License
+
+Copyright (c) 2026 EM
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+'@
+    }
+    $readme = Join-Path $RepoRoot 'README.txt'
+    if (Test-Path -LiteralPath $readme) {
+        Copy-Item -LiteralPath $readme -Destination $Dist -Force
+    } else {
+        Set-Content -LiteralPath (Join-Path $Dist 'README.txt') -Encoding ascii -Value @'
+Horizon Strike (working title) - Counter-Strike 2 x Horizon Zero Dawn Complete Edition
+
+Start it from Melty (it passes your CS2 folder: HorizonStrike.exe --game <CS2 folder>).
+Horizon Zero Dawn Complete Edition must be installed on Steam; the game finds it by itself.
+No game files are included: on first start the converter (converter\hzsconv.exe) reads your own CS2 and
+Horizon Zero Dawn installs (read-only) and writes a local cache to %LOCALAPPDATA%\HorizonStrike\cache.
+The cache limit can be changed in the Esc menu. Logs: %LOCALAPPDATA%\HorizonStrike\logs\latest.log
+
+Controls: WASD move, Shift walk, Ctrl crouch, Space jump, mouse aim/fire, R reload, 1-4 weapon slots,
+B buy wheel (not in combat), F inspect, Esc menu.
+'@
+    }
+    $mb = [math]::Round((Get-Item -LiteralPath $exe).Length / 1MB, 1)
+    Write-Host "Build-Game: $exe ($mb MB)"
+}
+# END Build-Game
+# ============================================================================================================
+
 # Run every section when executed (not when dot-sourced). Other sections add their call below.
 if ($MyInvocation.InvocationName -ne '.') {
     New-Item -ItemType Directory -Force -Path $Dist | Out-Null
     Build-Converter -Dist $Dist
+    Build-Game -Dist $Dist
 }
