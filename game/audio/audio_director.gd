@@ -47,13 +47,31 @@ func _load_contract() -> void:
 		var key := str(a.get("music_" + mode, ""))
 		if music.has(key):
 			_tracks[mode] = base.path_join(str(music[key].get("file", "")))
+	var wind := ""
 	for amb in a.get("ambience", []):
 		var f := base.path_join(str(amb.get("file", "")))
 		var kind := str(amb.get("kind", ""))
-		if float(amb.get("seconds", 0.0)) > 0.0 and float(amb.get("seconds", 0.0)) < 8.0 and kind != "campfire":
+		if kind == "wind":
+			if wind == "":
+				wind = f
+		elif kind == "rain":
+			continue   # fixed dry morning: no weather (BRIEF 0.2)
+		elif float(amb.get("seconds", 0.0)) > 0.0 and float(amb.get("seconds", 0.0)) < 8.0 and kind != "campfire":
 			_oneshots.append(f)
 		else:
 			_loops[kind] = f
+	# mountain wind bed (0.2: ambience kind "wind", decoded from HZD's ATRAC9 by the converter), quiet and looped
+	if wind != "":
+		var ws := SoundLib.load_stream(wind)
+		if ws:
+			_loop(ws)
+			var wp := AudioStreamPlayer.new()
+			wp.name = "Wind"
+			wp.stream = ws
+			wp.volume_db = -16.0
+			add_child(wp)
+			wp.play()
+			_loops["wind"] = wind
 	Log.info("audio: music %s, %d ambience one-shots, loops %s" % [_tracks.keys(), _oneshots.size(), _loops.keys()])
 
 
@@ -68,7 +86,11 @@ static func _loop(s: AudioStream) -> void:
 	elif s is AudioStreamOggVorbis:
 		(s as AudioStreamOggVorbis).loop = true
 	elif s is AudioStreamWAV:
-		(s as AudioStreamWAV).loop_mode = AudioStreamWAV.LOOP_FORWARD
+		var w := s as AudioStreamWAV
+		w.loop_mode = AudioStreamWAV.LOOP_FORWARD
+		w.loop_begin = 0
+		if w.loop_end <= 0:
+			w.loop_end = int(w.get_length() * w.mix_rate)   # whole file (a WAV without loop points)
 
 
 func _set_mode(mode: String) -> void:
@@ -115,7 +137,7 @@ func _process(delta: float) -> void:
 			continue
 		if m.state == "attack":
 			fighting = true
-		elif m.state in ["suspicious", "alert"]:
+		elif m.state in ["suspicious", "alert", "stalk"]:
 			wary = true
 	if fighting:
 		_calm_t = 0.0

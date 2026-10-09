@@ -3,10 +3,11 @@ extends CanvasLayer
 
 const STAGE_NAMES := {"weapons": "Converting CS2 weapons", "machines": "Converting Horizon machines",
 	"audio": "Converting Horizon music and sounds", "index": "Reading the world index",
-	"start-area": "Converting the area around Mother's Heart", "cell": "Building the world", "start": "Starting the converter"}
+	"start-area": "Converting the area around Mother's Heart", "cell": "Building the world", "start": "Starting the converter",
+	"shaders": "Preparing shaders"}
 ## Rough share of each bootstrap stage in the total bar.
 const STAGE_WEIGHT := {"start": [0.0, 0.03], "weapons": [0.03, 0.35], "machines": [0.35, 0.55], "audio": [0.55, 0.65],
-	"index": [0.65, 0.7], "start-area": [0.7, 0.95], "cell": [0.95, 1.0]}
+	"index": [0.65, 0.7], "start-area": [0.7, 0.9], "cell": [0.9, 0.95], "shaders": [0.95, 1.0]}
 
 var _title: Label
 var _stage: Label

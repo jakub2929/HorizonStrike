@@ -25,6 +25,8 @@ var _route_i := -1
 var _route_wait := 0.0
 var _start_done := false
 var vram_start_mb := -1.0
+var _route_frames := PackedFloat32Array()   # frame times (ms) while walking the route
+var _start_frames := PackedFloat32Array()   # frame times (ms) at the start position before the walk (settle)
 
 
 func _ready() -> void:
@@ -72,6 +74,7 @@ func _process(_delta: float) -> void:
 	if profile and dt > float(Sheets.sys_num("perf.max_load_frame_ms", 50.0)) and Game.is_world_ready:
 		Log.info("slow frame %.1f ms; machines %d; previous streaming work: %s; physics %.1f ms, process %.1f ms" % [dt, Game.machines.size(), world.last_work,
 			Performance.get_monitor(Performance.TIME_PHYSICS_PROCESS) * 1000.0, Performance.get_monitor(Performance.TIME_PROCESS) * 1000.0])
+		Log.info("  pipelines compiled so far: %s" % pipelines())
 	for c in _active.keys():
 		var r: Dictionary = _active[c]
 		r["worst_frame_ms"] = maxf(float(r["worst_frame_ms"]), dt)
@@ -82,6 +85,11 @@ func _process(_delta: float) -> void:
 			if int(r["post"]) > POST_FRAMES:
 				_active.erase(c)
 				_finish(r)
+	if profile and dt > 0.0 and Game.is_world_ready:
+		if _start_done and _route_i >= 0 and _route_i < _route.size():
+			_route_frames.append(dt)
+		elif not _start_done:
+			_start_frames.append(dt)
 	if profile:
 		_walk(_delta)
 
@@ -125,7 +133,33 @@ func write_csv() -> String:
 	for r in rows:
 		worst = maxf(worst, float(r["worst_frame_ms"]))
 	Log.info("cell phases: top=%s %.1f ms (worst frame %.1f ms over %d cells, vram at start %.0f MB) -> %s" % [top, top_ms, worst, rows.size(), vram_start_mb, path])
+	Log.info("frames at start: %s" % _stats(_start_frames))
+	Log.info("frames on the route: %s" % _stats(_route_frames))
 	return path
+
+
+## "avg X fps, 1% low Y fps, worst Z ms, N frames > 50 ms (of M)"; 1% low = 1000 / 99th percentile frame time.
+static func _stats(f: PackedFloat32Array) -> String:
+	if f.is_empty():
+		return "no frames"
+	var s := f.duplicate()
+	s.sort()
+	var total := 0.0
+	var over := 0
+	for v in f:
+		total += v
+		if v > 50.0:
+			over += 1
+	var p99: float = s[mini(int(s.size() * 0.99), s.size() - 1)]
+	return "avg %.1f fps, 1%% low %.1f fps, worst %.1f ms, %d frames > 50 ms (of %d)" % [1000.0 * f.size() / total, 1000.0 / p99, s[s.size() - 1], over, f.size()]
+
+
+## Godot's pipeline compilation counters (draw = compiled while drawing, i.e. a stall).
+static func pipelines() -> String:
+	return "canvas %d, mesh %d, surface %d, draw %d, specialization %d" % [
+		Performance.get_monitor(Performance.PIPELINE_COMPILATIONS_CANVAS), Performance.get_monitor(Performance.PIPELINE_COMPILATIONS_MESH),
+		Performance.get_monitor(Performance.PIPELINE_COMPILATIONS_SURFACE), Performance.get_monitor(Performance.PIPELINE_COMPILATIONS_DRAW),
+		Performance.get_monitor(Performance.PIPELINE_COMPILATIONS_SPECIALIZATION)]
 
 
 # ------------------------------------------------------------------ route walk (--profile-cells)

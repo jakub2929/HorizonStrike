@@ -151,7 +151,7 @@ public static class SystemsSheet
     public static readonly SystemsRow RenderVisibilitySmallM = new("render.visibility_small_m", "render", "float", "80", "m", "visibility range end for objects with AABB < 2 m (fade margin 10 %)");
     public static readonly SystemsRow RenderVisibilityMediumM = new("render.visibility_medium_m", "render", "float", "250", "m", "objects 2-12 m");
     public static readonly SystemsRow RenderVisibilityLargeM = new("render.visibility_large_m", "render", "float", "700", "m", "objects 12-40 m; larger objects: unlimited");
-    public static readonly SystemsRow RenderLodThresholdPx = new("render.lod_threshold_px", "render", "float", "6", "px", "mesh LOD switch threshold (current game value)");
+    public static readonly SystemsRow RenderLodThresholdPx = new("render.lod_threshold_px", "render", "float", "12", "px", "mesh LOD switch threshold (applied to the main viewport at start)");
     public static readonly SystemsRow RenderHlodFromRing = new("render.hlod_from_ring", "render", "int", "2", "ring", "cells at Chebyshev ring >= 2 show the converter HLOD proxy instead of their instances");
     public static readonly SystemsRow RenderHlodTrianglesPerCell = new("render.hlod_triangles_per_cell", "render", "int", "20000", "tris", "HLOD proxy budget per cell (merged, simplified, one atlas material)");
     public static readonly SystemsRow RenderOccluderMinSizeM = new("render.occluder_min_size_m", "render", "float", "8", "m", "opaque objects with an AABB edge >= this get an occluder box/polygon in the cell (converter)");

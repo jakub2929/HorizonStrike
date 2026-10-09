@@ -66,6 +66,18 @@ func setup(main_cam: Camera3D) -> CanvasLayer:
 	return layer
 
 
+## Loading screen (world/precompile.gd): load and show a weapon model so its glTF parse and shaders happen there.
+func preload_model(id: String) -> void:
+	var m := _get_model(id)
+	m.visible = true
+
+
+## End of the loading screen: only the current weapon stays visible.
+func end_preload() -> void:
+	for id in _cache:
+		(_cache[id] as Node3D).visible = (_cache[id] == _current)
+
+
 func show_weapon(id: String) -> void:
 	_weapon = id
 	if _current:

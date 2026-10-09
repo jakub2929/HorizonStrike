@@ -152,7 +152,7 @@ const RENDER_VOLUMETRIC_FOG := {"id": "render.volumetric_fog", "group": "render"
 const RENDER_VISIBILITY_SMALL_M := {"id": "render.visibility_small_m", "group": "render", "value_type": "float", "value": 80, "unit": "m", "desc": "visibility range end for objects with AABB < 2 m (fade margin 10 %)"}
 const RENDER_VISIBILITY_MEDIUM_M := {"id": "render.visibility_medium_m", "group": "render", "value_type": "float", "value": 250, "unit": "m", "desc": "objects 2-12 m"}
 const RENDER_VISIBILITY_LARGE_M := {"id": "render.visibility_large_m", "group": "render", "value_type": "float", "value": 700, "unit": "m", "desc": "objects 12-40 m; larger objects: unlimited"}
-const RENDER_LOD_THRESHOLD_PX := {"id": "render.lod_threshold_px", "group": "render", "value_type": "float", "value": 6, "unit": "px", "desc": "mesh LOD switch threshold (current game value)"}
+const RENDER_LOD_THRESHOLD_PX := {"id": "render.lod_threshold_px", "group": "render", "value_type": "float", "value": 12, "unit": "px", "desc": "mesh LOD switch threshold (applied to the main viewport at start)"}
 const RENDER_HLOD_FROM_RING := {"id": "render.hlod_from_ring", "group": "render", "value_type": "int", "value": 2, "unit": "ring", "desc": "cells at Chebyshev ring >= 2 show the converter HLOD proxy instead of their instances"}
 const RENDER_HLOD_TRIANGLES_PER_CELL := {"id": "render.hlod_triangles_per_cell", "group": "render", "value_type": "int", "value": 20000, "unit": "tris", "desc": "HLOD proxy budget per cell (merged, simplified, one atlas material)"}
 const RENDER_OCCLUDER_MIN_SIZE_M := {"id": "render.occluder_min_size_m", "group": "render", "value_type": "float", "value": 8, "unit": "m", "desc": "opaque objects with an AABB edge >= this get an occluder box/polygon in the cell (converter)"}
