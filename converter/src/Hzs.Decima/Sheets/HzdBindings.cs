@@ -52,6 +52,7 @@ public static partial class HzdBindings
         var keys = Expand(key);
         if (keys.Count > 1) return new JsonArray(keys.Select(k => Resolve(res, k)).ToArray());
         var file = res.File(key[..hash]);
+        if (Ambience.Handles(key[(hash + 1)..])) return Ambience.Evaluate(res, file, key[(hash + 1)..]);
         return ToJson(Members.Evaluate(res, file, key[(hash + 1)..]));
     }
 

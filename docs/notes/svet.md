@@ -431,3 +431,14 @@ Sites of the new machines (svet 0.2 V3, hzsconv hzd-sites after site_map type:di
 - hzd/audio/ambience/wind_0/1.wav (OpenMountain_wind_heavy/medium, 34 / 32 s) and rain_0/1.wav (rain_mountain_low/high)
   from weather_mountain.soundbank (hzd_content audio.ambience_extra with name_contains). Wind spectral centroid
   ~950 Hz, rain ~6.8 kHz (not decoder noise). HzdFormat 2 (machines V3 + audio change: caches re-convert them).
+
+## 0.2 render.* sky / fog / sun bindings (2026-10-09)
+- ambience/cycles/regions/nora/nora_mothers_heart_cycle.core holds several AmbienceCycles (one-keyframe overrides +
+  the day cycle with 9 keyframes: 4.7, 5, 10, 16, 20, 21, 21.3 h). Hand-written layouts AmbienceCycle,
+  AmbienceSettingsKeyFrame, AmbienceSettings, Atmosphere{Fog,Haze,Sky}SettingsResource + settings structs.
+- Sheets/Ambience.cs evaluates "AmbienceCycle.<Curve>@T" (CurveResource, X = hours, linear; the curves are flagged
+  Smooth with tangents, not used) and "AmbienceCycle.AmbienceKeyFrames[TimeOfDay=T].AmbienceSettings.<Res>.<Field>"
+  (linear between the surrounding keyframes, 24 h wrap, keyframes without the resource skipped).
+- At 9.0 h: sun elevation 17.5 deg, azimuth 90 deg, fog density 87.5 (HZD units), start 50 m, end 950 m,
+  height 220 m, falloff 0.1625, fog colour [1,1,1], sky colour [0.141, 0.624, 1.0] (linear), zenith 0.0625,
+  horizon 16, sun shape 0.5. No keyframe has haze settings -> render.haze_* use their fallbacks.
