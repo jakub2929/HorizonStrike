@@ -3,8 +3,10 @@ extends "res://autotest/lib/scenario.gd"
 ## Setup per machine (Game API): open snow field, machine spawned with AI on (Broadhead: two of them 6 m apart, the
 ## second one must leave graze when the first is attacked), player invulnerable 35 m away (Sawtooth 45 m), facing it.
 ## Behaviour by input only: held W towards the machine until it is suspicious, the view kept on it by mouse motion;
-## if there is no alert 10 s after that, one glock shot into the air (look up + fire button). machine_state_changed,
-## machine.current_attack and machine projectiles are logged for 30 s per machine.
+## if there is no alert 10 s after that, one glock shot into the air (look up + fire button); alert but no attack
+## 8 s later (a defend_charge herd only charges a threat inside fight_back_radius_m): held W towards it again.
+## machine_state_changed, machine.current_attack and machine projectiles are logged for 30 s per machine.
+## States: stalk (Sawtooth) is a sub-state of alert (game: alert -> stalk -> attack), scavenge (Scrapper) is calm.
 
 const InputSim := preload("res://autotest/lib/inputsim.gd")
 const Sites := preload("res://autotest/lib/sites.gd")
@@ -15,7 +17,10 @@ const WALK_MAX_S := 20.0
 const SHOT_AFTER_S := 10.0
 const MACHINES := {"sawtooth": 45.0, "scrapper": 35.0, "broadhead": 35.0}
 const CALM := ["idle", "patrol", "graze", "scavenge"]
-const WARY := ["suspicious", "stalk"]
+const WARY := ["suspicious"]
+const ALERT := ["alert", "stalk"]
+const HOT := ["alert", "stalk", "attack"]
+const APPROACH_AFTER_S := 8.0
 
 
 func _init() -> void:
@@ -83,6 +88,8 @@ func _machine(ctx, inp, g: Node, mt: String, center: Vector3) -> Dictionary:
 	var walking := false
 	var wary_t := -1.0
 	var shot_t := -1.0
+	var alert_t := -1.0
+	var approach := false
 	var t0 := Time.get_ticks_msec()
 	var next_aim := 0.0
 	while (Time.get_ticks_msec() - t0) / 1000.0 < WATCH_S and is_instance_valid(m):
@@ -91,10 +98,17 @@ func _machine(ctx, inp, g: Node, mt: String, center: Vector3) -> Dictionary:
 		if st != polled[polled.size() - 1][1]:
 			polled.append([snappedf(t, 0.1), st])
 			ctx.note("t12 %s %.1f s: %s (%.1f m)" % [mt, t, st, ctx.player_pos().distance_to((m as Node3D).global_position)])
-		if wary_t < 0.0 and (WARY.has(st) or st == "alert" or st == "attack"):
+		if wary_t < 0.0 and (WARY.has(st) or HOT.has(st)):
 			wary_t = t
-		# held W towards the machine until it is suspicious
-		if wary_t < 0.0 and t < WALK_MAX_S:
+		if alert_t < 0.0 and HOT.has(st):
+			alert_t = t
+		if not approach and alert_t >= 0.0 and t > alert_t + APPROACH_AFTER_S and not _seen(polled, ["attack"]):
+			approach = true
+			ctx.note("t12 %s: alert but no attack %d s later, walking towards it again" % [mt, int(APPROACH_AFTER_S)])
+		if approach and _seen(polled, ["attack"]):
+			approach = false
+		# held W towards the machine until it is suspicious (again after an alert without attack)
+		if (wary_t < 0.0 and t < WALK_MAX_S) or (approach and ctx.player_pos().distance_to((m as Node3D).global_position) > 6.0):
 			if not walking or not Input.is_action_pressed("move_forward"):
 				inp.press("move_forward")
 				walking = true
@@ -102,7 +116,7 @@ func _machine(ctx, inp, g: Node, mt: String, center: Vector3) -> Dictionary:
 			inp.release("move_forward")
 			walking = false
 		# no alert 10 s after suspicious: one glock shot into the air
-		if shot_t < 0.0 and wary_t >= 0.0 and t > wary_t + SHOT_AFTER_S and not ["alert", "attack"].has(st) and not _seen(polled, ["alert", "attack"]):
+		if shot_t < 0.0 and wary_t >= 0.0 and t > wary_t + SHOT_AFTER_S and not HOT.has(st) and not _seen(polled, HOT):
 			var yp: Vector2 = inp.yaw_pitch()
 			for i in 30:
 				inp.look_step(yp.x, deg_to_rad(60.0))
@@ -142,9 +156,10 @@ func _machine(ctx, inp, g: Node, mt: String, center: Vector3) -> Dictionary:
 	info.attacks = attacks
 	info.projectiles = projectiles
 	info.shot_into_air_s = shot_t
+	info.approached_after_alert = alert_t >= 0.0 and approach
 	info.mates = mate_states.values()
 	var seq: Array = states if states.size() > 1 else polled.map(func(x): return x[1])
-	check("%s: states (idle|patrol|graze|scavenge) -> suspicious -> alert -> attack" % mt, _ordered(seq), str(polled))
+	check("%s: states (idle|patrol|graze|scavenge) -> suspicious -> alert (or stalk) -> attack" % mt, _ordered(seq), str(polled))
 	check("%s: does not flee (flee_on_alert false)" % mt, not seq.has("flee"), str(seq))
 	match mt:
 		"sawtooth":
@@ -179,7 +194,7 @@ static func _seen(polled: Array, which: Array) -> bool:
 
 
 static func _ordered(states: Array) -> bool:
-	var want := [CALM, WARY, ["alert"], ["attack"]]
+	var want := [CALM, WARY, ALERT, ["attack"]]
 	var k := 0
 	for s in states:
 		if k < want.size() and want[k].has(s):
