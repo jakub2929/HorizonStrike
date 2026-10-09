@@ -10,6 +10,7 @@ const MeshLib := preload("res://world/mesh_library.gd")
 const CellBuilder := preload("res://world/cell_builder.gd")
 const Machine := preload("res://machines/machine.gd")
 const Spawner := preload("res://machines/spawner.gd")
+const Campfire := preload("res://world/campfire.gd")
 
 var cache_root := ""
 var index := {}
@@ -303,9 +304,24 @@ func _poll_builds() -> void:
 			"size": data["size"], "real": data.get("real", false), "density": veg.get("_density"),
 			"channels": veg.get("_channels", []), "veg_count": _veg_count(veg),
 			"instances": (data["info"].get("instances", []) as Array).size()}
+		var has_start_cf := false
+		var start_cf := str(index.get("start_campfire", ""))
 		for cf in data["info"].get("campfires", []):
 			var p: Array = cf.get("pos", [0, 0, 0])
 			campfire_positions[str(cf.get("id", ""))] = Vector3(float(p[0]), float(p[1]), float(p[2]))
+			has_start_cf = has_start_cf or str(cf.get("id", "")) == start_cf
+		# the index names the start campfire (respawn before any other is activated, D27); place it when the
+		# cell itself does not list it
+		var scp: Array = index.get("start_campfire_pos", [])
+		if not has_start_cf and start_cf != "" and scp.size() == 3:
+			var sp := Vector3(float(scp[0]), float(scp[1]), float(scp[2]))
+			if cell_of(sp) == c:
+				var cf_node := Campfire.new()
+				cf_node.campfire_id = start_cf
+				cf_node.name = "Campfire_" + start_cf.validate_node_name()
+				cf_node.position = sp
+				loaded[c].add_child(cf_node)
+				campfire_positions[start_cf] = sp
 		site_records[c] = data["info"].get("spawns", [])
 		spawner.on_cell_loaded(c, site_records[c])
 		Log.info("cell %s loaded in %d ms (real terrain %s, %d instances, %d vegetation)" % [c, Time.get_ticks_msec() - int(job["t0"]),

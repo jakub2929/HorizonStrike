@@ -151,9 +151,9 @@ func _do_bootstrap(job: Dictionary) -> void:
 	var bytes := 0
 	_emit({"id": id, "event": "progress", "stage": "weapons", "done": 0, "total": 1})
 	if seed_cache != "":
-		for rel in ["cs2", "hzd/machines", "hzd/audio"]:
+		for rel in ["cs2", "hzd/machines", "hzd/audio", "hzd/cells", "hzd/meshes"]:
 			bytes += FsUtil.copy_tree(seed_cache.path_join(rel), cache_root.path_join(rel))
-		for rel in ["hzd/machines.json", "hzd/systems.json"]:
+		for rel in ["hzd/machines.json", "hzd/systems.json", "hzd/index.json"]:
 			if FileAccess.file_exists(seed_cache.path_join(rel)) and not FileAccess.file_exists(cache_root.path_join(rel)):
 				DirAccess.copy_absolute(seed_cache.path_join(rel), cache_root.path_join(rel))
 		Log.info("mock: seeded real content from %s (%d bytes)" % [seed_cache, bytes])
@@ -170,8 +170,13 @@ func _do_bootstrap(job: Dictionary) -> void:
 	_emit({"id": id, "event": "progress", "stage": "machines", "done": ids.size(), "total": ids.size()})
 	_emit({"id": id, "event": "progress", "stage": "audio", "done": 1, "total": 1})
 	bytes += _mesh_bytes
-	var index := MockData.index_json(cell_size)
-	FsUtil.write_json_atomic(cache_root.path_join("hzd/index.json"), index)
+	var index: Dictionary = {}
+	var existing = FsUtil.read_json(cache_root.path_join("hzd/index.json"))
+	if typeof(existing) == TYPE_DICTIONARY and existing.has("start_cell"):
+		index = existing   # seeded real index
+	else:
+		index = MockData.index_json(cell_size)
+		FsUtil.write_json_atomic(cache_root.path_join("hzd/index.json"), index)
 	_emit({"id": id, "event": "progress", "stage": "index", "done": 1, "total": 1})
 	_mutex.lock()
 	_bootstrapped = true
