@@ -16,6 +16,7 @@ Components
   MIT           ZstdSharp.Port 0.8.8 (port of Zstandard)  <https://github.com/oleg-st/ZstdSharp>
   MIT           KeyValues2 0.8.0 (Datamodel.NET.dll)  <https://www.nuget.org/packages/KeyValues2>
   MIT           TinyBCSharp 0.1.2  <https://github.com/jandk/TinyBCSharp>
+  MIT           LibAtrac9 (C# sources vendored in the converter, Hzs.Decima/Audio/LibAtrac9)  <https://github.com/Thealexbarney/LibAtrac9>
   MIT           TinyEXR.NET 1.1.0 (C# port of tinyexr)  <https://github.com/ksgfk/TinyEXR.NET>
   MIT           Vortice.SPIRV 1.0.5, Vortice.SpirvCross 1.5.4  <https://github.com/amerkoleci/Vortice.Vulkan>
   MIT           System.IO.Hashing 10.0.10  <https://dot.net/>
@@ -67,6 +68,10 @@ Applies to each component below, under its own copyright line(s):
 * TinyBCSharp 0.1.2
   https://github.com/jandk/TinyBCSharp
   Copyright (c) 2025 Jan De Kock
+
+* LibAtrac9 (vendored C# sources)
+  https://github.com/Thealexbarney/LibAtrac9
+  Copyright (c) 2018 Alex Barney
 
 * TinyEXR.NET 1.1.0 (C# port of tinyexr)
   https://github.com/ksgfk/TinyEXR.NET

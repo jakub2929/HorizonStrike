@@ -33,6 +33,17 @@ public static partial class Layouts
         L(0xE605F6EC1EE0979D, "PlacementLayer", "PlacementDistance:float CreationOrder:int GroupingFlags:e4 BakedData:Ref ProcData:Ref");
         L(0x2B9D634C4B5A2EBA, "PlacementProceduralData", "DensityProgram:Ref Placement:Ref ChunkSizeSetting:e4 UsageMask:e4 UseBlendedShadows:bool StencilScale:float DensityScale:float HeightWorldDataType:Ref");
         L(0x739AB497DD04F1B5, "PlacementSet", "Name:String DensityGraph:Ref Children:Array<Ref> DensityBehavior:e4 NormalizeDensity:bool DensityScale:float HeightMap:Ref");
+        // ambience day cycle (sky, sun, fog of a region)
+        L(0xACE2BE5671EF6723, "AmbienceCycle", "AmbienceKeyFrames:Array<Ref> SunElevationAngle:Ref SunAzimuthAngle:Ref MoonElevationAngle:Ref MoonAzimuthAngle:Ref MoonDistance:float SunToMoonFadeTimes:Vec4 SunLightResource:Ref MoonLightResource:Ref");
+        L(0x673511A38AF875B1, "AmbienceSettingsKeyFrame", "AmbienceSettings:Ref TimeOfDay:float");
+        L(0x1A5951CD9742520F, "AmbienceSettings", "ExposureSettings:Ref LightShaftSettings:Ref BloomSettings:Ref LightingSettings:Ref ColorizeSettings:Ref CloudRenderSettings:Ref AtmosphereSkySettings:Ref AtmosphereHazeSettings:Ref AtmosphereFogSettings:Ref GlobalRenderVariableValues:Ref RainbowAndSundogSettings:Ref AuroraSettings:Ref");
+        L(0xAF74B56C0A4C580F, "AtmosphereFogSettingsResource", "Settings:AtmosphereFogSettings");
+        L(0xD1FB94E38F592B63, "AtmosphereHazeSettingsResource", "Settings:AtmosphereHazeSettings");
+        L(0x0C61F7F27B95DBC1, "AtmosphereSkySettingsResource", "Settings:AtmosphereSkySettings");
+        L(0, "AtmosphereFogSettings", "FogDensity:float FogStartDistance:float FogEndDistance:float FogDistanceCurvature:float FogHeight:float FogHeightFallOffRate:float HeightMapFogDensity:float HeightMapFogStartDistance:float HeightMapFogEndDistance:float HeightMapFogDistanceCurvature:float HeightMapFogHeightBias:float HeightMapFogHeightScale:float FogColor:FRGBAColor FogAmbientAbsorptionRate:float FogAmbientMinIntensity:float FogAmbientMaxIntensity:float FogHenyeyGreenstein:float FogGodRayMaxIntensity:float FogGodRayAttackRate:float FogGodRayAbsorptionRate:float RenderQualityForCascade1:float RenderQualityForCascade2:float RenderQualityForCascade3:float FixSlices:bool");
+        L(0, "AtmosphereHazeSettings", "HazeStartDistance:float HazeEndDistance:float HazeDensityCurvature:float");
+        L(0, "AtmosphereSkySettings", "SkyColor:FRGBAColor SkyZenithIntensity:float SkyHorizonIntensity:float SkyGradientPower:float SkyBrightness:float SkyFadeOffSunAngleRange:FRange SunLightAbsorptionCoefficient:FRGBAColor SunColorAbsorptionZenith:float SunColorAbsorptionHorizon:float SunColorAbsorptionGradientPower:float SunIntensityAngleFadeRange:FRange SunShapeIntensity:float SunShapeSize:float MieScatteringPhases:Vec3 MieIntensityGradientPower:float MieColorAbsorptionZenith:float MieColorAbsorptionHorizon:float MieColorGradientPower:float MieBaseIntensity:float MieLightShaftIntensity:float SunsetStartAngle:float SunsetEndAngle:float");
+
         // density graph nodes (only what decides where a species may grow: ecotope effect curves)
         L(0xC668B09FA794005F, "CurveResource", "Name:String Points:Array<Vec2> Tangents:Array<float> Smooth:bool");
         L(0x55866559C84E2E51, "DensityCurveLookup", "Name:String Map:Ref Curve:Ref");

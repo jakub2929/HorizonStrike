@@ -1,6 +1,10 @@
 extends CharacterBody3D
 ## A Horizon machine with Horizon logic (sheets machines.json + machine_attacks.json, systems suspicion.*):
-## guards patrol and go suspicious -> alert -> attack; herds graze and flee on alert (fighting back when cornered).
+## guards patrol and go suspicious -> alert -> attack; herds graze and flee on alert (fighting back when cornered) or,
+## with behaviour.defend_charge, stand their ground and charge a threat inside fight_back_radius_m; predators prowl,
+## stalk the player low and slow (stalk_speed_mps) until stalk_until_m, then pounce/charge/bite; scavengers scavenge
+## in packs, radar-ping the area every radar_ping_interval_s (reveals the player within radar_ping_radius_m), call the
+## pack within pack_call_radius_m and fight at range (laser bursts) while circling the player.
 ## Damage uses the CS rules: body hits go through the machine's armor, weak spots ignore it (D4/D17).
 
 const Sheets := preload("res://core/sheets.gd")
@@ -17,6 +21,11 @@ const LAYER_HITBOX := 8
 ## Peripheral vision (outside the sight cone, up to peripheral_range_m) builds suspicion at this fraction of the
 ## direct rate: machines notice movement behind them slowly instead of instantly (design, hra).
 const PERIPHERAL_GAIN := 0.3
+## Corpses lie where the machine fell; they are freed after CORPSE_MIN_S once the player is farther than
+## CORPSE_FREE_DISTANCE_M, and always after CORPSE_MAX_S (design, stroje).
+const CORPSE_MIN_S := 45.0
+const CORPSE_MAX_S := 240.0
+const CORPSE_FREE_DISTANCE_M := 80.0
 
 var machine_type := "watcher"
 var state := "idle"
@@ -54,6 +63,9 @@ var flee_on_alert := false
 var flee_distance := 0.0
 var fight_back_radius := 0.0
 var attacks: Array = []
+var behaviour := {}
+## Id of the attack being performed (machine_attacks row id; "" when none) - frozen interface (PLAN-0.2).
+var current_attack := ""
 
 # ai state
 var _state_time := 0.0
@@ -70,6 +82,15 @@ var _attack_t := 0.0
 var _attack_dealt := false
 var _cooldowns := {}
 var _alert_announce := 0.0
+## Radar pings sent / pings that found the player (scavengers; read by dev/machine_bench.gd --ai).
+var radar_pings := 0
+var radar_pings_hit := 0
+var _ping_t := 3.0
+var _hit_time := -100.0
+var _burst_fired := 0
+var _charge_speed := 0.0
+var _strafe_sign := 1.0
+var _strafe_t := 0.0
 var _sees_player := false
 var _speed_now := 0.0
 var _stuck_t := 0.0
@@ -77,6 +98,20 @@ var _dead_t := 0.0
 var _rng := RandomNumberGenerator.new()
 var _gravity := 9.8
 var _perc_acc := randf() * 0.1   # perception runs at 10 Hz, staggered
+
+## Dev/bench only: with ai_enabled false these drive the machine through the normal steering (dev/machine_bench.gd).
+## drive_face (when non-zero) turns the machine in place towards that direction.
+var drive_dir := Vector3.ZERO
+var drive_speed := 0.0
+var drive_face := Vector3.ZERO
+
+## Motion facts for the animator (updated every physics tick): yaw rate (rad/s, + = turning left) and forward
+## acceleration (m/s^2).
+var yaw_rate := 0.0
+var accel_fwd := 0.0
+var turn_in_place_rate := deg_to_rad(180.0)
+var _last_yaw := 0.0
+var _last_hv := Vector3.ZERO
 
 
 func setup(type: String, machine_meta: Dictionary) -> void:
@@ -91,6 +126,8 @@ func setup(type: String, machine_meta: Dictionary) -> void:
 	walk_speed = Sheets.machine_num(type, "walk_speed_mps", 1.6)
 	run_speed = Sheets.machine_num(type, "run_speed_mps", 7.0)
 	turn_rate = deg_to_rad(Sheets.machine_num(type, "turn_rate_dps", 180.0))
+	var anim: Variant = Sheets.machine(type, "anim")
+	turn_in_place_rate = deg_to_rad(float((anim as Dictionary).get("turn_in_place_dps", rad_to_deg(turn_rate)))) if anim is Dictionary else turn_rate
 	sight_range = Sheets.machine_num(type, "sight_range_m", 40.0)
 	sight_fov = deg_to_rad(Sheets.machine_num(type, "sight_fov_deg", 100.0))
 	# meta.json perception names the HZD value a half angle (DirectHeadingAngle); the sheet column is the full cone
@@ -110,6 +147,9 @@ func setup(type: String, machine_meta: Dictionary) -> void:
 	flee_on_alert = bool(Sheets.machine(type, "flee_on_alert"))
 	flee_distance = Sheets.machine_num(type, "flee_distance_m", 0.0)
 	fight_back_radius = Sheets.machine_num(type, "fight_back_radius_m", 0.0)
+	var bh: Variant = Sheets.machine(type, "behaviour")
+	behaviour = bh if bh is Dictionary else {}
+	_ping_t = randf_range(1.0, maxf(float(behaviour.get("radar_ping_interval_s", 6.0)), 1.5))
 	attacks.clear()
 	var al = Sheets.machine(type, "attacks")
 	if al is Array:
@@ -165,7 +205,7 @@ func _ready() -> void:
 		add_child(tb)
 		add_collision_exception_with(tb)
 	home = global_position
-	_set_state("patrol" if archetype == "guard" else "graze")
+	_set_state(_calm_state())
 	Game.register_machine(self)
 
 
@@ -241,7 +281,17 @@ func weak_points(part: String, samples: bool = false) -> Array[Vector3]:
 
 
 func targets_player() -> bool:
-	return state in ["alert", "attack"] or (state == "flee" and _attack_phase != "")
+	return state in ["alert", "attack", "stalk"] or (state == "flee" and _attack_phase != "")
+
+
+## The calm state of this machine: guards and predators patrol, scavengers scavenge, herds graze.
+func _calm_state() -> String:
+	match archetype:
+		"guard", "predator":
+			return "patrol"
+		"scavenger":
+			return "scavenge" if bool(behaviour.get("scavenge", true)) else "patrol"
+	return "graze"
 
 
 func is_dead() -> bool:
@@ -263,6 +313,7 @@ func take_hit(weapon_id: String, base_damage: float, part: String, is_weak: bool
 		armor = maxf(armor - float(r["armor_lost"]), 0.0)
 	health -= dmg
 	last_hit_weapon = weapon_id
+	_hit_time = _now()
 	if rig:
 		rig.flinch(is_weak)
 	if audio:
@@ -275,7 +326,9 @@ func take_hit(weapon_id: String, base_damage: float, part: String, is_weak: bool
 			_last_seen = Game.player.global_position
 			_last_seen_time = _now()
 		suspicion = maxf(suspicion, alert_threshold)
-		if state != "alert" and state != "attack" and state != "flee":
+		if state == "stalk":
+			_set_state("attack")   # a stalking predator that is shot goes for the shooter at once
+		elif state != "alert" and state != "attack" and state != "flee":
 			_go_alert()
 	return dmg
 
@@ -284,6 +337,9 @@ func _die(weapon_id: String) -> void:
 	_set_state("dead")
 	velocity = Vector3.ZERO
 	collision_layer = 0
+	var tb := get_node_or_null("TrunkBody") as CollisionObject3D
+	if tb:
+		tb.collision_layer = 0
 	for h in rig.hitboxes:
 		(h as Area3D).collision_layer = 0
 	Game.award_kill(machine_type, weapon_id)
@@ -303,7 +359,7 @@ func hear_noise(pos: Vector3, radius: float, gain_center: float, gain_edge: floa
 	suspicion = minf(suspicion + g, alert_threshold * 1.5)
 	_stimulus = pos
 	# herd rule: grazing herds bolt from a gunshot or blast they hear (they flee instead of investigating)
-	if loud and flee_on_alert and archetype == "herd" and suspicion >= susp_threshold and state in ["idle", "graze", "suspicious"]:
+	if loud and archetype == "herd" and suspicion >= susp_threshold and state in ["idle", "graze", "suspicious"]:
 		suspicion = maxf(suspicion, alert_threshold)
 		_last_seen = pos
 		_last_seen_time = _now()
@@ -321,12 +377,12 @@ func notice_impact(pos: Vector3) -> void:
 
 
 func _after_suspicion_change() -> void:
-	if suspicion >= alert_threshold and state not in ["alert", "attack", "flee"]:
+	if suspicion >= alert_threshold and state not in ["alert", "attack", "flee", "stalk"]:
 		if Game.player:
 			_last_seen = Game.player.global_position
 			_last_seen_time = _now()
 		_go_alert()
-	elif suspicion >= susp_threshold and state in ["idle", "patrol", "graze"]:
+	elif suspicion >= susp_threshold and state in ["idle", "patrol", "graze", "scavenge"]:
 		_set_state("suspicious")
 
 
@@ -352,7 +408,7 @@ func _perceive(delta: float) -> void:
 	var ang := forward().angle_to(flat) if flat.length() > 0.01 else 0.0
 	var in_cone := ang <= sight_fov * 0.5
 	var rng := sight_range if in_cone else peripheral_range
-	if state in ["alert", "attack"]:
+	if state in ["alert", "attack", "stalk"]:
 		rng = maxf(rng, sight_range * 1.5)
 	var vis: float = p.visibility_factor()
 	var visible := d <= rng and _line_of_sight(eye, target)
@@ -395,6 +451,7 @@ func _set_state(s: String) -> void:
 	_state_time = 0.0
 	_has_goal = false
 	_attack_phase = ""
+	current_attack = ""
 	if s != "dead":
 		Log.info("machine %s %s -> %s (suspicion %.2f)" % [name, old, s, suspicion])
 	Game.emit_machine_state(self, old, s)
@@ -407,13 +464,23 @@ func _set_state(s: String) -> void:
 func _go_alert() -> void:
 	_set_state("alert")
 	_alert_announce = 0.0
-	# guards call nearby machines, herds alert their herd (systems suspicion.herd_alert_radius_m)
-	var call_r := alert_call_radius if archetype == "guard" else Sheets.sys_num("suspicion.herd_alert_radius_m", 60.0)
+	# guards call nearby machines, scavengers call their pack, herds alert their herd (systems
+	# suspicion.herd_alert_radius_m); lone predators call nobody unless behaviour.call_on_alert
+	var call_r := 0.0
+	match archetype:
+		"guard":
+			call_r = alert_call_radius if bool(behaviour.get("call_on_alert", true)) else 0.0
+		"scavenger":
+			call_r = float(behaviour.get("pack_call_radius_m", alert_call_radius)) if bool(behaviour.get("call_on_alert", true)) else 0.0
+		"predator":
+			call_r = alert_call_radius if bool(behaviour.get("call_on_alert", false)) else 0.0
+		_:
+			call_r = Sheets.sys_num("suspicion.herd_alert_radius_m", 60.0)
 	if call_r > 0.0:
 		for m in Game.machines:
 			if m == self or not is_instance_valid(m) or m.is_dead() or not m.ai_enabled:
 				continue
-			if m.global_position.distance_to(global_position) <= call_r and m.state not in ["alert", "attack", "flee"]:
+			if m.global_position.distance_to(global_position) <= call_r and m.state not in ["alert", "attack", "flee", "stalk"]:
 				m.receive_alert(_last_seen if _last_seen != Vector3.ZERO else global_position)
 
 
@@ -429,7 +496,7 @@ func reset_calm() -> void:
 	if state == "dead":
 		return
 	suspicion = 0.0
-	_set_state("patrol" if archetype == "guard" else "graze")
+	_set_state(_calm_state())
 
 
 func _physics_process(delta: float) -> void:
@@ -439,7 +506,7 @@ func _physics_process(delta: float) -> void:
 		velocity.x = 0
 		velocity.z = 0
 		move_and_slide()
-		if _dead_t > 30.0:
+		if _dead_t > CORPSE_MAX_S or (_dead_t > CORPSE_MIN_S and (Game.player == null or Game.player.global_position.distance_to(global_position) > CORPSE_FREE_DISTANCE_M)):
 			queue_free()
 		return
 	_state_time += delta
@@ -452,14 +519,29 @@ func _physics_process(delta: float) -> void:
 		if _perc_acc >= 0.1:
 			_perceive(_perc_acc)
 			_perc_acc = 0.0
+		_radar(delta)
 		var r := _think(delta)
 		desired = r[0]
 		speed = r[1]
+	else:
+		desired = drive_dir
+		speed = drive_speed
+		if drive_face != Vector3.ZERO:
+			_face(drive_face, delta)
 	_steer(desired, speed, delta)
 	_apply_gravity(delta)
 	move_and_slide()
 	_speed_now = Vector3(velocity.x, 0, velocity.z).length()
 	_check_stuck(delta, speed)
+	_track_motion(delta)
+
+
+func _track_motion(delta: float) -> void:
+	yaw_rate = wrapf(rotation.y - _last_yaw, -PI, PI) / maxf(delta, 0.0001)
+	_last_yaw = rotation.y
+	var hv := Vector3(velocity.x, 0, velocity.z)
+	accel_fwd = (hv - _last_hv).dot(forward()) / maxf(delta, 0.0001)
+	_last_hv = hv
 
 
 func _apply_gravity(delta: float) -> void:
@@ -475,18 +557,19 @@ func _think(delta: float) -> Array:
 	match state:
 		"idle":
 			if _state_time > 2.0:
-				_set_state("patrol" if archetype == "guard" else "graze")
+				_set_state(_calm_state())
 			return [Vector3.ZERO, 0.0]
-		"patrol", "graze":
-			return _wander(delta, archetype == "guard")
+		"patrol", "graze", "scavenge":
+			return _wander(delta, archetype in ["guard", "predator"])
 		"suspicious":
 			if suspicion < susp_threshold * 0.5:
-				_set_state("patrol" if archetype == "guard" else "graze")
+				_set_state(_calm_state())
 				return [Vector3.ZERO, 0.0]
 			var to := _stimulus - global_position
 			to.y = 0
 			_face(to, delta)
-			if archetype == "guard" and to.length() > 6.0 and _state_time > 1.5:
+			# guards, predators and scavengers walk over to investigate; herds stand and look
+			if archetype != "herd" and to.length() > 6.0 and _state_time > 1.5:
 				return [to.normalized(), walk_speed]
 			return [Vector3.ZERO, 0.0]
 		"alert":
@@ -499,13 +582,90 @@ func _think(delta: float) -> Array:
 			_face(to2, delta)
 			_alert_announce += delta
 			if _alert_announce > 0.6:
-				_set_state("attack")
+				match archetype:
+					"predator":
+						var dp := _player_distance()
+						_set_state("stalk" if dp > float(behaviour.get("stalk_until_m", 18.0)) else "attack")
+					"herd":
+						# defend_charge herds hold their ground and charge a threat that comes close (or shot them)
+						if _player_distance() <= _defend_radius():
+							_set_state("attack")
+						elif not _sees_player and _now() - _last_seen_time > search_time:
+							suspicion = susp_threshold
+							_set_state("suspicious")
+					_:
+						_set_state("attack")
 			return [Vector3.ZERO, 0.0]
+		"stalk":
+			return _do_stalk(delta)
 		"attack":
 			return _do_attack(delta)
 		"flee":
 			return _do_flee(delta)
 	return [Vector3.ZERO, 0.0]
+
+
+func _player_distance() -> float:
+	var p: Node3D = Game.player
+	if p == null or not p.is_alive():
+		return INF
+	return Vector2(p.global_position.x - global_position.x, p.global_position.z - global_position.z).length()
+
+
+## Distance at which a defend_charge herd attacks: fight_back_radius_m, doubled for 10 s after being shot.
+func _defend_radius() -> float:
+	var r := fight_back_radius if bool(behaviour.get("defend_charge", false)) else 0.0
+	if _now() - _hit_time < 10.0:
+		r *= 2.0
+	return r
+
+
+## Predator stalk: low and slow towards where the player was seen, until stalk_until_m, then the attack.
+func _do_stalk(delta: float) -> Array:
+	var p: Node3D = Game.player
+	if p == null or not p.is_alive():
+		_set_state("suspicious")
+		return [Vector3.ZERO, 0.0]
+	if not _sees_player and _now() - _last_seen_time > search_time:
+		suspicion = susp_threshold
+		_set_state("suspicious")
+		return [Vector3.ZERO, 0.0]
+	var target := p.global_position if _sees_player else _last_seen
+	var to := target - global_position
+	to.y = 0
+	if _player_distance() <= float(behaviour.get("stalk_until_m", 18.0)) or _state_time > 15.0:
+		_set_state("attack")
+		return [Vector3.ZERO, 0.0]
+	if to.length() < 1.5:
+		_face(p.global_position - global_position, delta)
+		return [Vector3.ZERO, 0.0]
+	return [to.normalized(), float(behaviour.get("stalk_speed_mps", walk_speed))]
+
+
+## Scavenger radar: every radar_ping_interval_s a ping reveals the player inside radar_ping_radius_m (no line of
+## sight needed): suspicion rises by systems-free design value 0.5 per ping, so two pings in range alert the pack.
+func _radar(delta: float) -> void:
+	var interval := float(behaviour.get("radar_ping_interval_s", 0.0))
+	var radius := float(behaviour.get("radar_ping_radius_m", 0.0))
+	if archetype != "scavenger" or interval <= 0.0 or radius <= 0.0:
+		return
+	_ping_t -= delta
+	if _ping_t > 0.0:
+		return
+	_ping_t = interval * randf_range(0.85, 1.15)
+	if rig and rig.has_method("radar_pulse"):
+		rig.radar_pulse(radius)
+	var p: Node3D = Game.player
+	var hit: bool = p != null and p.is_alive() and p.global_position.distance_to(global_position) <= radius
+	Log.info("machine %s radar ping (player %s)" % [name, "inside" if hit else "outside"])
+	radar_pings += 1
+	if hit:
+		radar_pings_hit += 1
+		_stimulus = p.global_position
+		_last_seen = p.global_position
+		_last_seen_time = _now()
+		suspicion = minf(suspicion + 0.5 * alert_threshold, alert_threshold * 1.5)
+		_after_suspicion_change()
 
 
 func _wander(_delta: float, guard: bool) -> Array:
@@ -554,7 +714,25 @@ func _do_attack(delta: float) -> Array:
 	if not best.is_empty() and _facing(to) < deg_to_rad(25.0):
 		_start_attack(best)
 		return [Vector3.ZERO, 0.0]
+	# a defending herd animal goes back to watching when the threat has backed off
+	if archetype == "herd" and best.is_empty() and d > _defend_radius() * 1.5:
+		_set_state("alert")
+		_alert_announce = 0.0
+		return [Vector3.ZERO, 0.0]
 	_face(to, delta)
+	# scavengers circle the player at laser range while their attacks cool down
+	if archetype == "scavenger" and best.is_empty() and d > 5.0 and d < 30.0:
+		_strafe_t -= delta
+		if _strafe_t <= 0.0:
+			_strafe_t = _rng.randf_range(2.5, 5.0)
+			_strafe_sign = -_strafe_sign
+		var tang := Vector3(-to.z, 0, to.x).normalized() * _strafe_sign
+		var radial := 0.0
+		if d < 10.0:
+			radial = -0.6
+		elif d > 20.0:
+			radial = 0.6
+		return [(tang + to.normalized() * radial).normalized(), walk_speed * 1.6]
 	# no attack fits (out of range or cooling down): close in to melee range
 	if best.is_empty() and d > 2.0:
 		return [to.normalized(), run_speed if d > 8.0 else walk_speed * 1.5]
@@ -568,8 +746,10 @@ func _start_attack(a: Dictionary) -> void:
 	_attack_phase = "windup"
 	_attack_t = 0.0
 	_attack_dealt = false
+	_burst_fired = 0
+	current_attack = str(a["id"])
 	if rig:
-		rig.play_pose(str(a.get("pose", "")), float(a["windup_s"]) + float(a["active_s"]))
+		rig.play_attack(a)
 	Log.info("machine %s attack %s" % [name, a["id"]])
 
 
@@ -582,16 +762,26 @@ func _run_attack(delta: float, to: Vector3, d: float) -> Array:
 			if _attack_t >= float(a["windup_s"]):
 				_attack_phase = "active"
 				_attack_t = 0.0
-				if a["kind"] == "ranged":
-					_fire_projectile(a)
-					_attack_dealt = true
+				# leaps (pounce, lunge) cover the distance to the player within the active time; charges run
+				var pose := str(a.get("pose", ""))
+				_charge_speed = run_speed * 1.4
+				if pose in ["pounce", "lunge"]:
+					_charge_speed = clampf(d / maxf(float(a["active_s"]), 0.1), run_speed * 0.6, run_speed * 1.8)
 			return [Vector3.ZERO, 0.0]
 		"active":
 			var move := Vector3.ZERO
 			var spd := 0.0
+			if a["kind"] == "ranged":
+				# a burst: one bolt per 0.15 s of active time (laser burst 0.6 s = 4 bolts; eye bolt 0.1 s = 1)
+				var shots := maxi(1, roundi(float(a["active_s"]) / 0.15))
+				while _burst_fired < shots and _attack_t >= float(_burst_fired) * float(a["active_s"]) / shots:
+					_face(to, delta)
+					_fire_projectile(a)
+					_burst_fired += 1
+				_attack_dealt = true
 			if a["kind"] == "charge":
 				move = forward()
-				spd = run_speed * 1.4
+				spd = _charge_speed
 			if not _attack_dealt and a["kind"] != "ranged":
 				var p: Node3D = Game.player
 				var reach := float(a["range_max_m"]) if a["kind"] == "melee" else 2.5
@@ -601,6 +791,7 @@ func _run_attack(delta: float, to: Vector3, d: float) -> Array:
 					_attack_dealt = true
 			if _attack_t >= float(a["active_s"]):
 				_attack_phase = ""
+				current_attack = ""
 				_cooldowns[a["id"]] = float(a["cooldown_s"])
 			return [move, spd]
 	return [Vector3.ZERO, 0.0]
@@ -674,7 +865,8 @@ func _face(dir: Vector3, delta: float) -> void:
 	var target_yaw := atan2(-dir.x, -dir.z)
 	var yaw := rotation.y
 	var diff := wrapf(target_yaw - yaw, -PI, PI)
-	rotation.y = yaw + clampf(diff, -turn_rate * delta, turn_rate * delta)
+	var rate := turn_rate if _speed_now > 0.5 else minf(turn_rate, turn_in_place_rate)
+	rotation.y = yaw + clampf(diff, -rate * delta, rate * delta)
 
 
 ## Obstacle avoidance: feelers at body height; when the wanted direction is blocked, take the freest of a fan of

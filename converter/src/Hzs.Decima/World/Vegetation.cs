@@ -38,7 +38,6 @@ public sealed class Vegetation(Resolver res, Log log)
 
     public static string DensityPath(int x, int y) => $"{WorldTiles.TileDir(x, y)}/{HzdNames.Str("vegetation.density")}";
     public static string PlacementPath(int x, int y) => $"{WorldTiles.TileDir(x, y)}/{HzdNames.Str("vegetation.placement")}";
-    public static string EffectPath(int x, int y) => $"{WorldTiles.TileDir(x, y)}/{HzdNames.Str("vegetation.effect_map")}";
     private static readonly string EffectType = HzdNames.Str("vegetation.effect_type");
 
     private readonly Placements _targets = new(res, log);
@@ -53,22 +52,7 @@ public sealed class Vegetation(Resolver res, Log log)
     }
 
     /// <summary>Ecotope effect channel of the tile (L8, at most <paramref name="maxPx"/>, north up), or null.</summary>
-    public Image? Effect(int x, int y, int maxPx)
-    {
-        var file = res.TryFile(EffectPath(x, y));
-        var texObj = file?.FirstObj("Texture");
-        if (file is null || texObj is null) return null;
-        var entry = file.All("WorldDataTextureMapEntry").FirstOrDefault(e => e.Ref("Type").Path == EffectType);
-        if (entry is null) return null;
-        var ch = entry.Int("Channel");
-        var tex = HzdTexture.Parse(texObj);
-        var img = tex.Decode(res.Archive, tex.MipFor(maxPx)).Fit(maxPx);
-        if (ch < 0 || ch >= img.Channels) return null;
-        var n = img.Width * img.Height;
-        var o = new byte[n];
-        for (var i = 0; i < n; i++) o[i] = img.Pixels[i * img.Channels + ch];
-        return new Image(img.Width, img.Height, 1, o);
-    }
+    public Image? Effect(int x, int y, int maxPx) => WorldData.Channel(res, x, y, HzdNames.Str("vegetation.effect_map"), EffectType, maxPx);
 
     internal static string? ChannelOf(string placementPath)
     {

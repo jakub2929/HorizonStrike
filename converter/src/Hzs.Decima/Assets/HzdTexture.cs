@@ -137,7 +137,9 @@ public sealed class HzdTexture
     }
 
     /// <summary>Decodes one slice of one mip to 8-bit pixels (RGBA for colour formats, 1-2 channels for BC4/BC5/R8).</summary>
-    public Image Decode(HzdArchive arc, int mip, int slice = 0)
+    public Image Decode(HzdArchive arc, int mip, int slice = 0) => Timers.Time("tex_decode", () => DecodeNow(arc, mip, slice));
+
+    private Image DecodeNow(HzdArchive arc, int mip, int slice)
     {
         int w = Math.Max(1, Width >> mip), h = Math.Max(1, Height >> mip);
         var all = MipData(arc, mip);
@@ -153,6 +155,8 @@ public sealed class HzdTexture
             case BC4S: return new Image(w, h, 1, Narrow(Dec(BlockFormat.BC4S, w, h, src), 1));
             case BC5U: return new Image(w, h, 2, Narrow(Dec(BlockFormat.BC5U, w, h, src), 2));
             case BC5S: return new Image(w, h, 2, Narrow(Dec(BlockFormat.BC5S, w, h, src), 2));
+            case BC6U: return new Image(w, h, 4, Bc6(Dec(BlockFormat.BC6HUf32, w, h, src), false));
+            case BC6S: return new Image(w, h, 4, Bc6(Dec(BlockFormat.BC6HSf32, w, h, src), true));
             case RGBA_8888: case RGBA_UNORM_8: return new Image(w, h, 4, src);
             case RGBA_8888_REV:
                 for (var i = 0; i < src.Length; i += 4) (src[i], src[i + 2]) = (src[i + 2], src[i]);
@@ -170,6 +174,24 @@ public sealed class HzdTexture
     }
 
     private static byte[] Dec(BlockFormat f, int w, int h, byte[] src) => BlockDecoder.Create(f).Decode(w, h, src);
+
+    /// <summary>BC6H decoded as RGBA float32 -> 8 bit: unsigned 0..1, signed -1..1 (normal maps of a few assets); alpha 255.</summary>
+    private static byte[] Bc6(byte[] f32, bool signed)
+    {
+        var n = f32.Length / 16;
+        var o = new byte[n * 4];
+        for (var i = 0; i < n; i++)
+        {
+            for (var c = 0; c < 3; c++)
+            {
+                var v = BitConverter.ToSingle(f32, i * 16 + c * 4);
+                if (signed) v = v * 0.5f + 0.5f;
+                o[i * 4 + c] = (byte)Math.Clamp(v * 255f + 0.5f, 0, 255);
+            }
+            o[i * 4 + 3] = 255;
+        }
+        return o;
+    }
 
     /// <summary>TinyBCSharp always writes 4 bytes per pixel (BC4: R replicated to RGB, BC5: R, G, 0); keeps the first channels.</summary>
     private static byte[] Narrow(byte[] rgba, int channels)

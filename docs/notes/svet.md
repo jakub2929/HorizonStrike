@@ -291,3 +291,154 @@ mole = Burrower were wrong. Grazer is `harvester`.
   files were collected is not answered `cached` but converted again.
 - Check (scratch gc_regen.py, one serve session): 5,-3 converted, its 1194 glb + 223 png (+ half the sidecars)
   deleted, re-requested -> cached false, missing 0/0; 4,-3 same with the cell dir deleted too -> missing 0/0.
+
+## 0.2 V0 texture audit + encoder (2026-10-09)
+- Start area 3x3 around 4,-3 (cache-svetwork/c24, scratch texaudit.py; machines from cache-dev):
+  albedo 307 (62.1 MPix, mostly 512^2), albedo_alpha 119 (25.4 MPix), terrain albedo 9 x 2048^2, veg maps 18 x 512^2,
+  machine colour 9. textures: 462, VRAM est 690 MiB uncompressed (RGBA8 + mips) -> 109 MiB BC.
+- Encoder benchmark (hzsconv hzd-bcbench, 24 nora building colour maps, 5.37 MPix, 1 thread):
+  BCnEncoder.Net 2.3.0 (MIT OR Unlicense): BC1 fast 32 ms/MPix 24.6 dB, balanced 150 ms/MPix 29.4 dB; BC5 65 ms 46.9 dB;
+  BC7 fast 5977 ms/MPix 36.9 dB, balanced 13796 ms/MPix 41.2 dB -> BC7 far too slow for on-demand cells.
+  Own encoders (Assets/BcEncode.cs, no dependency): BC1 249 ms/MPix 30.4 dB, BC3 284 ms 31.7 dB, BC5 115 ms 44.6 dB,
+  BC7 (mode 6 only) 304 ms/MPix 32.7 dB. Choice: own encoders; BCnEncoder not kept.
+- Per-cell conversion before V1 (c24, 2 workers, cold): 0.4 - 4.2 s per cell, 9 cells in 13 s.
+
+## 0.2 V1 + V2 (2026-10-09)
+- V1: every image the converter writes for the world is DDS (Assets/Dds.cs): "DDS " + DDS_HEADER (124 bytes; flags
+  CAPS|HEIGHT|WIDTH|PIXELFORMAT|MIPMAPCOUNT|LINEARSIZE = 0xA1007; pitchOrLinearSize = top mip bytes; mipMapCount =
+  full chain to 1x1; ddspf FourCC "DX10"; caps 0x401008) + DDS_HEADER_DXT10 (dxgiFormat, dimension 3 = TEXTURE2D,
+  miscFlag 0, arraySize 1, miscFlags2 0), then mips largest first, ceil(w/4) x ceil(h/4) blocks each, rows top-down.
+  DXGI: BC1 71 / 72 sRGB, BC3 77 / 78 sRGB, BC5 83, BC7 98 / 99 sRGB. Godot 4.7.2 editor (headless)
+  Image.load_dds_from_buffer: BC1 -> FORMAT_DXT1 (17), BC7 -> FORMAT_BPTC_RGBA (22), mipmaps 11 for 2048 (= 12 levels),
+  ImageTexture ok, decompress ok (release template: hra H3).
+  Mesh colour BC1 sRGB / cut-out BC7 sRGB (mip alpha scaled so the 0.5 cut keeps the top mip's coverage); cell
+  albedo.dds BC1 sRGB; veg_density/veg_effect.dds BC7 linear (CPU-side maps, game decompresses).
+  Whole world after V1 (cache-svetwork/c25, 2 workers): 340 cells, 0 failed, 134 s, median 485 ms, p90 1.26 s, max 8.4 s.
+- V2: HZD texture-set channel types per entry (PackingInfo low nibble; high nibble bits 4-5 = source channel):
+  normal X/Y = type 3 source 0/1 (mostly channels 0/1 of a BC7 / BC1 / BC5 / BC6U map, B = AO or roughness);
+  AO = 5, roughness = 6 (often a 1x1 RGBA_8888 constant), no metallic (Reflectance = 4 is not used).
+  Normal maps are +Y up (glTF): integrability test (curl of the implied gradient) prefers +Y up on 59/60 building,
+  40/40 rock and 40/40 eco-asset maps -> stored as-is, BC5 linear. ORM (R AO, G roughness, B 0) BC1 linear at half the
+  colour size; colourised meshes keep occlusion 1 (AO is in the stone colour). BC6U/BC6S decode added (some snow
+  vegetation normal maps).
+  Terrain normal.dds: HZD worlddata_terrain_normal is world space (R east, G north; corr with height gradients
+  -0.87 / +0.71, slope scale 0.96) -> Godot world XZ (G flipped), BC5, 1024^2; fallback from the heights.
+  instances[].kind from hzd_content geometry.kind_rules. 4_-3: normalTexture on rock meshes 100 %, building 98.2 %,
+  vegetation 84 %, props 100 %.
+- Encoder speed after projection indices (palette collinear): BC1 91, BC3 64, BC5 40, BC7 116 ms/MPix (same PSNR).
+- Per-cell after V2 (c31, 3x3, 2 workers, cold): 0.7 - 10.1 s, 9 cells in 22 s (before 0.2: 13 s). Log line now
+  carries cpu ms per phase (bc_encode dominates: 4,-3 = 8.5 s CPU of ~150 MPix colour + normal + ORM incl. mips).
+- VRAM start 3x3 (sum of DDS = GPU bytes): mesh BC1 707 / 52.9 MiB, BC5 414 / 110.5 MiB, BC7 119 / 32.3 MiB, cell
+  albedo 24 MiB, cell normal 12 MiB -> 232 MiB GPU textures (+ ~7 MiB machines, still PNG in model.glb). Before
+  (V0 audit): 690 MiB if uploaded as RGBA8 + mips, without any normal / ORM maps.
+- Whole world after V2 (c33, 2 workers): 340 cells, 0 failed, 159 s, median 518 ms, p90 1.72 s, max 10.6 s,
+  cache hzd 5.15 GB (after V1 134 s / 4.36 GB).
+
+## 0.2 V3 new machines (2026-10-09)
+- hzd_health: direwolf.core DireWolfDestructibilityResource 1100 (Corrupted 1650), hyena.core Hyena_DefaultDestructibilityResource
+  220 (Corrupted 330), longhorn.core LongHornDestructibilityResource 175 (Corrupted 263); grazer's 150 unchanged.
+- Weak spots (DestructibilityPart BoneName, DamageToEntityMultiplier 1.5): Sawtooth DireWolf_CanisterPart ->
+  DireWolf_Canister_Fuel_helper; Scrapper Hyena_BatteryPart -> Battery_helper (power cell), Hyena_RadarPart ->
+  Radar_helper; Broadhead Canister_{Left,Right}_01Part -> {L,R}_Longhorn_Canister_Fuel_helper. Eyes 2.0x (fx points).
+- The Sawtooth (direwolf) mesh is skinned to the greywolf (Ravager) rig; its own helpers (canister, eye, plates) are in
+  direwolf/animation/skeletons/*_helpers. MachineBuilder now reads helpers from the sheet skeleton folder first, then
+  from the mesh skeleton's folder, maps helper parent indices by joint name through the folder's own skeleton and
+  matches DestructibilityPart bones case-insensitively (Eye_helper vs eye_helper). Before: plates at Ravager positions.
+  Watcher / Strider / Grazer meta (bones, positions, chains, weak spots, points, roles) unchanged.
+- The longhorn entity uses ai/characters/horse (Strider's AI): perception 45 m / 12 deg / 96 m / hearing 20 m.
+  Sawtooth and Scrapper resolve 45 / 25 / 96 / 100 / 30 / 15 from their own AI files.
+- Leg chains: paws with three toes on the ground (direwolf/hyena rigs) break the one-grounded-leaf derivation; then the
+  chains are the joint paths of the bone_roles legs (upper .. toe). Roles: foot = joint carrying the toes, toe = middle toe.
+- Sounds: machine sound folders = own + every robot folder of the sheet sound banks (Broadhead body sounds = horse);
+  patterns + scavenge, vox_hit, vox_hr_, footdown.
+- site_map prepared (merge last): type:direwolf -> sawtooth, type:hyena -> scrapper, type:longhorn -> broadhead (x1.0).
+
+Sites of the new machines (svet 0.2 V3, hzsconv hzd-sites after site_map type:direwolf/hyena/longhorn -> sawtooth/scrapper/broadhead):
+
+| tile | site | original | orig count | 0.2 machine | count | rule |
+|---|---|---|---|---|---|---|
+| -3,-3 | FE_Horse | longhorn | 6-8 | broadhead | 6 | type:longhorn |
+| -3,0 | FE_Longhorn | longhorn | 3-3 | broadhead | 3 | type:longhorn |
+| -2,0 | FE_Longhorn | longhorn | 4-4 | broadhead | 4 | type:longhorn |
+| -2,1 | FE_Longhorn_01 | longhorn | 3-3 | broadhead | 3 | type:longhorn |
+| -1,-2 | FE_Longhorn | longhorn | 6-8 | broadhead | 6 | type:longhorn |
+| -1,0 | FE_Longhorn_01 | longhorn | 3-5 | broadhead | 4 | type:longhorn |
+| 0,-2 | Longhorn_01 | longhorn | 3-4 | broadhead | 4 | type:longhorn |
+| 0,-2 | Horse_03 | longhorn | 3-3 | broadhead | 3 | type:longhorn |
+| 0,-2 | Longhorn_02 | longhorn | 3-3 | broadhead | 3 | type:longhorn |
+| 0,0 | Longhorn_01 | longhorn | 3-5 | broadhead | 4 | type:longhorn |
+| 1,-3 | Longhorn_01 | longhorn | 4-4 | broadhead | 4 | type:longhorn |
+| 1,-2 | Longhorn_02 | longhorn | 3-3 | broadhead | 3 | type:longhorn |
+| 1,-1 | Horse | longhorn | 3-3 | broadhead | 3 | type:longhorn |
+| 1,-1 | Longhorn_03 | longhorn | 3-3 | broadhead | 3 | type:longhorn |
+| 1,0 | Longhorn_02 | longhorn | 3-5 | broadhead | 4 | type:longhorn |
+| 2,-1 | Horse | longhorn | 3-3 | broadhead | 3 | type:longhorn |
+| 2,-1 | Longhorn_2 | longhorn | 3-3 | broadhead | 3 | type:longhorn |
+| 2,0 | Horse_01 | longhorn | 3-3 | broadhead | 3 | type:longhorn |
+| 2,0 | Longhorn_01 | longhorn | 3-5 | broadhead | 4 | type:longhorn |
+| 3,-4 | FE_Hyena_Scene | hyena | 4-4 | scrapper | 4 | type:hyena |
+| 3,-2 | Longhorn_Scene | longhorn | 6-8 | broadhead | 6 | type:longhorn |
+| 3,-1 | DireWolf_Mountain_Scene | direwolf | 1-1 | sawtooth | 1 | type:direwolf |
+| 4,-4 | FE_Hyena | hyena | 3-3 | scrapper | 3 | type:hyena |
+| 6,-1 | FE_Longhorn | longhorn | 3-3 | broadhead | 3 | type:longhorn |
+| 6,0 | FE_Longhorn_01 | longhorn | 4-4 | broadhead | 4 | type:longhorn |
+| 6,0 | FE_Longhorn | longhorn | 3-3 | broadhead | 3 | type:longhorn |
+
+| original | sites | orig machines | 0.2 machine | machines | rule |
+|---|---|---|---|---|---|
+| direwolf | 1 | 1 | sawtooth | 1 | type:direwolf |
+| hyena | 2 | 7 | scrapper | 7 | type:hyena |
+| longhorn | 23 | 88 | broadhead | 86 | type:longhorn |
+
+## 0.2 V4 terrain layers (2026-10-09)
+- HZD's terrain material per ecotope (shaders/ecotope/<eco>/terrain/terrainmaterial_*) = RenderEffectResource + compiled
+  ShaderResource sampling texturesetarrays/terrain_texture_array (TextureList); layer choice and weights live in shader
+  code -> not readable. Only shaders/ecotope/21-southernrockies/terrain/textures (start region) and two single sets
+  (19 soil_deep_03, 20 soil_sand_02) are per-layer sets. Fallback (plan V4): sheet terrain.layers = snow_heavyfresh_01,
+  soil_grassy_02, soil_dry_02, rock_sedimentary_04 (colour BC1, normal BC5, ORM from AO / roughness), shared
+  hzd/terrain_layers/<name>_{albedo,normal,orm}.dds 1024^2.
+- masks.dds per cell (BC7 512^2, R snow, G grass, B dirt, A rock): rock = smoothstep(32, 48 deg) of the height slope,
+  snow = (1 - rock) x smoothstep(0.50, 0.62) of the ecotope effect (frost 0.54-0.6 / snow > 0.6 like the placement
+  curves), grass = rest x clamp(undergrowth density x 1.5 - roads), dirt = rest. 4_-3: snow 0.48, grass 0.13,
+  dirt 0.02, rock 0.37; after BC7 |sum - 1| mean 0.005, 0.5 % of pixels > 0.05 (max 0.19) -> the shader normalises.
+
+## 0.2 V5 water (2026-10-09)
+- Per tile levels/worlds/world/tiles/tile_x<X>_y<Y>/layers/water/tile_<X>_<Y>_water.core: ObjectCollection of
+  StaticMeshInstances -> LodMeshResources (river / lake surfaces, vertices in absolute height, instance origin y 0) +
+  water RenderEffects / ShaderResources (compiled water shading). Tile 4,-3: 31 surfaces, 182-299 m, following the
+  valleys and the river (Godot render cache-svetwork/shots/water_4_-3_0.png). cell.json format 7 water.instances
+  (meshes exported like the world meshes; hzd_content water.layer); systems render.water filled.
+
+## 0.2 V6 occluders + HLOD (2026-10-09)
+- MeshRef carries the glb POSITION bounds and "all materials opaque" (read from the exported glb JSON, cached).
+- occluders: boxes for opaque building / rock instances with a world edge >= 8 m (render.occluder_min_size_m),
+  mesh bounds x 0.8, largest 256; terrain grid 33 x 33 (16 m) = local minimum of the heights - 1 m.
+- hlod.glb: per instance the finest HZD LOD with <= 400 vertices (LodMeshResource chain; else the coarsest), largest
+  buildings / rocks >= 4 m first until 20000 triangles; vertex colour = linear average of the material colour map at
+  16 px (stone for colourised rocks). 4_-3: 256 boxes, hlod 19998 triangles from 108 instances (mostly the big rocks,
+  the village's parts are smaller than the rocks).
+- hra's DDS test (release-hra-h3) runs hzsconv from this worktree's bin; while it runs, builds go to
+  scratchpad/hzsout (no overwrite of DLLs in use).
+
+## 0.2 V7 ATRAC9 (2026-10-09)
+- Attempt 1: no ATRAC9 package on NuGet; LibAtrac9 (Alex Barney, MIT) C# sources vendored into
+  Hzs.Decima/Audio/LibAtrac9 (+ LICENSE, header + '#nullable disable' only) and listed in THIRD_PARTY_NOTICES.
+  Inline mono weather spot sounds decoded at once (AT9 RIFF inside WaveData).
+- Attempt 2: streamed bank waves read 0 bytes: the stream data source length is 0 for waves inside soundbanks ->
+  length = WaveDataSize. AT9 RIFF: fmt WAVEFORMATEXTENSIBLE (mask +20), version +40, 4-byte config +44; fact =
+  samples, overlap delay, encoder delay; data = superframes. 6 channels -> stereo by the extensible mask (ITU-like
+  0.707 centre / surround, LFE dropped, scaled only against clipping).
+- hzd/audio/ambience/wind_0/1.wav (OpenMountain_wind_heavy/medium, 34 / 32 s) and rain_0/1.wav (rain_mountain_low/high)
+  from weather_mountain.soundbank (hzd_content audio.ambience_extra with name_contains). Wind spectral centroid
+  ~950 Hz, rain ~6.8 kHz (not decoder noise). HzdFormat 2 (machines V3 + audio change: caches re-convert them).
+
+## 0.2 render.* sky / fog / sun bindings (2026-10-09)
+- ambience/cycles/regions/nora/nora_mothers_heart_cycle.core holds several AmbienceCycles (one-keyframe overrides +
+  the day cycle with 9 keyframes: 4.7, 5, 10, 16, 20, 21, 21.3 h). Hand-written layouts AmbienceCycle,
+  AmbienceSettingsKeyFrame, AmbienceSettings, Atmosphere{Fog,Haze,Sky}SettingsResource + settings structs.
+- Sheets/Ambience.cs evaluates "AmbienceCycle.<Curve>@T" (CurveResource, X = hours, linear; the curves are flagged
+  Smooth with tangents, not used) and "AmbienceCycle.AmbienceKeyFrames[TimeOfDay=T].AmbienceSettings.<Res>.<Field>"
+  (linear between the surrounding keyframes, 24 h wrap, keyframes without the resource skipped).
+- At 9.0 h: sun elevation 17.5 deg, azimuth 90 deg, fog density 87.5 (HZD units), start 50 m, end 950 m,
+  height 220 m, falloff 0.1625, fog colour [1,1,1], sky colour [0.141, 0.624, 1.0] (linear), zenith 0.0625,
+  horizon 16, sun shape 0.5. No keyframe has haze settings -> render.haze_* use their fallbacks.

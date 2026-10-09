@@ -239,3 +239,37 @@ Full per-site table: `docs/notes/svet.md`. No placement references `ai/groups`, 
 - D53 Perf measured at 1920x1080 without vsync on perf.route_cells; stress = 20 child runs over 30 cells.
 - D54 Before/after shot poses defined anew; "before" shots taken with the 0.1.1 build.
 - D55 Ownership split hra/stroje per docs/PLAN-0.2.md.
+- svet V0–V2 done (branch worktree-agent-a8855f4cacc830f33, 00c8126/72e079a), held until hra H3 (DDS loader):
+  textures: 462, VRAM est 690 MiB uncompressed -> 109 MiB BC (start set); own BC1/BC3/BC5/BC7 encoders (BCnEncoder.Net
+  BC7 6-14 s/MPix too slow; own mode-6 BC7 116 ms/MPix, PSNR 32.7 dB); DDS DX10 headers; normal BC5 + ORM BC1 from HZD
+  texture sets; instances[].kind; start 3x3 textures ~232 MiB incl. normals/ORM; whole world 159 s / 5.15 GB.
+- D56 terrain.albedo_px (converter) is the single source of terrain texture size; cache.terrain_texture_px deprecated.
+- svet V3 done (8525693, not merged yet): Sawtooth 1100 / Scrapper 220 / Broadhead 175 HP (HZD, non-corrupted);
+  weak spots canister / power cell + radar / 2 canisters (HZD x1.5); Sawtooth mesh skinned to the Ravager rig ->
+  builder reads helpers from own then shared rig; Broadhead uses Strider AI perception (45 m / 12 deg); site_map
+  prepared: direwolf->sawtooth (1 site, 1), hyena->scrapper (2 sites, 7), longhorn->broadhead (23 sites, 86);
+  PAS_Direwolf (5,-3) has no objects in the archives.
+- Merged svet V0–V2 (72e079a) + hra H1–H3 (70b8582). H1 cell-load profile (route 32 cells, 1920x1080, editor, old
+  PNG cache): add_child median 187 / max 1126 ms (biggest), first_draw 57/418, mesh_upload 28/303, collision 45/295,
+  multimesh 54/241, terrain_collision 47/73, terrain 6/29; worst frame median 443 / max 1676 ms; worker prepare
+  1389/5976 ms; VRAM at start 780 MB. H2 (one cell at a time, 6 ms main-thread budget, object collision only within
+  150 m in 32 m bins, terrain collision 257^2 heightmap per cell = 2 m grid, herd spawns 1 machine/frame, machine
+  types warmed on the loading screen): worst frame on route 77.3 ms (median 44.9), add_child max 11 ms; 2 frames >
+  50 ms are first-draw shader compiles (H8). H3: DDS loads in the RELEASE template (BC1->DXT1, BC5->RGTC_RG,
+  BC7->BPTC); release VRAM at start 1022 MB (texture 585, buffer 414) on the DDS cache.
+- Merged svet V3–V7 (596463f) with the site_map change for the new machines HELD BACK (stored in
+  _tools/site_map_v02.json; re-applied after stroje M2): V4 terrain layers (4 shared HZD layer sets snow/grass/dirt/rock
+  from 21-southernrockies + per-cell masks.dds from snow map, slope, undergrowth density, roads), V5 water (HZD tile
+  water layers -> cell.json water.instances; 31 in 4,-3), V6 occluders (boxes >= 8 m, max 256/cell + 33^2 terrain grid)
+  + hlod.glb (HZD coarse LODs, <= 20k tris), V7 ATRAC9 via vendored LibAtrac9 (Alex Barney, MIT; THIRD_PARTY_NOTICES)
+  -> wind_0/1, rain_0/1 stereo; render.* sky/fog/sun from the Mother's Heart cycle at 9:00 (sun elev 17.5 deg, az 90,
+  fog 50-950 m). cell.json format 8. Bootstrap 101.6 s with other agents loading the CPU.
+- Merged stroje M0–M3 (68ef7a4): own analytic leg IK in one SkeletonModifier3D (4–7 joint legs + step planner),
+  gaits from the sheet `anim` column, body tilt, turn in place, graze, attacks, hit react, death fall (corpses freed
+  after 45 s when > 80 m away, max 240 s), animation LOD by distance (35/70/120 m -> every 2/3/6 frames). Bench real
+  models: foot slide / penetration (cm) watcher 0.0/0.3, strider 0.0/1.0, grazer 0.0/1.0, sawtooth 1.4/0.9, scrapper
+  1.2/1.0, broadhead 0.0/1.0 (M0 baseline watcher 14.3/1.4, strider 30.6/26.1, grazer 26.2/7.3). AI bench: Sawtooth
+  suspicious->alert->stalk->attack (charge, bite); Scrapper radar pings call the pack, laser burst; Broadhead charges,
+  never flees. Weak spots 8 dirs: watcher 8, strider 7, grazer 8, sawtooth 8, scrapper power cell 6 / radar 8,
+  broadhead 7. Broadhead neck rest pitch 40 deg (anim.neck_rest_pitch_deg).
+- site_map for the new machines re-applied (direwolf->sawtooth, hyena->scrapper, longhorn->broadhead).
