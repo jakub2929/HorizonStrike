@@ -11,6 +11,7 @@ const FsUtil := preload("res://core/fsutil.gd")
 const Sheets := preload("res://core/sheets.gd")
 
 var pid := 0
+var started_unix := 0.0   # same field as converter_client.gd
 var cache_root := ""
 var cell_size := 512.0
 var cell_delay_ms := 150
@@ -32,6 +33,7 @@ var _mesh_bytes := 0
 
 func start(root: String) -> String:
 	cache_root = root
+	started_unix = Time.get_unix_time_from_system()
 	DirAccess.make_dir_recursive_absolute(root)
 	# placeholder glTF meshes are made here on the main thread (they need RenderingServer resources)
 	_mesh_bytes = MockData.write_meshes(root)

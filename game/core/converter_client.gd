@@ -8,6 +8,7 @@ const Log := preload("res://core/log.gd")
 
 var pid := 0
 var exe := ""
+var started_unix := 0.0   # when this converter process was started (it remembers every mesh it exported since)
 var _pipe: Dictionary = {}
 var _io: FileAccess
 var _err: FileAccess
@@ -31,6 +32,7 @@ func start(exe_path: String, args: PackedStringArray) -> String:
 	_io = _pipe["stdio"]
 	_err = _pipe.get("stderr")
 	pid = int(_pipe.get("pid", 0))
+	started_unix = Time.get_unix_time_from_system()
 	_running = true
 	Log.info("converter started pid=%d: %s %s" % [pid, exe_path, " ".join(args)])
 	_reader = Thread.new()

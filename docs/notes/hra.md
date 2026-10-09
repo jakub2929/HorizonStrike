@@ -104,6 +104,13 @@ Rules I follow: no class_name lookups across files (everything via preload, so a
   Start fps 38 -> 71.9 via: small plants fade at 45 m, plants <12 m fade at 0.45x, shadow distance 100 m, LOD
   threshold 6 px, no alpha-to-coverage. 4_-3: 6551 vegetation, 1377 draw calls, GPU 13.35 ms.
   Runner run4 (realfresh3): t05, t06, s01, s02, s03 PASS. Export pack: autotest/ included, dev/ excluded.
+- Mesh GC vs converter: hzsconv remembers every mesh/texture it exported (or found) for its process lifetime and never
+  rewrites it, so GC deleting a mesh of an evicted cell made its re-conversion reference a missing file. GC now keeps
+  the refs of evicted cells whose cell.json is newer than the converter start (pinned) and runs only when the
+  converter is idle and nothing is requested (retried every 5 s). Cost: meshes of cells converted in this session
+  are freed only in a later session. Proper fix belongs in the converter (re-export when the glb is gone).
+- Spawner: a site activates only when its whole herd fits spawning.max_active_machines (nearest sites first; idle
+  sites farther away are deactivated to make room; corpses do not count).
 
 ## Notes for teammates (relay via main)
 - test (t10): real cells outside the start area are ~11 MB (meshes/textures shared), 5 steps east add ~164 MB, so
