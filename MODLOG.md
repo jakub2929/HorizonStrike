@@ -296,3 +296,7 @@ Full per-site table: `docs/notes/svet.md`. No placement references `ai/groups`, 
   (0xC0000005) after "quitting (0)" when quitting ~1 s after a teleport (world stops waiting for a cell task after 10 s).
   0.1.1 baseline (noisy: other agents' Godot/converter runs): route avg 42-48 fps, VRAM 1230 MiB, 1.5-2 s hitch per
   cell load. Records: before/after PNGs, 18 machine clips + 25 s cell-crossing video, frame-time SVG.
+- Merged svet b4e707d (t14 fix): building normal maps 72.6 % -> 99.3 % (100 % excluding materials with no HZD normal,
+  flagged extras.hzd_normal="none"); Cauldron composite `_cmp`/`_nmt` plain textures accepted as normals after a pixel
+  check; invisible occluder/collision helper geometry no longer exported (~36k building instances fewer);
+  vegetation normals 77.5 % -> 100 %. WorldMeshes.Format 6.
