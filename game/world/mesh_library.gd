@@ -114,7 +114,9 @@ func _load_image(tex_name: String) -> Image:
 		return null
 	if not img.is_compressed():
 		img.generate_mipmaps()
-		img.compress(Image.COMPRESS_S3TC, Image.COMPRESS_SOURCE_SRGB)
+		# runtime BC compression exists only in editor builds (release templates log an error)
+		if OS.has_feature("editor"):
+			img.compress(Image.COMPRESS_S3TC, Image.COMPRESS_SOURCE_SRGB)
 	return img
 
 

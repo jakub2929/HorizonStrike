@@ -56,6 +56,15 @@ func _ready() -> void:
 	Log.info("cache %s, cap %d bytes" % [Game.cache_root, Game.cache_cap_bytes])
 	get_tree().auto_accept_quit = false
 	_make_environment()
+	# periodic performance line in the log (fps, frame time, video memory) for player reports
+	var perf := Timer.new()
+	perf.wait_time = 30.0
+	perf.autostart = true
+	perf.timeout.connect(func() -> void:
+		Log.info("perf: %.1f fps, %.1f ms process, vram %.0f MB" % [Engine.get_frames_per_second(),
+			Performance.get_monitor(Performance.TIME_PROCESS) * 1000.0,
+			Performance.get_monitor(Performance.RENDER_VIDEO_MEM_USED) / 1048576.0]))
+	add_child(perf)
 	if args.autotest:
 		_start_runner()
 	if args.exit_after > 0.0:

@@ -66,7 +66,8 @@ static func prepare(cell_dir: String, meshes: RefCounted) -> Dictionary:
 			var img := Image.load_from_file(cell_dir.path_join(f))
 			if img:
 				img.generate_mipmaps()
-				if key == "albedo" and not img.is_compressed():
+				# runtime BC compression exists only in editor builds (release templates log an error)
+				if key == "albedo" and not img.is_compressed() and OS.has_feature("editor"):
 					img.compress(Image.COMPRESS_S3TC, Image.COMPRESS_SOURCE_SRGB)
 				out[key + "_img"] = img
 	# ---- instances grouped by mesh
