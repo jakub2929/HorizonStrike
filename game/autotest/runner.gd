@@ -33,6 +33,7 @@ const SCENARIOS := {
 	"t16": preload("res://autotest/scenarios/t16_stress.gd"),
 	"r02": preload("res://autotest/scenarios/r02_machine_videos.gd"),
 	"r03": preload("res://autotest/scenarios/r03_cell_crossing.gd"),
+	"r04": preload("res://autotest/scenarios/r04_frametime_graph.gd"),
 	## no sheet rows: child parts started by t16 / r02 / r03 themselves (lib/movie.gd for the recordings)
 	"t16run": preload("res://autotest/scenarios/t16run.gd"),
 	"r02clip": preload("res://autotest/scenarios/r02clip.gd"),

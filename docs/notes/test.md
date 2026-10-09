@@ -356,6 +356,16 @@ t04 FAIL (slot key: current stays ak47), t06 FAIL (crouch key: crouched = false;
   within ~1 s (t16run does this after its last waypoint). Fix: cancel/finish the task (or keep waiting) before the
   world is freed.
 
+### T5 records + t15 on 0.2 (test build `C:\meshy\_tools\test-02-build-a` = export of 0110c88 + converter publish)
+- `--autotest r01,r02,r03` (`C:\meshy\_tools\autotest-02\rec-a`): r01 PASS (3 PNG, same poses as before/, not
+  blank), r02 PASS (18 MP4, 7.2-8 s, 3 frames each checked: not blank; real models + animation), r03 PASS (25.3 s,
+  2 borders). Copied to `C:\meshy\_tools\records-0.2\after\` and `...\video\` (19 MP4).
+- t15 on 0.2 (`records-0.2\t15-02-g`, others at start: only its own parent; at the end 2 Godot + hzsconv of other
+  agents): start 63.5 / 55.6 fps, route 66.7 avg / 25.3 1 % low, worst 589 ms, worst during a load 541 ms, VRAM
+  1021.6 MiB, 10 cells, 0 engine errors. FAIL: route 1 % low >= 45, no frame > 50 ms while a cell loads (hra H4+).
+- r04: `records-0.2\frametime_0.1_vs_0.2.svg` (0.1.1 run f vs 0.2 run g, route phase). Scenario r04 runs the tool
+  from the game (env HZS_BASELINE_CSV, HZS_T15_CSV / <out>/t15, HZS_TOOLS, HZS_PYTHON).
+
 ## Log
 - 2026-10-09 runner, libs and all 13 scenario scripts written against the documented API; stub verification above.
 - 2026-10-09 pre-merge integration: hra's committed game (branch head 4ea177b, exported with `git archive` into a
