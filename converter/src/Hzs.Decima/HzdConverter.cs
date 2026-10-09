@@ -13,7 +13,7 @@ namespace Hzs.Decima;
 public static class HzdConverter
 {
     /// <summary>Bump when the HZD cache layout or conversion changes (forces re-conversion of hzd/ assets).</summary>
-    public const int HzdFormat = 1;
+    public const int HzdFormat = 2;
 
     /// <summary>Steam build id of the HZD install (&lt;lib&gt;/steamapps/appmanifest_1151640.acf), or null.</summary>
     public static string? HzdBuild(string hzdDir)
@@ -214,13 +214,14 @@ public static class HzdConverter
         index["music_combat"] = HzdNames.Str("audio.cue_combat");
         progress.Report("audio", 1, 3);
 
-        // ambience: the conifer-forest environment's bird calls (the wind/rain beds are 6-channel ATRAC9) + campfire loop
+        // ambience: the conifer-forest environment's bird calls + extra folders from the sheet (campfire loop, wind and rain
+        // beds = 6-channel ATRAC9, downmixed to stereo)
         var amb = new JsonArray();
         Directory.CreateDirectory(Path.Combine(tmp, "ambience"));
         var counters = new Dictionary<string, int>();
         var minSeconds = HzdNames.Num("audio.ambience_min_seconds");
         var perBank = HzdNames.Int("audio.ambience_per_bank");
-        void ExportFolder(string folder, string prefix, int max)
+        void ExportFolder(string folder, string prefix, int max, string? nameContains = null)
         {
             var n = 0;
             foreach (var p in arc.Paths.Where(p => p.StartsWith(folder, StringComparison.Ordinal)).OrderBy(p => p, StringComparer.Ordinal))
@@ -231,6 +232,7 @@ public static class HzdConverter
                 foreach (var w in f.All("WaveResource"))
                 {
                     if (n >= max) break;
+                    if (nameContains is not null && !w.Str("Name").Contains(nameContains, StringComparison.OrdinalIgnoreCase)) continue;
                     var e = Audio.Waves.Export(arc, w);
                     if (e is null || e.Seconds < minSeconds) continue;
                     n++;
@@ -254,7 +256,7 @@ public static class HzdConverter
                 ExportFolder(folder, HzdNames.Str("audio.ambience_kind"), perBank);
             }
         foreach (var extra in HzdNames.Json("audio.ambience_extra").AsArray())
-            ExportFolder(extra!["folder"]!.GetValue<string>(), extra["kind"]!.GetValue<string>(), perBank);
+            ExportFolder(extra!["folder"]!.GetValue<string>(), extra["kind"]!.GetValue<string>(), perBank, extra["name_contains"]?.GetValue<string>());
         index["ambience"] = amb;
         index["ambience_source"] = envPath;
         progress.Report("audio", 2, 3);

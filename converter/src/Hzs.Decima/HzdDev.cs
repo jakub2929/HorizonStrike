@@ -384,6 +384,52 @@ public static partial class HzdDev
                     Console.WriteLine($"{h.W}x{h.H} mips {h.Mips} dxgi {h.Dxgi}: mean R {mean[0] / n / 255:F3} G {mean[1] / n / 255:F3} B {mean[2] / n / 255:F3} A {mean[3] / n / 255:F3}; sum-1 mean {sumDev / n:F4} max {maxDev:F3}, pixels off by > 0.05: {100.0 * over / n:F2} %");
                     return 0;
                 }
+            case "hzd-wavetest":
+                {
+                    // dev only: export the waves of one file (optionally filtered by name) to --out and report the result
+                    var path = Get("--path") ?? throw new ArgumentException("--path <core path>");
+                    var outDir = Get("--out");
+                    var wres = new Resolver(arc);
+                    var f = wres.File(path);
+                    foreach (var w in f.All("WaveResource"))
+                    {
+                        if (Get("--name") is { } nm && !w.Str("Name").Contains(nm, StringComparison.OrdinalIgnoreCase)) continue;
+                        try
+                        {
+                            Console.WriteLine($"  source {Audio.Waves.StreamSource(w)} archive size {(Audio.Waves.StreamSource(w) is { } ss ? arc.SizeOf(Sheets.HzdNames.StripStream(ss.Loc)) : -1)}");
+                            var raw = Audio.Waves.RawData(arc, w);
+                            Console.WriteLine($"  raw {raw.Length} bytes: {Convert.ToHexString(raw.AsSpan(0, Math.Min(64, raw.Length)))}");
+                            var e = Audio.Waves.Export(arc, w);
+                            Console.WriteLine($"{w.Str("Name")}: enc {w.Int("Encoding")} ch {w.Int("ChannelCount")} -> {(e is null ? "null" : $"{e.Ext} {e.Data.Length} bytes {e.Seconds:F1} s")}");
+                            if (e is not null && outDir is not null)
+                            {
+                                Directory.CreateDirectory(outDir);
+                                File.WriteAllBytes(Path.Combine(outDir, $"{w.Str("Name")}.{e.Ext}"), e.Data);
+                            }
+                        }
+                        catch (Exception ex) { Console.WriteLine($"{w.Str("Name")}: {ex.GetType().Name} {ex.Message}"); }
+                    }
+                    return 0;
+                }
+            case "hzd-waves":
+                {
+                    // dev only: WaveResources under --prefix: encoding, channels, rate, seconds, streaming
+                    var prefix = Get("--prefix") ?? "sounds/effects/world/weather/";
+                    var wres = new Resolver(arc);
+                    var n = 0;
+                    foreach (var path in arc.Paths.Where(x => x.StartsWith(prefix, StringComparison.Ordinal)).OrderBy(x => x, StringComparer.Ordinal))
+                    {
+                        var f = wres.TryFile(path + ".core");
+                        if (f is null) continue;
+                        foreach (var w in f.All("WaveResource"))
+                        {
+                            if (n++ > (int.TryParse(Get("--n"), out var nv) ? nv : 80)) return 0;
+                            var rate = w.Int("SampleRate");
+                            Console.WriteLine($"enc {w.Int("Encoding")} ch {w.Int("ChannelCount")} {rate} Hz {(rate > 0 ? w.Int("SampleCount") / (double)rate : 0),7:F1} s stream {w.Bool("IsStreaming")} {path} {w.Str("Name")}");
+                        }
+                    }
+                    return 0;
+                }
             case "hzd-veg":
                 {
                     // dev only: placement layers of a tile -> density channel and placement target type

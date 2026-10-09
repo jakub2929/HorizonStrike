@@ -419,3 +419,15 @@ Sites of the new machines (svet 0.2 V3, hzsconv hzd-sites after site_map type:di
   the village's parts are smaller than the rocks).
 - hra's DDS test (release-hra-h3) runs hzsconv from this worktree's bin; while it runs, builds go to
   scratchpad/hzsout (no overwrite of DLLs in use).
+
+## 0.2 V7 ATRAC9 (2026-10-09)
+- Attempt 1: no ATRAC9 package on NuGet; LibAtrac9 (Alex Barney, MIT) C# sources vendored into
+  Hzs.Decima/Audio/LibAtrac9 (+ LICENSE, header + '#nullable disable' only) and listed in THIRD_PARTY_NOTICES.
+  Inline mono weather spot sounds decoded at once (AT9 RIFF inside WaveData).
+- Attempt 2: streamed bank waves read 0 bytes: the stream data source length is 0 for waves inside soundbanks ->
+  length = WaveDataSize. AT9 RIFF: fmt WAVEFORMATEXTENSIBLE (mask +20), version +40, 4-byte config +44; fact =
+  samples, overlap delay, encoder delay; data = superframes. 6 channels -> stereo by the extensible mask (ITU-like
+  0.707 centre / surround, LFE dropped, scaled only against clipping).
+- hzd/audio/ambience/wind_0/1.wav (OpenMountain_wind_heavy/medium, 34 / 32 s) and rain_0/1.wav (rain_mountain_low/high)
+  from weather_mountain.soundbank (hzd_content audio.ambience_extra with name_contains). Wind spectral centroid
+  ~950 Hz, rain ~6.8 kHz (not decoder noise). HzdFormat 2 (machines V3 + audio change: caches re-convert them).
