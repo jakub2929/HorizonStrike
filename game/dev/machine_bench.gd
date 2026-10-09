@@ -49,6 +49,13 @@ func _initialize() -> void:
 				i += 1
 			"--ai":
 				r.ai = true
+			"--ai-start":
+				r.ai_start = float(nxt)
+				i += 1
+			"--ai-stand":
+				r.ai_stand = true
+			"--ai-shot":
+				r.ai_shot = true
 			"--perf":
 				r.perf = int(nxt)
 				i += 1
@@ -71,6 +78,9 @@ class Runner extends Node:
 	var only: Array = []          # optional phase filter (dev)
 	var shots := ""               # screenshot directory (windowed runs)
 	var ai := false
+	var ai_start := 70.0          # --ai-start <m>: stand-in starts this far away (in the machines' sight line)
+	var ai_stand := false         # --ai-stand: stand-in does not walk up
+	var ai_shot := false          # --ai-shot: after 3 s one Glock-like shot into the air (crouched-player herd test)
 	var perf := 0                 # --perf N: N machines (types round-robin) with AI on; animator cost per frame
 	var _fake: Node3D
 	var _ai_group: Array = []
@@ -405,7 +415,8 @@ class Runner extends Node:
 			_ai_group.append(m)
 		for g in _ai_group:
 			g.herd = _ai_group
-		_fake.global_position = Vector3(0, height(0, 70) + 0.1, 70)
+		_fake.global_position = Vector3(0, height(0, ai_start) + 0.1, ai_start)
+		(_fake as FakePlayer).vis = 0.35 if ai_shot else 1.0   # crouched for the shot test (stays undetected)
 		(_fake as FakePlayer).hits.clear()
 		_ai_t = 0.0
 		_ai_rec = {"machine": type, "states": [], "attacks": {}, "pings": 0, "pings_inside": 0, "max_proj": 0,
@@ -414,6 +425,12 @@ class Runner extends Node:
 	func _on_state_changed(m: Node, _old: String, new: String) -> void:
 		if not ai or _ai_group.is_empty():
 			return
+		if _ai_group.has(m):
+			var all_st: Dictionary = _ai_rec.get("states_all", {})
+			if not all_st.has(m.get_instance_id()):
+				all_st[m.get_instance_id()] = []
+			all_st[m.get_instance_id()].append(new)
+			_ai_rec["states_all"] = all_st
 		if m == _ai_group[0]:
 			_ai_rec["states"].append(new)
 		elif _ai_group.has(m) and new in ["alert", "attack", "flee", "stalk"]:
@@ -427,7 +444,14 @@ class Runner extends Node:
 		# the stand-in walks towards the machine at 2.5 m/s and stops 4 m away
 		var to := lead.global_position - _fake.global_position
 		to.y = 0
-		if to.length() > 4.0:
+		if ai_shot and not _ai_rec.has("shot_t") and _ai_t >= 3.0:
+			_ai_rec["shot_t"] = _ai_t
+			_ai_rec["states_before_shot"] = (_ai_rec["states"] as Array).duplicate()
+			_game.make_noise(_fake.global_position, float(Sheets.weapon_row("glock").get("suspicion_radius_m", 30.0)),
+				Sheets.sys_num("suspicion.shot_gain_center", 1.0), Sheets.sys_num("suspicion.shot_gain_edge", 0.4), true)
+		if ai_shot and _ai_rec.has("shot_t") and not _ai_rec.has("flee_t") and str(lead.state) == "flee":
+			_ai_rec["flee_t"] = _ai_t - float(_ai_rec["shot_t"])
+		if to.length() > 4.0 and not ai_stand:
 			var step := to.normalized() * 2.5 * delta
 			var np := _fake.global_position + step
 			np.y = height(np.x, np.z) + 0.1
@@ -459,16 +483,34 @@ class Runner extends Node:
 		var arch := str(r["archetype"])
 		var lead: Node = _ai_group[0]
 		var want: Array = []
+		var problems: Array = []
 		match arch:
 			"guard":
-				want = ["alert", "attack"]
+				want = ["suspicious", "alert", "attack"]
 			"predator":
-				want = ["alert", "stalk", "attack"]
+				# a player already inside stalk_until_m is attacked without stalking
+				var close := ai_stand and ai_start <= float(lead.behaviour.get("stalk_until_m", 18.0))
+				want = ["suspicious", "alert", "attack"] if close else ["suspicious", "alert", "stalk", "attack"]
 			"scavenger":
-				want = ["alert", "attack"]
+				want = ["suspicious", "alert", "attack"]
 			"herd":
-				want = ["alert", "attack"] if bool(lead.behaviour.get("defend_charge", false)) else ["alert", "flee"]
-		var problems: Array = []
+				var defend := bool(lead.behaviour.get("defend_charge", false))
+				# a defender facing a player who stays outside fight_back_radius_m holds its ground in alert
+				var out_of_reach := ai_stand and ai_start > float(lead.fight_back_radius)
+				want = (["suspicious", "alert"] if out_of_reach else ["suspicious", "alert", "attack"]) if defend else ["suspicious", "alert", "flee"]
+		# HZD flow: the first non-calm state must be suspicious (no calm -> alert jump)
+		for k in st.size():
+			if str(st[k]) in ["alert", "attack", "flee", "stalk"]:
+				if k == 0 or str(st[k - 1]) != "suspicious":
+					problems.append("%s entered from %s (not via suspicious)" % [st[k], "start" if k == 0 else str(st[k - 1])])
+				break
+		for g in _ai_group:
+			var gst: Array = _ai_rec.get("states_all", {}).get(g.get_instance_id(), [])
+			for k in gst.size():
+				if str(gst[k]) in ["alert", "attack", "flee", "stalk"]:
+					if k == 0 or str(gst[k - 1]) != "suspicious":
+						problems.append("member %s entered %s from %s" % [g.name, gst[k], "start" if k == 0 else str(gst[k - 1])])
+					break
 		var at := 0
 		for w in want:
 			var f := st.find(w, at)
@@ -476,7 +518,7 @@ class Runner extends Node:
 				problems.append("no %s after %s" % [w, st.slice(0, at)])
 				break
 			at = f + 1
-		if arch != "herd" or bool(lead.behaviour.get("defend_charge", false)):
+		if (arch != "herd" or bool(lead.behaviour.get("defend_charge", false))) and not (arch == "herd" and ai_stand and ai_start > float(lead.fight_back_radius)):
 			if (r["attacks"] as Dictionary).is_empty():
 				problems.append("no attack performed")
 			if hits.is_empty():
@@ -496,6 +538,8 @@ class Runner extends Node:
 		r["pass"] = problems.is_empty()
 		r["problems"] = problems
 		results.append(r)
+		if ai_shot:
+			print("AI shot test %s: states before shot %s, flee %s s after the shot" % [r["machine"], r.get("states_before_shot"), str(r.get("flee_t", "never"))])
 		print("AI %s (%s, %d machines): %s | states %s | attacks %s | hits %d (%.0f HP: %s) | pings %d (inside %d) | burst max %d | pack/herd alerted %s" % [r["machine"], arch, _ai_group.size(),
 			"PASS" if r["pass"] else "FAIL " + "; ".join(problems), " > ".join(st), r["attacks"], r["hits"], r["damage"],
 			",".join(PackedStringArray(r["hit_causes"])), r["pings"], r["pings_inside"], r["burst_max"], r["others_alerted"]])
@@ -813,8 +857,10 @@ class FakePlayer extends CharacterBody3D:
 	func head_position() -> Vector3:
 		return global_position + Vector3(0, 1.6, 0)
 
+	var vis := 1.0
+
 	func visibility_factor() -> float:
-		return 1.0
+		return vis
 
 	func knockback(_v: Vector3) -> void:
 		pass

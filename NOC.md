@@ -18,3 +18,4 @@ Když nevíš, kde jsi: přečti NOC.md a MODLOG.md a pokračuj od posledního z
 - 00:01 Sloučeno stroje M0–M3 (animace 6 strojů, AI 3 nových) a znovu zapnut spawn nových strojů na jejich místech (site_map). main smoke OK. Běží: hra H4–H8 (+ stavy stalk/scavenge v in_combat/audio/spawner), test.
 - 00:39 Sloučeno hra H4–H8 (release trasa 98 fps, 1% low 46, max load 48,7 ms, VRAM 1,4 GB). Otevřené: konverze na pozadí sráží fps (→ svet: nízká priorita), vzácný segfault (→ hra), t05 Watcher přeskočí suspicious (→ stroje), 1x1 DDS (→ svet). Běží: test.
 - 00:47 Sloučeno svet: throttle konvertoru (CPU 28 %→10 %), DDS min 4x4, automatická rekonverze buněk při změně sheetů. Běží: hra (segfault + napojení throttle), stroje (t05), test.
+- 01:13 Sloučeno stroje: oprava průběhu podezření (t05 PASS). Běží: hra (segfault + throttle), test.
