@@ -15,3 +15,4 @@ Když nevíš, kde jsi: přečti NOC.md a MODLOG.md a pokračuj od posledního z
 - 22:57 svet V3 hotovo (3 nové stroje), modely předány stroje. svet pokračuje V4–V7.
 - 23:12 Sloučeno: svet V0–V2 + hra H1–H3 (DDS ve hře funguje v release, VRAM start 1022 MB, nejhorší snímek trasy 1676→77 ms). main build + smoke OK. Běží: hra H4–H8 (nejdřív precompile shaderů), svet V4–V7 (V4–V6 už commitnuté), stroje M0–M3, test T1.
 - 23:21 Sloučeno svet V3–V7 (site_map nových strojů zatím zadržen do AI od stroje). svet hotov. Běží: hra H4–H8, stroje, test.
+- 00:01 Sloučeno stroje M0–M3 (animace 6 strojů, AI 3 nových) a znovu zapnut spawn nových strojů na jejich místech (site_map). main smoke OK. Běží: hra H4–H8 (+ stavy stalk/scavenge v in_combat/audio/spawner), test.

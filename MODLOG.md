@@ -264,3 +264,12 @@ Full per-site table: `docs/notes/svet.md`. No placement references `ai/groups`, 
   + hlod.glb (HZD coarse LODs, <= 20k tris), V7 ATRAC9 via vendored LibAtrac9 (Alex Barney, MIT; THIRD_PARTY_NOTICES)
   -> wind_0/1, rain_0/1 stereo; render.* sky/fog/sun from the Mother's Heart cycle at 9:00 (sun elev 17.5 deg, az 90,
   fog 50-950 m). cell.json format 8. Bootstrap 101.6 s with other agents loading the CPU.
+- Merged stroje M0–M3 (68ef7a4): own analytic leg IK in one SkeletonModifier3D (4–7 joint legs + step planner),
+  gaits from the sheet `anim` column, body tilt, turn in place, graze, attacks, hit react, death fall (corpses freed
+  after 45 s when > 80 m away, max 240 s), animation LOD by distance (35/70/120 m -> every 2/3/6 frames). Bench real
+  models: foot slide / penetration (cm) watcher 0.0/0.3, strider 0.0/1.0, grazer 0.0/1.0, sawtooth 1.4/0.9, scrapper
+  1.2/1.0, broadhead 0.0/1.0 (M0 baseline watcher 14.3/1.4, strider 30.6/26.1, grazer 26.2/7.3). AI bench: Sawtooth
+  suspicious->alert->stalk->attack (charge, bite); Scrapper radar pings call the pack, laser burst; Broadhead charges,
+  never flees. Weak spots 8 dirs: watcher 8, strider 7, grazer 8, sawtooth 8, scrapper power cell 6 / radar 8,
+  broadhead 7. Broadhead neck rest pitch 40 deg (anim.neck_rest_pitch_deg).
+- site_map for the new machines re-applied (direwolf->sawtooth, hyena->scrapper, longhorn->broadhead).
