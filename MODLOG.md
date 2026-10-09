@@ -131,3 +131,4 @@ Full per-site table: `docs/notes/svet.md`. No placement references `ai/groups`, 
   `cs2 up to date (25815307)`; Build-Converter publish verified by the orchestrator (96.3 MB, hzsconv --help ok).
 - 2026-10-09 svet merged (S1-S8 accepted; Watcher bind-pose height 1.45 m is real data, below the planned 1.5-4 m guess).
 - 2026-10-09 cs2 content contract merged (b9b827c): weapons content_model/bone_roles/points, meta.json for 14 items, 0 mismatches; attach bone read from viewmodel skeleton (no hard-coded wpn).
+- 2026-10-09 svet D32 follow-up merged (f90c947): new sheet hzd_content.json (52 rows) holds all HZD paths/names; output byte-identical; PROTO OK (bootstrap 70.6 s). Orchestrator fix: converter log falls back to converter-<pid>.log when another converter holds converter.log (autotest children).
