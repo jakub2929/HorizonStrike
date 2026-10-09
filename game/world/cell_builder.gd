@@ -127,6 +127,7 @@ static func prepare(cell_dir: String, meshes: RefCounted) -> Dictionary:
 				water[wm] = []
 			water[wm].append(_xf(wxf))
 	out["water"] = water
+	out["occluders"] = _plan_occluders(info, origin)
 	tp["instances"] = (Time.get_ticks_usec() - tw) / 1000.0
 	tw = Time.get_ticks_usec()
 	# ---- vegetation scattered from the density map
@@ -186,6 +187,62 @@ static func _terrain_layers(cell_dir: String, terr: Dictionary) -> Dictionary:
 		return {}
 	out["masks_img"] = img
 	return out
+
+
+## cell.json occluders (format 8): boxes [{xf, size}] of big opaque buildings/rocks and a terrain grid {res, spacing,
+## heights} lying below the surface. Both become one triangle soup each (cell-local vertices) for an ArrayOccluder3D:
+## two OccluderInstance3D per cell instead of hundreds. Returns [{vertices, indices}] (0-2 entries).
+static func _plan_occluders(info: Dictionary, origin: Vector3) -> Array:
+	var occ = info.get("occluders")
+	if typeof(occ) != TYPE_DICTIONARY:
+		return []
+	var out: Array = []
+	var bv := PackedVector3Array()
+	var bi := PackedInt32Array()
+	# box faces as quads of corner indices (corner bit 0 = +x, bit 1 = +y, bit 2 = +z)
+	var faces := [[0, 2, 3, 1], [4, 5, 7, 6], [0, 1, 5, 4], [2, 6, 7, 3], [0, 4, 6, 2], [1, 3, 7, 5]]
+	for b in occ.get("boxes", []):
+		var xa: Array = b.get("xf", [])
+		var sz: Array = b.get("size", [])
+		if xa.size() != 12 or sz.size() != 3:
+			continue
+		var t := _xf(xa)
+		var h := Vector3(float(sz[0]), float(sz[1]), float(sz[2])) * 0.5
+		var base := bv.size()
+		for k in 8:
+			var c := Vector3(h.x if k & 1 else -h.x, h.y if k & 2 else -h.y, h.z if k & 4 else -h.z)
+			bv.append(t * c - origin)
+		for f in faces:
+			bi.append_array(PackedInt32Array([base + f[0], base + f[1], base + f[2], base + f[0], base + f[2], base + f[3]]))
+	if not bv.is_empty():
+		out.append({"vertices": bv, "indices": bi})
+	var tg = occ.get("terrain")
+	if typeof(tg) == TYPE_DICTIONARY:
+		var res := int(tg.get("res", 0))
+		var sp := float(tg.get("spacing", 16.0))
+		var hs: Array = tg.get("heights", [])
+		if res >= 2 and hs.size() >= res * res:
+			var tv := PackedVector3Array()
+			tv.resize(res * res)
+			for r in res:
+				for c in res:
+					tv[r * res + c] = Vector3(c * sp, float(hs[r * res + c]) - origin.y, r * sp)
+			var ti := PackedInt32Array()
+			for r in res - 1:
+				for c in res - 1:
+					var a := r * res + c
+					ti.append_array(PackedInt32Array([a, a + 1, a + res + 1, a, a + res + 1, a + res]))
+			out.append({"vertices": tv, "indices": ti})
+	return out
+
+
+static func make_occluder(o: Dictionary, origin: Vector3) -> OccluderInstance3D:
+	var ao := ArrayOccluder3D.new()
+	ao.set_arrays(o["vertices"], o["indices"])
+	var oi := OccluderInstance3D.new()
+	oi.occluder = ao
+	oi.position = origin
+	return oi
 
 
 static func _xf(a: Array) -> Transform3D:

@@ -31,4 +31,5 @@ common/physics_ticks_per_second=64
 
 anti_aliasing/quality/msaa_3d=1
 mesh_lod/lod_change/threshold_pixels=6.0
+occlusion_culling/use_occlusion_culling=true
 environment/defaults/default_clear_color=Color(0.55, 0.7, 0.85, 1)
