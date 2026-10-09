@@ -6,6 +6,8 @@ using Hzs.Decima.Assets;
 using Hzs.Decima.Core;
 using Hzs.Generated;
 
+using Hzs.Decima.Sheets;
+
 namespace Hzs.Decima.World;
 
 /// <summary>
@@ -16,7 +18,7 @@ namespace Hzs.Decima.World;
 /// </summary>
 public static class WorldIndex
 {
-    public const string StartMarker = "M_Area_Marketplace";
+    public static string StartMarker => HzdNames.Str("start.marker");
 
     public static long Build(ConvContext ctx, Resolver res, IProgressSink progress)
     {
@@ -25,9 +27,9 @@ public static class WorldIndex
         float cellSize = TerrainReader.TileSize;
         try
         {
-            var f = res.File("levels/worlds/world/leveldata/streamingtiles");
-            var v = Members.Evaluate(res, f, "TileBasedStreamingStrategyResource.TileSize");
-            cellSize = Convert.ToSingle(v);
+            // sheet systems streaming.cell_size_m binding
+            var key = JsonNode.Parse(SystemsSheet.StreamingCellSizeM.Value)!["hzd"]!.GetValue<string>();
+            cellSize = float.Parse(HzdBindings.Resolve(res, key)!.ToJsonString(), System.Globalization.CultureInfo.InvariantCulture);
         }
         catch (Exception ex) { ctx.Log.Warn($"index: tile size unresolved ({ex.Message}), using 512"); }
         if (Math.Abs(cellSize - TerrainReader.TileSize) > 0.01f)
@@ -50,7 +52,7 @@ public static class WorldIndex
             // start 3 m from the start campfire towards the village centre, on the terrain surface
             var d = new Vector2(markerHzd.X - nearest.HzdPos.X, markerHzd.Y - nearest.HzdPos.Y);
             var dir = d.LengthSquared() > 1e-4f ? Vector2.Normalize(d) : Vector2.UnitY;
-            var p = new Vector2(nearest.HzdPos.X, nearest.HzdPos.Y) + dir * 3f;
+            var p = new Vector2(nearest.HzdPos.X, nearest.HzdPos.Y) + dir * (float)HzdNames.Num("start.campfire_offset_m");
             var h = TerrainReader.ReadReal(res, sx, sy) is { } t ? Sample(t, sx, sy, p.X, p.Y) : nearest.HzdPos.Z;
             startHzd = new Vector3(p.X, p.Y, h + 0.1f);
         }

@@ -39,6 +39,7 @@ public sealed class MachineBuilder(Resolver res, MachinesRow row, JsonObject? re
 
         // geometry grouped by material key
         var mats = new Materials(res, maxTexPx);
+        var machineTier = HzdNames.Str("materials.machine_tier_prefix");
         var groups = new Dictionary<string, (Materials.Choice? Mat, List<float> P, List<float> N, List<float> T, List<ushort> J, List<float> W, List<uint> I)>();
         (Materials.Choice?, List<float>, List<float>, List<float>, List<ushort>, List<float>, List<uint>) Group(Materials.Choice? m)
         {
@@ -54,7 +55,7 @@ public sealed class MachineBuilder(Resolver res, MachinesRow row, JsonObject? re
             foreach (var helper in targets)
                 foreach (var prim in md.Prims)
                 {
-                    var m = mats.ForEffect(prim.Effect, p => p.StartsWith("models/", StringComparison.Ordinal));
+                    var m = mats.ForEffect(prim.Effect, p => p.StartsWith(machineTier, StringComparison.Ordinal));
                     var (_, P, N, T, J, W, I) = Group(m);
                     var baseV = (uint)(P.Count / 3);
                     var xf = helper >= 0 ? _world[helper] : Matrix4x4.Identity;
@@ -170,8 +171,10 @@ public sealed class MachineBuilder(Resolver res, MachinesRow row, JsonObject? re
 
         // helpers (attach points, weak spots)
         var dir = Norm(skelPath);
-        var animDir = dir[..(dir.IndexOf("/animation/", StringComparison.Ordinal) + "/animation/".Length)];
-        var helperFiles = res.Archive.Paths.Where(p => p.StartsWith(animDir, StringComparison.Ordinal) && p.Contains("helpers", StringComparison.Ordinal));
+        var animMarker = HzdNames.Str("machines.anim_dir");
+        var animDir = dir[..(dir.IndexOf(animMarker, StringComparison.Ordinal) + animMarker.Length)];
+        var helperMatch = HzdNames.Str("machines.helper_files_match");
+        var helperFiles = res.Archive.Paths.Where(p => p.StartsWith(animDir, StringComparison.Ordinal) && p.Contains(helperMatch, StringComparison.Ordinal));
         var meshJointCount = _names.Count;
         foreach (var hf in helperFiles)
         {
@@ -209,7 +212,7 @@ public sealed class MachineBuilder(Resolver res, MachinesRow row, JsonObject? re
         {
             var entity = HzdBindings.Path(row.Entity);
             if (entity is null) return result;
-            var smr = res.File(entity).All("SkinnedModelResource").FirstOrDefault(o => !o.Str("Name").Contains("Corrupt", StringComparison.OrdinalIgnoreCase));
+            var smr = res.File(entity).All("SkinnedModelResource").FirstOrDefault(o => !o.Str("Name").Contains(HzdNames.Str("machines.variant_exclude"), StringComparison.OrdinalIgnoreCase));
             if (smr?.Struct("InitialPose") is not { } pose || !pose.Has("Local")) return result;
             var skel = res.Deref(smr, pose.Ref("Skeleton"));
             var names = skel?.Structs("Joints").Select(j => j.Str("Name")).ToArray() ?? [];
@@ -263,7 +266,7 @@ public sealed class MachineBuilder(Resolver res, MachinesRow row, JsonObject? re
     {
         var stem = Path.GetFileNameWithoutExtension(Norm(meshPath)).ToLowerInvariant();
         for (var j = 0; j < _names.Count; j++)
-            if (_isHelper[j] && _names[j].ToLowerInvariant().Replace("_helper", "") == stem) return j;
+            if (_isHelper[j] && _names[j].ToLowerInvariant().Replace(HzdNames.Str("machines.helper_suffix"), "") == stem) return j;
         return 0;
     }
 

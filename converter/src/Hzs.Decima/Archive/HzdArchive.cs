@@ -1,5 +1,7 @@
 using Hzs.Decima.Core;
 
+using Hzs.Decima.Sheets;
+
 namespace Hzs.Decima.Archive;
 
 /// <summary>
@@ -9,8 +11,9 @@ namespace Hzs.Decima.Archive;
 /// </summary>
 public sealed class HzdArchive : IDisposable
 {
-    public static readonly string[] ArchiveNames = ["DLC1", "FGRWin32", "Initial", "Remainder", "Patch"];
-    public const string PrefetchPath = "prefetch/fullgame.prefetch";
+    /// <summary>sheet hzd_content archive.packs (later ones override).</summary>
+    public static string[] ArchiveNames => HzdNames.List("archive.packs");
+    public static string PrefetchPath => HzdNames.Str("archive.prefetch");
 
     private readonly List<Packfile> _packs = [];
     private readonly Dictionary<ulong, (Packfile Pack, Packfile.FileEntry Entry)> _files = new();
@@ -25,13 +28,13 @@ public sealed class HzdArchive : IDisposable
     {
         HzdDir = hzdDir;
         var oodle = Oodle.Load(hzdDir);
-        var packed = Path.Combine(hzdDir, "Packed_DX12");
+        var packed = Path.Combine(hzdDir, HzdNames.Str("archive.packed_dir"));
         foreach (var name in ArchiveNames)
         {
             var file = Path.Combine(packed, name + ".bin");
             if (!File.Exists(file))
             {
-                if (name is "Initial" or "Remainder") throw new FileNotFoundException("HZD archive missing", file);
+                if (HzdNames.List("archive.required").Contains(name)) throw new FileNotFoundException("HZD archive missing", file);
                 continue;
             }
             var p = new Packfile(file, oodle, _cache);

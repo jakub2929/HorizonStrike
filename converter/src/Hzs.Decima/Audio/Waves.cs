@@ -2,6 +2,8 @@ using System.Buffers.Binary;
 using Hzs.Decima.Archive;
 using Hzs.Decima.Core;
 
+using Hzs.Decima.Sheets;
+
 namespace Hzs.Decima.Audio;
 
 /// <summary>
@@ -22,7 +24,7 @@ public static class Waves
         {
             var r = wave.ExtraReader();
             var loc = System.Text.Encoding.UTF8.GetString(r.Span(r.I32()));
-            if (loc.StartsWith("cache:", StringComparison.Ordinal)) loc = loc[6..];
+            loc = HzdNames.StripStream(loc);
             var off = (long)r.U64();
             var len = (long)r.U64();
             data = arc.ReadRange(loc, off, len);

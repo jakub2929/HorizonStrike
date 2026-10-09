@@ -2,6 +2,8 @@ using Hzs.Common;
 using Hzs.Decima.Assets;
 using Hzs.Decima.Core;
 
+using Hzs.Decima.Sheets;
+
 namespace Hzs.Decima.World;
 
 /// <summary>One procedural vegetation species of a cell (the game scatters it from the density map).</summary>
@@ -18,10 +20,10 @@ public sealed record VegSpecies(string Channel, string MeshFile, Guid MeshUuid, 
 /// </summary>
 public sealed class Vegetation(Resolver res, Log log)
 {
-    public static readonly string[] Channels = ["trees", "blockbush", "undergrowth", "stealthplants"];
+    public static string[] Channels => HzdNames.List("vegetation.channels");
 
-    public static string DensityPath(int x, int y) => $"{WorldTiles.TileDir(x, y)}/worlddata/worlddata_placement_trees_blockbush_undergrowth_stealthplants";
-    public static string PlacementPath(int x, int y) => $"{WorldTiles.TileDir(x, y)}/placement";
+    public static string DensityPath(int x, int y) => $"{WorldTiles.TileDir(x, y)}/{HzdNames.Str("vegetation.density")}";
+    public static string PlacementPath(int x, int y) => $"{WorldTiles.TileDir(x, y)}/{HzdNames.Str("vegetation.placement")}";
 
     public Image? Density(int x, int y)
     {
@@ -35,20 +37,14 @@ public sealed class Vegetation(Resolver res, Log log)
     private static string? ChannelOf(string placementPath)
     {
         var parts = placementPath.Split('/');
-        if (parts.Length < 4 || parts[1] != "placement_nodes") return null;
-        return parts[2] switch
-        {
-            "trees" or "destructibles" => "trees",
-            "vision_blockers" or "bushes" or "shrubs" => "blockbush",
-            "ground_cover" or "grass" or "flowers" => "undergrowth",
-            "cover" or "stealth" => "stealthplants",
-            _ => null,
-        };
+        if (parts.Length < 4 || parts[1] != HzdNames.Str("vegetation.placement_root")) return null;
+        return HzdNames.Json("vegetation.category_channels")[parts[2]]?.GetValue<string>();
     }
 
     /// <summary>Species per channel, most used first, at most <paramref name="perChannel"/> each.</summary>
-    public List<VegSpecies> Species(int x, int y, int perChannel = 6)
+    public List<VegSpecies> Species(int x, int y, int? perChannelOverride = null)
     {
+        var perChannel = perChannelOverride ?? HzdNames.Int("vegetation.species_per_channel");
         var file = res.TryFile(PlacementPath(x, y));
         if (file is null) return [];
         var found = new Dictionary<(string, Guid), VegSpecies>();

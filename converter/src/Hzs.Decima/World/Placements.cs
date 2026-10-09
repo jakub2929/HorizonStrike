@@ -2,6 +2,8 @@ using System.Numerics;
 using Hzs.Common;
 using Hzs.Decima.Core;
 
+using Hzs.Decima.Sheets;
+
 namespace Hzs.Decima.World;
 
 /// <summary>One mesh resource placed in the world (HZD space world matrix, row-vector).</summary>
@@ -16,22 +18,24 @@ public readonly record struct Placement(string MeshFile, Guid MeshUuid, Matrix4x
 /// </summary>
 public sealed class Placements(Resolver res, Log log)
 {
-    private static readonly string[] SkipLayer =
-        ["cinematic", "skybox", "lighting", "autobot", "collision", "mockup", "temp_", "festival", "naming_ceremony", "_mq", "mq1_", "mq3_", "mq4_", "premq", "gate_closed", "_bsp", "_optimized"];
+    private static string[] SkipLayer => HzdNames.List("geometry.skip_layers");
 
     private readonly List<Placement> _out = [];
+    private readonly string[] _skipPrefixes = HzdNames.List("geometry.skip_prefixes");
+    private readonly string[] _skipMeshNames = HzdNames.List("geometry.skip_mesh_names");
     private int _depthWarn;
 
     public static IEnumerable<string> LayerFiles(Resolver res, int x, int y)
     {
-        var dir = WorldTiles.TileDir(x, y) + "/layers/geometry/";
+        var dir = WorldTiles.TileDir(x, y) + "/" + HzdNames.Str("geometry.layers_dir");
+        var skip = SkipLayer;
         foreach (var p in res.Archive.Paths)
         {
             if (p.StartsWith(dir, StringComparison.Ordinal))
             {
                 var name = p[dir.Length..];
                 if (name.Contains('/')) continue; // sub folders hold textures of skyboxes etc.
-                if (SkipLayer.Any(s => name.Contains(s, StringComparison.Ordinal))) continue;
+                if (skip.Any(s => name.Contains(s, StringComparison.Ordinal))) continue;
                 yield return p;
             }
         }
@@ -174,11 +178,10 @@ public sealed class Placements(Resolver res, Log log)
                     // building blocks carry three chains: *_VisualLodChain, *_ShadowLodChain (shadow-only draw flag),
                     // *_OccluderLodChain (*_occ_L1 boxes for occlusion culling); only the visual one is placed
                     // generated_content meshes are merged far-LOD proxies of geometry placed elsewhere
-                    if (file.Path.StartsWith("generated_content/", StringComparison.Ordinal)) break;
+                    if (_skipPrefixes.Any(pr => file.Path.StartsWith(pr, StringComparison.Ordinal))) break;
                     var decoded = file.Decode(target);
                     var name = decoded.Str("Name");
-                    if (name.Contains("Shadow", StringComparison.OrdinalIgnoreCase) || name.Contains("Occluder", StringComparison.OrdinalIgnoreCase)
-                        || name.Contains("_occ_", StringComparison.OrdinalIgnoreCase)) break; // *ShadowLodChain, *_ShadowGeo, ProxyShadowMesh*
+                    if (_skipMeshNames.Any(sn => name.Contains(sn, StringComparison.OrdinalIgnoreCase))) break; // *ShadowLodChain, *_ShadowGeo, ProxyShadowMesh*, occluders
                     if (decoded.Type == "LodMeshResource")
                     {
                         // compound buildings: the LOD chain holds MultiMeshResources (LOD0 = the real parts, far LODs =

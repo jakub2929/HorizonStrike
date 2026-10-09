@@ -5,6 +5,8 @@ using Hzs.Decima.Assets;
 using Hzs.Decima.Core;
 using Hzs.Generated;
 
+using Hzs.Decima.Sheets;
+
 namespace Hzs.Decima.World;
 
 /// <summary>One original machine group of a site and its variant-B replacement.</summary>
@@ -20,15 +22,16 @@ public sealed record Spawn(string Site, string OrigType, int OrigMin, int OrigMa
 /// </summary>
 public sealed partial class RobotSites(Resolver res, Log log)
 {
-    [GeneratedRegex(@"spawnsetups/robots/([a-z0-9_]+)/")]
-    private static partial Regex RobotType();
+    private static readonly Lazy<Regex> RobotTypeLazy = new(() => new Regex(HzdNames.Str("sites.robot_spawnsetup_regex"), RegexOptions.Compiled));
+    private static Regex RobotType() => RobotTypeLazy.Value;
 
     public static IEnumerable<string> LayerFiles(Resolver res, int x, int y)
     {
-        var dir = WorldTiles.TileDir(x, y) + "/layers/scenes/";
+        var dir = WorldTiles.TileDir(x, y) + "/" + HzdNames.Str("sites.layers_dir");
+        var folders = HzdNames.List("sites.folders");
+        var suffix = HzdNames.Str("sites.layer_suffix");
         return res.Archive.Paths.Where(p => p.StartsWith(dir, StringComparison.Ordinal)
-            && (p.Contains("robot encounters/", StringComparison.Ordinal) || p.Contains("robot_encounters/", StringComparison.Ordinal) || p.Contains("robot_placement/", StringComparison.Ordinal))
-            && (p.EndsWith("_layer", StringComparison.Ordinal) || p.EndsWith("layer", StringComparison.Ordinal)));
+            && folders.Any(f => p.Contains(f, StringComparison.Ordinal)) && p.EndsWith(suffix, StringComparison.Ordinal));
     }
 
     public List<Spawn> ForTile(int x, int y)

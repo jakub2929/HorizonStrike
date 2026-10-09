@@ -1,6 +1,8 @@
 using System.Collections.Concurrent;
 using Hzs.Decima.Core;
 
+using Hzs.Decima.Sheets;
+
 namespace Hzs.Decima.Assets;
 
 /// <summary>
@@ -12,6 +14,8 @@ public sealed class Materials(Resolver res, int maxPx)
 {
     private readonly ConcurrentDictionary<string, Image?> _images = new();
     private readonly ConcurrentDictionary<string, bool> _ok = new();
+    private static readonly string[] Tiers = HzdNames.List("materials.tiers");
+    private static readonly string[] Bad = HzdNames.List("materials.never_base_color");
 
     public sealed record Choice(string Key, Image? Color);
 
@@ -36,7 +40,7 @@ public sealed class Materials(Resolver res, int maxPx)
         // per source tier (asset folder, shared shader libraries, texture library): 1) the colour map of a bound texture
         // set; 2) assets coloured by the ecotope shader at runtime (rocks) have no colour map, only normal + AO:
         // neutral stone x AO. Detail/noise/pattern maps are never used as base colour.
-        foreach (var tier in new[] { 0, 1, 2 })
+        for (var tier = 0; tier < Tiers.Length; tier++)
             foreach (var pass in new[] { 1, 2 })
                 foreach (var r in refs.Where(x => Tier(x.Path!) == tier))
                 {
@@ -61,11 +65,8 @@ public sealed class Materials(Resolver res, int maxPx)
     /// <summary>0 = the asset's own textures (models/), 1 = shared shader libraries, 2 = texture library; -1 = never base colour.</summary>
     private static int Tier(string path)
     {
-        string[] bad = ["detail", "noise", "pattern", "sparkle", "colorize", "anisoramp", "frost", "rain", "_msk", "_nmt", "/fx/"];
-        if (bad.Any(b => path.Contains(b, StringComparison.OrdinalIgnoreCase))) return -1;
-        if (path.StartsWith("models/", StringComparison.Ordinal)) return 0;
-        if (path.StartsWith("shader_libraries/", StringComparison.Ordinal)) return 1;
-        if (path.StartsWith("textures/", StringComparison.Ordinal)) return 2;
+        if (Bad.Any(b => path.Contains(b, StringComparison.OrdinalIgnoreCase))) return -1;
+        for (var i = 0; i < Tiers.Length; i++) if (path.StartsWith(Tiers[i], StringComparison.Ordinal)) return i;
         return -1;
     }
 

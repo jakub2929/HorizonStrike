@@ -68,7 +68,11 @@ public sealed class Log : IDisposable
     {
         if (dir is null) return;
         Directory.CreateDirectory(dir);
-        _file = new StreamWriter(new FileStream(Path.Combine(dir, "converter.log"), FileMode.Create, FileAccess.Write, FileShare.Read)) { AutoFlush = true };
+        // A second converter (e.g. an autotest child process) must not fail on a log held by the first one.
+        FileStream fs;
+        try { fs = new FileStream(Path.Combine(dir, "converter.log"), FileMode.Create, FileAccess.Write, FileShare.Read); }
+        catch (IOException) { fs = new FileStream(Path.Combine(dir, $"converter-{Environment.ProcessId}.log"), FileMode.Create, FileAccess.Write, FileShare.ReadWrite); }
+        _file = new StreamWriter(fs) { AutoFlush = true };
     }
 
     public void Info(string msg) => Write("info", msg);

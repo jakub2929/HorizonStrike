@@ -3,6 +3,8 @@ using System.Text;
 using Hzs.Decima.Archive;
 using Hzs.Decima.Core;
 
+using Hzs.Decima.Sheets;
+
 namespace Hzs.Decima.Audio;
 
 /// <summary>
@@ -20,10 +22,11 @@ public sealed class Music
     private readonly List<(string Path, long Offset)> _banks = [];
     private readonly HzdArchive _arc;
 
-    public const string WorldMusic = "sounds/music/world/world";
+    public static string WorldMusic => HzdNames.Str("audio.music");
 
-    public Music(Resolver res, string path = WorldMusic)
+    public Music(Resolver res, string? path = null)
     {
+        path ??= WorldMusic;
         _arc = res.Archive;
         var music = res.File(path).FirstObj("MusicResource") ?? throw new InvalidDataException("no MusicResource");
         var r = music.ExtraReader();
@@ -32,7 +35,7 @@ public sealed class Music
         foreach (var _ in music.Arr("StreamingBankNames"))
         {
             var loc = Encoding.UTF8.GetString(r.Span(r.I32()));
-            if (loc.StartsWith("cache:", StringComparison.Ordinal)) loc = loc[6..];
+            loc = HzdNames.StripStream(loc);
             var off = (long)r.U64();
             r.U64();
             _banks.Add((loc, off));
