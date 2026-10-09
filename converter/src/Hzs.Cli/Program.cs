@@ -26,6 +26,13 @@ public static class Program
             return args.Length == 0 ? 2 : 0;
         }
 
+        // HZD developer commands (hzd-ls, hzd-dump): read-only inspection, no cache needed
+        if (args[0].StartsWith("hzd-", StringComparison.Ordinal))
+        {
+            try { return HzdDev.Run(args); }
+            catch (Exception ex) { Console.Error.WriteLine($"error: {ex.Message}"); return 1; }
+        }
+
         var opt = Options.Parse(args.Skip(1).ToArray());
         if (opt.Cache is null) { Console.Error.WriteLine("--cache <dir> is required"); return 2; }
         var cache = new CachePaths(opt.Cache);
@@ -105,6 +112,7 @@ internal sealed class Server
     private readonly SemaphoreSlim _signal = new(0);
     private long _seq;
     private bool _bootstrapped;
+    private int _bootstrapActive; // queued or running bootstrap jobs: cells wait for them (start area first)
 
     public Server(ConvContext ctx, int workers)
     {
@@ -135,6 +143,7 @@ internal sealed class Server
             switch (op)
             {
                 case "bootstrap":
+                    lock (_lock) _bootstrapActive++;
                     Enqueue(new Job(id, "bootstrap", 0, 0, req["radius"]?.GetValue<int>() ?? 1) { Prio = int.MinValue });
                     break;
                 case "cell":
@@ -160,12 +169,15 @@ internal sealed class Server
                     }
                     break;
                 case "status":
-                    lock (_lock)
-                        _proto.Emit(new JsonObject
-                        {
-                            ["id"] = id, ["event"] = "status", ["bytes"] = Sizes.DirBytes(_ctx.Cache.Root),
-                            ["pending"] = _pendingCells.Count, ["running"] = _runningCells.Count, ["bootstrapped"] = _bootstrapped,
-                        });
+                    {
+                        var bytes = Sizes.DirBytes(_ctx.Cache.Root); // outside the lock: can take a while on a big cache
+                        lock (_lock)
+                            _proto.Emit(new JsonObject
+                            {
+                                ["id"] = id, ["event"] = "status", ["bytes"] = bytes,
+                                ["pending"] = _pendingCells.Count, ["running"] = _runningCells.Count, ["bootstrapped"] = _bootstrapped,
+                            });
+                    }
                     break;
                 case "quit":
                     _proto.Emit(new JsonObject { ["id"] = id, ["event"] = "bye" });
@@ -209,8 +221,8 @@ internal sealed class Server
                 if (!_queue.TryDequeue(out job, out _)) continue;
                 if (job.Op == "cell")
                 {
-                    // cells wait for bootstrap (index + shared data) to finish
-                    if (!_bootstrapped) { _queue.Enqueue(job, (job.Prio, Interlocked.Increment(ref _seq))); Monitor.Wait(_lock, 200); _signal.Release(); continue; }
+                    // cells wait while a bootstrap (index + shared data + start cell) is queued or running
+                    if (_bootstrapActive > 0 && !_bootstrapped) { _queue.Enqueue(job, (job.Prio, Interlocked.Increment(ref _seq))); Monitor.Wait(_lock, 200); _signal.Release(); continue; }
                     if (!_pendingCells.Remove((job.X, job.Y))) continue; // cancelled
                     _runningCells.Add((job.X, job.Y));
                 }
@@ -219,9 +231,11 @@ internal sealed class Server
             try
             {
                 long bytes;
+                var cached = false;
                 if (job.Op == "bootstrap") bytes = Bootstrap(job, sink);
+                else if (HzdConverter.CellUpToDate(_ctx, job.X, job.Y)) { bytes = 0; cached = true; } // converted by this HZD build already
                 else bytes = HzdConverter.ConvertCell(_ctx, job.X, job.Y, sink);
-                _proto.Done(job.Id, bytes, job.Op == "cell" ? new JsonObject { ["cell"] = new JsonArray(job.X, job.Y) } : null);
+                _proto.Done(job.Id, bytes, job.Op == "cell" ? new JsonObject { ["cell"] = new JsonArray(job.X, job.Y), ["cached"] = cached } : null);
             }
             catch (Exception ex)
             {
@@ -232,6 +246,7 @@ internal sealed class Server
             finally
             {
                 if (job.Op == "cell") lock (_lock) _runningCells.Remove((job.X, job.Y));
+                if (job.Op == "bootstrap") lock (_lock) { _bootstrapActive--; Monitor.PulseAll(_lock); }
             }
         }
     }
@@ -254,7 +269,7 @@ internal sealed class Server
         foreach (var (x, y) in cells.OrderBy(c => Math.Abs(c.Item1 - sx) + Math.Abs(c.Item2 - sy)))
         {
             sink.Report("start-area", i++, cells.Count);
-            if (!Directory.Exists(_ctx.Cache.Cell(x, y)))
+            if (!HzdConverter.CellUpToDate(_ctx, x, y))
                 bytes += HzdConverter.ConvertCell(_ctx, x, y, sink);
         }
         sink.Report("start-area", cells.Count, cells.Count);
