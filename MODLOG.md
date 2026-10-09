@@ -273,3 +273,12 @@ Full per-site table: `docs/notes/svet.md`. No placement references `ai/groups`, 
   never flees. Weak spots 8 dirs: watcher 8, strider 7, grazer 8, sawtooth 8, scrapper power cell 6 / radar 8,
   broadhead 7. Broadhead neck rest pitch 40 deg (anim.neck_rest_pitch_deg).
 - site_map for the new machines re-applied (direwolf->sawtooth, hyena->scrapper, longhorn->broadhead).
+- Merged hra H4–H8 (ad29048): shader precompile on the loading screen (variants kept alive all session; spread
+  unloading), layered terrain (renormalised masks, triplanar rock), HZD sky/sun/fog (AgX; height-fog falloff at 2 %),
+  water material (no collision), occlusion culling (start draw calls 1404 -> 831), far cells = coarse terrain + HLOD,
+  render.lod_threshold_px 12 (GPU 15.0 -> 11.9 ms at start), FXAA instead of MSAA 2x, shadow atlas 2048, stalk counts
+  as combat. Release route (format-8 cache, converter idle): 98.4 fps avg, 1 % low 46.0, worst load frame 48.7 ms,
+  VRAM at start 1425 MB. Open: background conversion during play drops 1 % low to 5.5 fps; rare segfault at first
+  cell build (1/13 mock smokes); t05 Watcher skipped `suspicious`; some 1x1 DDS mips warn.
+- D57 LOD threshold 12 px from the sheet; FXAA; precompile on loading screen; far cells via HLOD proxy; ring 2 converted
+  even while standing.
