@@ -139,6 +139,7 @@ func _build_hitboxes(scene: Node, weak_bones: Dictionary) -> void:
 		_box_cache[machine_type] = _compute_bone_boxes(scene)
 	var boxes: Array = _box_cache[machine_type]
 	var weak_done := {}
+	var spheres: Array = []   # [bone, centre in skeleton rest space, part] of every weak spot
 	for e in boxes:
 		var b := skeleton.find_bone(str(e[0]))
 		if b < 0:
@@ -148,14 +149,10 @@ func _build_hitboxes(scene: Node, weak_bones: Dictionary) -> void:
 			var wp: Dictionary = weak_bones[b]
 			var sph := SphereShape3D.new()
 			sph.radius = float(wp["radius"]) if float(wp["radius"]) > 0.0 else maxf(bb.size[bb.get_longest_axis_index()] * 0.5, 0.12)
-			_add_hitbox_bone(str(wp["part"]), true, sph, b, wp["offset"] if (wp["offset"] as Vector3).length() > 0.0 else bb.get_center())
+			var off: Vector3 = wp["offset"] if (wp["offset"] as Vector3).length() > 0.0 else bb.get_center()
+			_add_hitbox_bone(str(wp["part"]), true, sph, b, off)
+			spheres.append([b, skeleton.get_bone_global_rest(b) * off, str(wp["part"])])
 			weak_done[b] = true
-			continue
-		if int(e[2]) < 24 or bb.size.length() < 0.08:
-			continue
-		var box := BoxShape3D.new()
-		box.size = (bb.size * 0.92).max(Vector3(0.05, 0.05, 0.05))
-		_add_hitbox_bone("body", false, box, b, bb.get_center())
 	var h := maxf(body_height, 1.0)
 	for b in weak_bones:
 		if weak_done.has(b):
@@ -164,6 +161,43 @@ func _build_hitboxes(scene: Node, weak_bones: Dictionary) -> void:
 		var sph2 := SphereShape3D.new()
 		sph2.radius = float(wp2["radius"]) if float(wp2["radius"]) > 0.0 else clampf(h * 0.08, 0.15, 0.35)
 		_add_hitbox_bone(str(wp2["part"]), true, sph2, b, wp2["offset"])
+		spheres.append([b, skeleton.get_bone_global_rest(b) * (wp2["offset"] as Vector3), str(wp2["part"])])
+	for e in boxes:
+		var b := skeleton.find_bone(str(e[0]))
+		if b < 0 or weak_bones.has(b):
+			continue
+		var bb: AABB = e[1]
+		if int(e[2]) < 24 or bb.size.length() < 0.08:
+			continue
+		var sz := (bb.size * 0.92).max(Vector3(0.05, 0.05, 0.05))
+		var aabb := AABB(bb.get_center() - sz * 0.5, sz)
+		# the skinned geometry of a weak spot often hangs on the PARENT of the weak-spot bone (Grazer: the canister
+		# mesh on its own bone, the content's weak point on a helper child of it); that box is the weak part itself,
+		# not body - as body it enclosed the weak sphere and every shot at the canister counted as a body hit
+		var part := _weak_part_of_geometry(b, aabb, spheres)
+		var box := BoxShape3D.new()
+		box.size = aabb.size
+		_add_hitbox_bone(part if part != "" else "body", part != "", box, b, aabb.get_center())
+
+
+## Part name when bone `bone` carries only weak-spot bones as children (the weak part's own geometry bone) and the
+## weak-spot centre lies inside its `box` (bone rest space). A trunk bone with other children (legs, plates) stays body.
+func _weak_part_of_geometry(bone: int, box: AABB, spheres: Array) -> String:
+	var weak_children := {}
+	for sp in spheres:
+		if skeleton.get_bone_parent(int(sp[0])) == bone:
+			weak_children[int(sp[0])] = sp
+	if weak_children.is_empty():
+		return ""
+	for c in skeleton.get_bone_children(bone):
+		if not weak_children.has(c):
+			return ""
+	var inv := skeleton.get_bone_global_rest(bone).affine_inverse()
+	for c in weak_children:
+		var sp: Array = weak_children[c]
+		if box.grow(0.02).has_point(inv * (sp[1] as Vector3)):
+			return str(sp[2])
+	return ""
 
 
 func _compute_bone_boxes(scene: Node) -> Array:
