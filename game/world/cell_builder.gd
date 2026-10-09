@@ -330,6 +330,7 @@ static func instantiate(data: Dictionary, meshes: RefCounted) -> Node3D:
 		if v["channel"] == "trees":
 			n_shapes += _add_collision(objects, meshes, str(v["mesh"]), ve, v["xfs"])
 	root.set_meta("collision_shapes", n_shapes)
+	root.set_meta("collision_bodies", objects.get_child_count())
 	# campfires
 	for cf in info.get("campfires", []):
 		var p: Array = cf.get("pos", [0, 0, 0])

@@ -284,7 +284,7 @@ func inaccuracy(id: String) -> float:
 ## One trigger pull. api = called through Game.fire() (ignores the fire-rate/deploy gates; the autotest drives the
 ## timing, everything else is the normal path). Returns {hit, target, part, damage}.
 func fire(api: bool, secondary: bool = false) -> Dictionary:
-	var res := {"hit": false, "target": null, "part": "", "damage": 0.0}
+	var res := {"hit": false, "target": null, "part": "", "damage": 0.0, "point": Vector3.ZERO, "distance": 0.0}
 	var id: String = player.current_weapon
 	if id == "" or player.dead:
 		return res
@@ -345,6 +345,9 @@ func fire(api: bool, secondary: bool = false) -> Dictionary:
 			var d := Combat.range_falloff(id, dmg, origin.distance_to(pos))
 			var dealt: float = m.take_hit(id, d, part, weak)
 			if first_target == null or first_target == m:
+				if first_target == null:
+					res["point"] = pos
+					res["distance"] = origin.distance_to(pos)
 				first_target = m
 				res["hit"] = true
 				res["target"] = m
@@ -431,6 +434,8 @@ func _knife(id: String, stab: bool, res: Dictionary) -> Dictionary:
 		res["target"] = m
 		res["part"] = part
 		res["damage"] = dealt
+		res["point"] = h["position"]
+		res["distance"] = cam.global_position.distance_to(h["position"])
 		audio.play_event(id, "hit")
 		if Game.hud:
 			Game.hud.hitmarker(weak)

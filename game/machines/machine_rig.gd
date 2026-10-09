@@ -259,10 +259,6 @@ func _add_eye_glow() -> void:
 	mi.material_override = m
 	_eye_mats.append(m)
 	ba.add_child(mi)
-	_eye_light = OmniLight3D.new()
-	_eye_light.omni_range = 3.0
-	_eye_light.light_energy = 1.5
-	ba.add_child(_eye_light)
 	_eye_attach = ba
 
 
@@ -539,7 +535,7 @@ func set_eye_mood(mood: String) -> void:
 	for m in _eye_mats:
 		(m as StandardMaterial3D).albedo_color = c
 		(m as StandardMaterial3D).emission = c
-		(m as StandardMaterial3D).emission_energy_multiplier = 2.5
+		(m as StandardMaterial3D).emission_energy_multiplier = 4.0
 
 
 ## Horizon-style awareness marker above the machine: yellow "?" suspicious, red "!" alert/attack/flee.

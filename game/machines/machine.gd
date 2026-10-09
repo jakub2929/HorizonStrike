@@ -615,7 +615,10 @@ func _do_flee(delta: float) -> Array:
 	away.y = 0
 	if away.length() < 0.1:
 		away = -forward()
+	# keep running until flee_distance_m from the threat; then the herd settles where it ended up (its new home),
+	# so it does not graze its way back towards the threat
 	if away.length() >= flee_distance and not _sees_player:
+		home = global_position
 		suspicion = minf(suspicion, susp_threshold * 0.9)
 		_set_state("suspicious")
 		return [Vector3.ZERO, 0.0]
