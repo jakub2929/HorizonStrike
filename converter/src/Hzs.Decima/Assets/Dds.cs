@@ -36,6 +36,7 @@ public static class Dds
     /// <summary>Encodes an image (1-4 channels) with a full mip chain into a DDS file.</summary>
     public static byte[] Encode(Image img, BcFormat f, bool srgb, MipMode mode)
     {
+        img = PadTo4(img);
         var rgba = ToRgba(img);
         var mips = Timers.Time("mips", () => Mips(rgba, img.Width, img.Height, mode));
         var blocks = Timers.Time("bc_encode", () => mips.Select(m => BcEncode.Encode(f, m.Px, m.W, m.H)).ToList());
@@ -43,6 +44,25 @@ public static class Dds
         WriteHeader(ms, img.Width, img.Height, mips.Count, f, srgb, blocks[0].Length);
         foreach (var b in blocks) ms.Write(b);
         return ms.ToArray();
+    }
+
+    /// <summary>
+    /// The top level must be whole 4x4 blocks (Godot rejects other sizes for BC formats): a texture whose edge is not a
+    /// multiple of 4 (e.g. a 1x1 constant) is resampled (nearest) up to the next multiple of 4.
+    /// </summary>
+    private static Image PadTo4(Image img)
+    {
+        int w = (img.Width + 3) / 4 * 4, h = (img.Height + 3) / 4 * 4;
+        if (w == img.Width && h == img.Height) return img;
+        var c = img.Channels;
+        var o = new byte[w * h * c];
+        for (var y = 0; y < h; y++)
+            for (var x = 0; x < w; x++)
+            {
+                int sx = (int)((long)x * img.Width / w), sy = (int)((long)y * img.Height / h);
+                Array.Copy(img.Pixels, (sy * img.Width + sx) * c, o, (y * w + x) * c, c);
+            }
+        return new Image(w, h, c, o);
     }
 
     private static void WriteHeader(Stream s, int w, int h, int mipCount, BcFormat f, bool srgb, int linearSize)

@@ -442,3 +442,20 @@ Sites of the new machines (svet 0.2 V3, hzsconv hzd-sites after site_map type:di
 - At 9.0 h: sun elevation 17.5 deg, azimuth 90 deg, fog density 87.5 (HZD units), start 50 m, end 950 m,
   height 220 m, falloff 0.1625, fog colour [1,1,1], sky colour [0.141, 0.624, 1.0] (linear), zenith 0.0625,
   horizon 16, sun shape 0.5. No keyframe has haze settings -> render.haze_* use their fallbacks.
+
+## 0.2 follow-up: converter next to the running game (2026-10-10)
+- serve: process BelowNormal priority, worker threads BelowNormal. Protocol op (hooks proto.throttle):
+    {"id":N,"op":"throttle","workers":1,"threads":2}  -> {"id":N,"event":"throttled","workers":1,"threads":2}
+  workers = jobs at once (1..--workers, takes effect for the next job), threads = parallel-loop threads of one job
+  (ConversionLimits; default 2 for 1 worker, else half the logical cores). status reports workers / threads.
+  Game side (hra): workers 1 / threads 2 while the player is in the world, workers 2 on the loading screen.
+- Every converter Parallel loop uses ConversionLimits (mesh export, species, water, BC encoding of big maps; before:
+  4 per job + ProcessorCount for big maps).
+- Timing (scratch cpu_share.py, 6 cells around 4,-3, new caches, 12 logical cores): unthrottled 16.7 s, converter CPU
+  mean 27.9 % / p95 43.0 % / max 45.6 %; throttled (1 / 2) 43.3 s, mean 9.6 % / p95 14.6 % / max 17.2 %;
+  priority class 16384 = BELOW_NORMAL.
+- DDS: the top level is resampled to a multiple of 4 (1x1 constants became 4x4); WorldMeshes.Format 5 so old tiny
+  textures are rewritten. Before: 2 of 932 textures in a 3x3 cache not divisible by 4, after 0 of 1065.
+- cell.json "sheets" = hash of site_map, hzd_content, machines id / herd sizes, systems render.* / streaming.* values
+  (not descriptions); CellUpToDate requires the same hash. Check: a cell with a changed hash is converted again
+  (cached false), an unchanged one is served cached.

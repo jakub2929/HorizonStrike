@@ -5,6 +5,7 @@
 Runs bootstrap (radius 0), status, a ring of cell requests with priorities, a priority change, a cancel, a re-request
 of an already converted cell and quit. Checks: every stdout line is a JSON event, bootstrap and cells finish ok, the
 cancelled cell is reported, the re-requested start cell comes back from the cache, two workers convert in parallel,
+the throttle op is acknowledged and reported by status,
 quit answers bye and the process exits. Prints PROTO OK (exit 0) or PROTO FAIL with reasons (exit 1).
 Pure standard library.
 """
@@ -150,6 +151,18 @@ def main():
     e = wait_for(lambda e: e.get("event") in ("done", "error") and e.get("cell") == [4, -3], 60)
     if not e or not e.get("cached"):
         fails.append("re-request of converted start cell not served from cache: %s" % e)
+
+    # throttle (game in the world): 1 job, 2 threads; status reports it; the process runs below normal priority
+    send({"id": 30, "op": "throttle", "workers": 1, "threads": 2})
+    e = wait_for(lambda e: e.get("id") == 30 and e.get("event") == "throttled", 30)
+    if not e or e.get("workers") != 1 or e.get("threads") != 2:
+        fails.append("throttle not acknowledged as workers 1 / threads 2: %s" % e)
+    send({"id": 31, "op": "status"})
+    e = wait_for(lambda e: e.get("id") == 31 and e.get("event") == "status", 60)
+    if not e or e.get("workers") != 1:
+        fails.append("status after throttle does not report workers 1: %s" % e)
+    else:
+        print("throttle -> status workers %s threads %s" % (e.get("workers"), e.get("threads")))
 
     send({"id": 99, "op": "quit"})
     e = wait_for(lambda e: e.get("id") == 99 and e.get("event") == "bye", 30)
