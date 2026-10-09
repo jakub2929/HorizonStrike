@@ -84,6 +84,19 @@ func _run() -> void:
 	var items: Array = _game.buy_wheel_item_ids()
 	_check(items.size() == 12, "buy wheel lists 12 items (%d)" % items.size())
 	_game.close_buy_wheel()
+	# t03-style: money 3000, ak47 then hegrenade then awp (expectations from resolved prices)
+	_game.money = 3000
+	var ok1: bool = _game.buy("ak47")
+	var after_ak: int = _game.money
+	var ok2: bool = _game.buy("hegrenade")
+	var after_he: int = _game.money
+	var inv_before: Array = p.inventory.duplicate()
+	var ok3: bool = _game.buy("awp")
+	var exp_ak := maxi(3000 - Sheets.price("ak47"), 0)
+	_check(ok1 and after_ak == 3000 - Sheets.price("ak47") and p.inventory.has("ak47"), "t03 ak47: money %d == %d" % [after_ak, exp_ak])
+	var exp_he := after_ak - Sheets.price("hegrenade")
+	_check(ok2 == (exp_he >= 0) and (not ok2 or (after_he == exp_he and p.inventory.has("hegrenade"))), "t03 hegrenade: money %d (expected %d)" % [after_he, exp_he])
+	_check(not ok3 and _game.money == after_he and p.inventory == inv_before, "t03 awp refused, money stays %d" % _game.money)
 	_game.money = 5000
 	var price := Sheets.price("ak47")
 	var ok: bool = _game.buy("ak47")
@@ -122,6 +135,11 @@ func _run() -> void:
 		await _wait(0.5)
 		_check(mm.weak_spots().size() >= 1, "%s weak spots %s" % [o, mm.weak_spots()])
 		mm.queue_free()
+	if is_instance_valid(m) and not m.is_dead():
+		m.queue_free()
+	m = _game.spawn_machine("watcher", pos + Vector3(0, 1.0, 0))
+	m.ai_enabled = false
+	await _wait(1.0)
 	_game.money = 800
 	var got := [-1]
 	_game.kill_reward.connect(func(_t, _w, amount): got[0] = amount)

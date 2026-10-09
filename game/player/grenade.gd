@@ -5,6 +5,7 @@ extends RigidBody3D
 
 const Sheets := preload("res://core/sheets.gd")
 const Log := preload("res://core/log.gd")
+const WeaponAudio := preload("res://audio/weapon_audio.gd")
 
 const LAYER_WORLD := 1
 const HE_FUSE_S := 1.6
@@ -53,6 +54,8 @@ func _ready() -> void:
 func _on_body_entered(_b: Node) -> void:
 	if weapon_id == "molotov" and not _burst and _t > 0.05:
 		_ignite()
+	elif not _burst and linear_velocity.length() > 2.0:
+		WeaponAudio.play_at(get_parent(), global_position, weapon_id, "bounce")
 
 
 func _physics_process(delta: float) -> void:
@@ -90,6 +93,7 @@ func _explode() -> void:
 		if dp < radius:
 			p.apply_damage(dmg * (1.0 - dp / radius), Sheets.weapon_num(weapon_id, "armor_ratio", 1.0), self, weapon_id)
 	_flash(Color(1.0, 0.7, 0.3), radius)
+	WeaponAudio.play_at(get_parent(), c, weapon_id, "explode")
 	queue_free()
 
 
@@ -128,6 +132,8 @@ func _ignite() -> void:
 	_fire_node.add_child(l)
 	add_child(_fire_node)
 	_fire_node.global_position = _fire_pos + Vector3(0, 0.3, 0)
+	WeaponAudio.play_at(get_parent(), _fire_pos, weapon_id, "start")
+	WeaponAudio.play_at(get_parent(), _fire_pos, weapon_id, "loop", _fire_left)
 
 
 func _burn(dt: float) -> void:

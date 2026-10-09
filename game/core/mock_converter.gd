@@ -15,6 +15,7 @@ var cache_root := ""
 var cell_size := 512.0
 var cell_delay_ms := 150
 var pad_bytes := 0
+var seed_cache := ""   ## real content to copy in (cs2/, hzd/machines/, resolved json), read-only source
 
 var _thread: Thread
 var _sem := Semaphore.new()
@@ -149,13 +150,23 @@ func _do_bootstrap(job: Dictionary) -> void:
 	var id: int = job["id"]
 	var bytes := 0
 	_emit({"id": id, "event": "progress", "stage": "weapons", "done": 0, "total": 1})
-	FsUtil.write_json_atomic(cache_root.path_join("manifest.json"), {"format": 1, "converter": "mock", "mock": true})
-	FsUtil.write_json_atomic(cache_root.path_join("cs2/weapons.json"), MockData.weapons_json())
+	if seed_cache != "":
+		for rel in ["cs2", "hzd/machines", "hzd/audio"]:
+			bytes += FsUtil.copy_tree(seed_cache.path_join(rel), cache_root.path_join(rel))
+		for rel in ["hzd/machines.json", "hzd/systems.json"]:
+			if FileAccess.file_exists(seed_cache.path_join(rel)) and not FileAccess.file_exists(cache_root.path_join(rel)):
+				DirAccess.copy_absolute(seed_cache.path_join(rel), cache_root.path_join(rel))
+		Log.info("mock: seeded real content from %s (%d bytes)" % [seed_cache, bytes])
+	FsUtil.write_json_atomic(cache_root.path_join("manifest.json"), {"format": 1, "converter": "mock", "mock": true, "seed": seed_cache})
+	if not FileAccess.file_exists(cache_root.path_join("cs2/weapons.json")):
+		FsUtil.write_json_atomic(cache_root.path_join("cs2/weapons.json"), MockData.weapons_json())
 	_emit({"id": id, "event": "progress", "stage": "weapons", "done": 1, "total": 1})
 	var ids := Sheets.machine_ids()
 	for i in ids.size():
 		_emit({"id": id, "event": "progress", "stage": "machines", "done": i, "total": ids.size()})
-		FsUtil.write_json_atomic(cache_root.path_join("hzd/machines/%s/meta.json" % ids[i]), MockData.machine_meta(ids[i]))
+		var mp := cache_root.path_join("hzd/machines/%s/meta.json" % ids[i])
+		if not FileAccess.file_exists(mp):
+			FsUtil.write_json_atomic(mp, MockData.machine_meta(ids[i]))
 	_emit({"id": id, "event": "progress", "stage": "machines", "done": ids.size(), "total": ids.size()})
 	_emit({"id": id, "event": "progress", "stage": "audio", "done": 1, "total": 1})
 	bytes += _mesh_bytes

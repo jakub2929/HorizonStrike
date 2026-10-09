@@ -38,7 +38,7 @@ func _ready() -> void:
 	_rng.randomize()
 	viewmodel = Viewmodel.new()
 	viewmodel.name = "Viewmodel"
-	player.camera.add_child(viewmodel)
+	player.add_child(viewmodel.setup(player.camera))
 	audio = WeaponAudio.new()
 	audio.name = "WeaponAudio"
 	add_child(audio)
@@ -108,10 +108,13 @@ func on_equip(id: String, previous: String) -> void:
 	_reload_end = -1.0
 	_zoom = 0
 	player.camera.fov = 73.74
+	if viewmodel:
+		viewmodel.visible = true
 	_deploy_end = _t() + Sheets.weapon_num(id, "deploy_time", 0.5)
 	if viewmodel:
 		viewmodel.show_weapon(id)
 	if audio:
+		audio.cancel_scheduled()
 		audio.play_event(id, "draw")
 
 
@@ -169,8 +172,9 @@ func _process(delta: float) -> void:
 		cycle(1)
 	if Input.is_action_just_pressed("prev_weapon"):
 		cycle(-1)
-	if Input.is_action_just_pressed("inspect") and viewmodel:
+	if Input.is_action_just_pressed("inspect") and viewmodel and _reload_end < 0.0:
 		viewmodel.play("inspect")
+		audio.play_event(id, "inspect")
 
 
 func select_slot(i: int) -> void:
@@ -200,7 +204,9 @@ func alt_fire() -> void:
 		_zoom = (_zoom + 1) % (levels + 1)
 		var zf := Sheets.weapon_num(id, "zoom_fov", 40.0)
 		player.camera.fov = 73.74 if _zoom == 0 else _hfov_to_vfov(zf / (1.0 + 3.0 * (_zoom - 1)))
-		audio.play_event(id, "zoom")
+		audio.play_event(id, "zoom" if _zoom > 0 else "zoomout")
+		if viewmodel:
+			viewmodel.visible = _zoom == 0
 
 
 static func _hfov_to_vfov(hfov_deg: float) -> float:
@@ -216,6 +222,8 @@ func start_reload() -> void:
 	var rt := Sheets.weapon_num(id, "reload_time", 2.0)
 	_zoom = 0
 	player.camera.fov = 73.74
+	if viewmodel:
+		viewmodel.visible = true
 	if Sheets.weapon_bool(id, "reload_single_shells"):
 		_reload_shell_next = _t() + rt
 		_reload_end = _reload_shell_next
@@ -237,8 +245,13 @@ func _update_reload() -> void:
 			a.x += 1
 			a.y -= 1
 			_ammo[id] = a
-			_reload_shell_next = _t() + Sheets.weapon_num(id, "reload_time", 0.5)
-			_reload_end = _reload_shell_next
+			if a.x < clip_size and a.y > 0:
+				# next shell: the reload clip is one shell (+ pump), replay it per shell
+				_reload_shell_next = _t() + Sheets.weapon_num(id, "reload_time", 0.5)
+				_reload_end = _reload_shell_next
+				if viewmodel:
+					viewmodel.play("reload")
+				audio.play_event(id, "reload")
 		if a.x >= clip_size or a.y <= 0:
 			_reload_end = -1.0
 		return
@@ -335,8 +348,7 @@ func fire(api: bool, secondary: bool = false) -> Dictionary:
 				res["damage"] = float(res["damage"]) + dealt
 			if Game.hud:
 				Game.hud.hitmarker(weak)
-		if viewmodel:
-			viewmodel.tracer(pos)
+		_tracer(origin + basis * Vector3(0.1, -0.12, -0.6), pos)
 	_penalty += pair(id, "inaccuracy_fire")
 	_recoil(id)
 	_shot_noise(id)
@@ -388,8 +400,8 @@ func _knife(id: String, stab: bool, res: Dictionary) -> Dictionary:
 	var cam: Camera3D = player.camera
 	var h := _trace(cam.global_position, -cam.global_transform.basis.z, reach)
 	if viewmodel:
-		viewmodel.play("fire")
-	audio.play_event(id, "fire")
+		viewmodel.play("fire2" if stab and viewmodel.has_clip("fire2") else "fire")
+	audio.play_event(id, "fire2" if stab else "fire")
 	if h.is_empty():
 		return res
 	var col: Object = h["collider"]
@@ -421,7 +433,9 @@ func _throw(id: String, res: Dictionary) -> Dictionary:
 	var dir := (-cam.global_transform.basis.z + Vector3.UP * 0.12).normalized()
 	g.global_position = cam.global_position + dir * 0.5
 	g.linear_velocity = dir * Sheets.u2m(Sheets.weapon_num(id, "throw_velocity", 750.0)) * 0.9 + player.velocity * 1.25
-	audio.play_event(id, "throw")
+	audio.play_event(id, "fire")
+	if viewmodel:
+		viewmodel.play("fire")
 	Log.info("threw %s" % id)
 	res["thrown"] = true
 	if grenade_count(id) <= 0:
@@ -433,3 +447,24 @@ func _throw(id: String, res: Dictionary) -> Dictionary:
 				back = w
 		player.equip(back)
 	return res
+
+
+
+## Short-lived bullet tracer in the main world.
+func _tracer(from: Vector3, to: Vector3) -> void:
+	var mi := MeshInstance3D.new()
+	var im := ImmediateMesh.new()
+	im.surface_begin(Mesh.PRIMITIVE_LINES)
+	im.surface_add_vertex(from)
+	im.surface_add_vertex(to)
+	im.surface_end()
+	mi.mesh = im
+	var m := StandardMaterial3D.new()
+	m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	m.albedo_color = Color(1.0, 0.9, 0.6, 0.6)
+	m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	mi.material_override = m
+	mi.top_level = true
+	player.get_parent().add_child(mi)
+	mi.global_transform = Transform3D.IDENTITY
+	get_tree().create_timer(0.05).timeout.connect(mi.queue_free)

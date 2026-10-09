@@ -119,10 +119,11 @@ func _start_bootstrap() -> void:
 		var mc := MockConverter.new()
 		mc.name = "MockConverter"
 		mc.cell_size = Sheets.sys_num("streaming.cell_size_m", 512.0)
+		mc.seed_cache = Paths.norm(args.seed_cache)
 		add_child(mc)
 		mc.start(Game.cache_root)
 		converter = mc
-		loading.set_detail("Mock data (synthetic placeholder content)")
+		loading.set_detail("Mock data (synthetic placeholder content)" + ("" if args.seed_cache == "" else ", real CS2/machines from " + args.seed_cache))
 	else:
 		if args.game_dir == "":
 			show_error("The CS2 folder was not given. Start Horizon Strike from Melty (it passes --game <CS2 folder>).")

@@ -7,8 +7,9 @@ const Sheets := preload("res://core/sheets.gd")
 const Log := preload("res://core/log.gd")
 const SoundLib := preload("res://audio/sound_lib.gd")
 
-const RADIUS := 290.0
-const INNER := 95.0
+const RADIUS := 330.0
+const INNER := 105.0
+const ICON_BOX := Vector2(84, 32)
 
 var _root: Control
 var _wheel: Control
@@ -68,7 +69,7 @@ func _build_items() -> void:
 		icon.name = "Icon"
 		icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 		icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
-		icon.custom_minimum_size = Vector2(110, 40)
+		icon.custom_minimum_size = ICON_BOX
 		icon.texture = _icon(id)
 		icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		slot.add_child(icon)
@@ -94,13 +95,14 @@ func _icon(id: String) -> Texture2D:
 	var tex: Texture2D = null
 	var p := Game.cache_root.path_join("cs2/weapons/%s/icon.svg" % id)
 	if FileAccess.file_exists(p):
+		var bytes := FileAccess.get_file_as_bytes(p)
 		var img := Image.new()
-		if img.load_svg_from_buffer(FileAccess.get_file_as_bytes(p), 1.0) == OK:
-			var h := img.get_height()
-			if h > 0 and h != 48:
-				img = Image.new()
-				var sc := 48.0 / float(h)
-				img.load_svg_from_buffer(FileAccess.get_file_as_bytes(p), sc)
+		if img.load_svg_from_buffer(bytes, 1.0) == OK and img.get_width() > 0 and img.get_height() > 0:
+			# fit into ICON_BOX, rasterised at that size (crisp)
+			var sc := minf(ICON_BOX.x / img.get_width(), ICON_BOX.y / img.get_height())
+			var img2 := Image.new()
+			if img2.load_svg_from_buffer(bytes, sc) == OK:
+				img = img2
 			tex = ImageTexture.create_from_image(img)
 	_icons[id] = tex
 	return tex
@@ -121,10 +123,11 @@ func open() -> void:
 	_open = true
 	_root.visible = true
 	_sel = -1
+	# centre the cursor only when a human was playing (mouse captured); automated runs never move the mouse
+	var was_captured := Input.mouse_mode == Input.MOUSE_MODE_CAPTURED
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
-	var vp := _root.get_viewport_rect().size
-	if DisplayServer.get_name() != "headless":
-		Input.warp_mouse(vp * 0.5)
+	if was_captured:
+		Input.warp_mouse(_root.get_viewport_rect().size * 0.5)
 	_layout()
 	Log.info("buy wheel opened (%d items)" % _items.size())
 
@@ -140,7 +143,7 @@ func close() -> void:
 
 
 func on_bought(_id: String) -> void:
-	var s: AudioStream = SoundLib.random_stream(Game.cache_root.path_join("cs2/ui"), "radial_menu_buy")
+	var s: AudioStream = SoundLib.random_stream(Game.cache_root.path_join("cs2/ui/snd"), "buy")
 	if s:
 		_sfx.stream = s
 		_sfx.play()

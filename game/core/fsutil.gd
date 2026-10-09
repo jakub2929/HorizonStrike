@@ -62,3 +62,25 @@ static func write_json_atomic(path: String, data: Variant) -> void:
 	if FileAccess.file_exists(path):
 		DirAccess.remove_absolute(path)
 	DirAccess.rename_absolute(tmp, path)
+
+
+## Copies a file tree (files that already exist in `to` are kept). Never follows links. Returns bytes copied.
+static func copy_tree(from: String, to: String) -> int:
+	var d := DirAccess.open(from)
+	if d == null:
+		return 0
+	DirAccess.make_dir_recursive_absolute(to)
+	var total := 0
+	for f in d.get_files():
+		var dst := to.path_join(f)
+		if FileAccess.file_exists(dst):
+			continue
+		if DirAccess.copy_absolute(from.path_join(f), dst) == OK:
+			var fa := FileAccess.open(dst, FileAccess.READ)
+			if fa:
+				total += fa.get_length()
+	for sub in d.get_directories():
+		if d.is_link(sub):
+			continue
+		total += copy_tree(from.path_join(sub), to.path_join(sub))
+	return total
