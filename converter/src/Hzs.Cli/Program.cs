@@ -26,6 +26,13 @@ public static class Program
             return args.Length == 0 ? 2 : 0;
         }
 
+        // HZD developer commands (hzd-ls, hzd-dump): read-only inspection, no cache needed
+        if (args[0].StartsWith("hzd-", StringComparison.Ordinal))
+        {
+            try { return HzdDev.Run(args); }
+            catch (Exception ex) { Console.Error.WriteLine($"error: {ex.Message}"); return 1; }
+        }
+
         var opt = Options.Parse(args.Skip(1).ToArray());
         if (opt.Cache is null) { Console.Error.WriteLine("--cache <dir> is required"); return 2; }
         var cache = new CachePaths(opt.Cache);
