@@ -42,6 +42,8 @@ Journal and decision log (orchestrator-owned). Newest entries at the bottom of e
   area; cache cap with eviction of distant cells; cache size shown in game.
 - D9 In-game UI language: English (Melty audience is international). Listing in English.
 - D10 Credits "EM", licence MIT, remix allowed.
+- D11 Converter targets .NET 10 (ValveResourceFormat 20.0.6980 NuGet only ships net10.0); published self-contained win-x64.
+- D12 Converter runs as a JSON-lines server child process of the game (`hzsconv serve`), bootstrap first, then cells by priority; the game owns eviction.
 
 ## Site mapping (variant B)
 (to be filled when spawn sites are decoded)
