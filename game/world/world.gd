@@ -278,10 +278,12 @@ func _on_converter_event(e: Dictionary) -> void:
 
 func _start_build(c: Vector2i) -> void:
 	var dir := cell_dir(c)
-	var job := {"result": {}, "stage": "prepare"}
+	# the worker only writes slot 0 of its own pre-sized array; the job dictionary is main-thread only (inserting a key
+	# while a worker writes into the same dictionary is a data race)
+	var out: Array = [{}]
 	var lib := meshes
-	job["task"] = WorkerThreadPool.add_task(func(): job["result"] = CellBuilder.prepare(dir, lib), false, "cell %s" % c)
-	job["t0"] = Time.get_ticks_msec()
+	var job := {"result": {}, "stage": "prepare", "out": out, "t0": Time.get_ticks_msec(), "task": -1}
+	job["task"] = WorkerThreadPool.add_task(func(): out[0] = CellBuilder.prepare(dir, lib), false, "cell %s" % c)
 	building[c] = job
 
 
@@ -297,6 +299,7 @@ func _poll_builds() -> void:
 			if not WorkerThreadPool.is_task_completed(job["task"]):
 				continue
 			WorkerThreadPool.wait_for_task_completion(job["task"])
+			job["result"] = job["out"][0]
 			job["stage"] = "meshes"
 			var res: Dictionary = job["result"]
 			job["pending"] = (res.get("mesh_ids", []) as Array).duplicate()
