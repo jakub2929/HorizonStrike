@@ -43,6 +43,12 @@ var _last_player_cell := Vector2i(1 << 20, 0)
 var _converter_idle := false
 var _status_pending := false
 var _gc_needed := false
+var _gc_timer := 0.0
+# Meshes/textures of evicted cells that the running converter process converted. The converter remembers every mesh
+# it exported (or found on disk) for its whole lifetime and never writes it again, so deleting one of these would
+# leave a later re-conversion of that cell (or any cell sharing it) with a missing mesh.
+var _pinned_meshes := {}
+var _pinned_tex := {}
 
 
 func setup(root: String, idx: Dictionary, conv: Node) -> void:
@@ -156,6 +162,11 @@ func _process(delta: float) -> void:
 	if _evict_timer <= 0.0:
 		_evict_timer = 1.0
 		enforce_cap()
+	# a deferred mesh GC asks the converter again until it is idle and nothing is requested
+	_gc_timer -= delta
+	if _gc_needed and _gc_timer <= 0.0:
+		_gc_timer = 5.0
+		_query_status()
 
 
 func _update_streaming() -> void:
@@ -259,7 +270,7 @@ func _on_converter_event(e: Dictionary) -> void:
 		"status":
 			_status_pending = false
 			_converter_idle = int(e.get("pending", 1)) == 0 and int(e.get("running", 1)) == 0
-			if _gc_needed and _converter_idle:
+			if _gc_needed and _converter_idle and requested.is_empty():
 				_mesh_gc()
 
 
@@ -475,6 +486,11 @@ func enforce_cap() -> void:
 func evict(c: Vector2i) -> void:
 	var dir := cell_dir(c)
 	var bytes := FsUtil.dir_bytes(dir)
+	var cj := dir.path_join("cell.json")
+	if converter and FileAccess.file_exists(cj) and float(FileAccess.get_modified_time(cj)) >= float(converter.started_unix) - 2.0:
+		var info = FsUtil.read_json(cj)
+		if typeof(info) == TYPE_DICTIONARY:
+			_cell_refs(info, _pinned_meshes, _pinned_tex)
 	if loaded.has(c):
 		_unload(c)
 	if FsUtil.remove_tree(dir, cache_root.path_join("hzd/cells")):
@@ -493,25 +509,33 @@ func _query_status() -> void:
 	converter.send({"op": "status"})
 
 
-## Deletes hzd/meshes/* no remaining cell.json references (only while the converter is idle).
+## Meshes and textures a cell.json references.
+static func _cell_refs(info: Dictionary, used: Dictionary, used_tex: Dictionary) -> void:
+	for m in info.get("meshes", []):
+		used[str(m)] = true
+	for inst in info.get("instances", []):
+		used[str(inst.get("mesh", ""))] = true
+	var veg = info.get("vegetation", {})
+	if typeof(veg) == TYPE_DICTIONARY:
+		for sp in veg.get("species", []):
+			used[str(sp.get("mesh", ""))] = true
+	for t in info.get("textures", []):
+		used_tex[str(t)] = true
+
+
+## Deletes hzd/meshes/* that no cell on disk references and the running converter has not converted (only while
+## the converter is idle and no conversion is requested; otherwise it is retried).
 func _mesh_gc() -> void:
+	if not requested.is_empty():
+		return
 	_gc_needed = false
-	var used := {}
-	var used_tex := {}
+	var used := _pinned_meshes.duplicate()
+	var used_tex := _pinned_tex.duplicate()
 	for c in on_disk:
 		var info = FsUtil.read_json(cell_dir(c).path_join("cell.json"))
 		if typeof(info) != TYPE_DICTIONARY:
-			continue
-		for m in info.get("meshes", []):
-			used[str(m)] = true
-		for inst in info.get("instances", []):
-			used[str(inst.get("mesh", ""))] = true
-		var veg = info.get("vegetation", {})
-		if typeof(veg) == TYPE_DICTIONARY:
-			for sp in veg.get("species", []):
-				used[str(sp.get("mesh", ""))] = true
-		for t in info.get("textures", []):
-			used_tex[str(t)] = true
+			return   # unreadable cell.json: keep everything (the next eviction asks again)
+		_cell_refs(info, used, used_tex)
 	var mdir := cache_root.path_join("hzd/meshes")
 	var d := DirAccess.open(mdir)
 	if d == null:

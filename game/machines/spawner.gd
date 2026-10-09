@@ -73,6 +73,7 @@ func _process(delta: float) -> void:
 	var pp := p.global_position
 	var act_r := Sheets.sys_num("spawning.activation_radius_m", 250.0)
 	var now := Time.get_ticks_msec() / 1000.0
+	var candidates: Array = []
 	for id in sites:
 		var s: Dictionary = sites[id]
 		var d := pp.distance_to(s["pos"])
@@ -82,10 +83,61 @@ func _process(delta: float) -> void:
 				s["alive"] = s["count"]
 				s["cleared_at"] = -1.0
 				Log.info("site %s refilled (%d %s)" % [id, s["count"], s["type"]])
-		if not s["active"] and d <= act_r and world.is_cell_loaded(s["cell"]):
-			_activate(s)
+		if not s["active"] and d <= act_r and int(s["alive"]) > 0 and world.is_cell_loaded(s["cell"]):
+			candidates.append(s)
 		elif s["active"] and d > act_r + 60.0 and not _engaged(s):
 			_deactivate(s)
+	# nearest sites first; a site only activates when its whole herd fits under spawning.max_active_machines
+	candidates.sort_custom(func(a, b): return pp.distance_squared_to(a["pos"]) < pp.distance_squared_to(b["pos"]))
+	for s in candidates:
+		if _make_room(int(s["alive"]), pp.distance_to(s["pos"]), pp):
+			_activate(s)
+
+
+## Active machines (alive, not freed; corpses do not count).
+func _active_count() -> int:
+	var n := 0
+	for m in Game.machines:
+		if is_instance_valid(m) and not m.is_queued_for_deletion() and not m.is_dead():
+			n += 1
+	return n
+
+
+## True when `need` more machines fit under spawning.max_active_machines. If not, idle (not engaged) active sites
+## farther from the player than `dist` are deactivated, farthest first, until the herd fits; nothing is deactivated
+## when even that would not make enough room.
+func _make_room(need: int, dist: float, pp: Vector3) -> bool:
+	var cap := int(Sheets.sys_num("spawning.max_active_machines", 24))
+	var free := cap - _active_count()
+	if need <= free:
+		return true
+	var far: Array = []
+	var gain := 0
+	for id in sites:
+		var s: Dictionary = sites[id]
+		if s["active"] and not _engaged(s) and pp.distance_to(s["pos"]) > dist:
+			far.append(s)
+	far.sort_custom(func(a, b): return pp.distance_squared_to(a["pos"]) > pp.distance_squared_to(b["pos"]))
+	var drop: Array = []
+	for s in far:
+		if free + gain >= need:
+			break
+		drop.append(s)
+		gain += _live_members(s)
+	if free + gain < need:
+		return false
+	for s in drop:
+		Log.info("site %s deactivated to make room for a nearer herd" % s["id"])
+		_deactivate(s)
+	return true
+
+
+func _live_members(s: Dictionary) -> int:
+	var n := 0
+	for m in s["members"]:
+		if is_instance_valid(m) and not m.is_queued_for_deletion() and not m.is_dead():
+			n += 1
+	return n
 
 
 func _engaged(s: Dictionary) -> bool:
@@ -96,7 +148,7 @@ func _engaged(s: Dictionary) -> bool:
 
 
 func _activate(s: Dictionary) -> void:
-	var n := mini(int(s["alive"]), int(Sheets.sys_num("spawning.max_active_machines", 24)) - Game.machines.size())
+	var n := int(s["alive"])
 	if n <= 0:
 		return
 	s["active"] = true
