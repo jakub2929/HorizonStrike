@@ -135,6 +135,16 @@ Result: ExitCode 1, 13/14 PASS, FAIL t10 (F6: Game.cache_bytes() 6 356 MiB vs fo
 showed "Cache 3.3 GB / 4.0 GB"). t09: bootstrap_seconds 74.4, 341.5 MiB at world_ready, 749.0 MiB after the 3x3.
 Screenshots: `C:\meshy\_tools\autotest-dist\{buy_wheel,watcher_alert,herd_landscape}.png`.
 
+## s03 made robust (after the final-release rerun failed "3 in frustum, 2 unoccluded")
+Candidate views: rings 40/50/60 m x 16 directions on loaded ground, sorted by herd members a ray from eye height
+reaches (then nearer ring, higher ground). Up to 10 candidates are tried: teleport, aim at the herd, wait 1 s, then the
+same frustum + ray check as the pass criterion runs from the real camera; the screenshot is saved at the first view
+with >= 3 unoccluded Grazers, and the criterion is evaluated again for the saved frame (herd AI off, so nothing moves).
+If no candidate verifies, the best estimate is captured and the check fails (verified on the stub with a 5-grazer
+requirement: 10 of 10 views tried, FAIL). Real data, editor, main f82b0ef + this change, s03 alone three times
+(`C:\meshy\_tools\autotest-dev\s03run{1,2,3}`): PASS, PASS, PASS – each "3 in frustum, 3 unoccluded", view 1 of 10
+(40 m from FE_Antelope_Scout); the retry path was not needed in these three runs.
+
 ## Pre-merge integration runs (hra 4ea177b snapshot, dev editor build)
 | id | name | mock | real data | key details (real) |
 |---|---|---|---|---|
