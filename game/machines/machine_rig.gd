@@ -24,6 +24,7 @@ var leg_chains: Array = []      # Array of PackedInt32Array (hip..foot)
 var is_placeholder := true
 var _eye_mats: Array = []
 var _eye_light: OmniLight3D
+var _eye_attach: Node3D        ## follows the animated eye bone (bone poses read in _process are the unmodified ones)
 
 
 func build(m: Node3D, type: String, meta: Dictionary) -> void:
@@ -229,6 +230,7 @@ func _add_eye_glow() -> void:
 	if eye_bone < 0:
 		return
 	var ba := _attach(eye_bone)
+	_eye_attach = ba
 	var mi := MeshInstance3D.new()
 	var sm := SphereMesh.new()
 	sm.radius = clampf(body_height * 0.025, 0.03, 0.08)
@@ -420,7 +422,9 @@ func _eye(bone: int, r: float) -> void:
 	m.emission_enabled = true
 	mi.material_override = m
 	_eye_mats.append(m)
-	_attach(bone).add_child(mi)
+	var ba := _attach(bone)
+	_eye_attach = ba
+	ba.add_child(mi)
 
 
 func _box(size: Vector3) -> BoxShape3D:
@@ -461,6 +465,8 @@ func _add_hitbox_static(part: String, weak: bool, shape: Shape3D, offset: Vector
 # ------------------------------------------------------------------ runtime
 
 func eye_global() -> Vector3:
+	if _eye_attach:
+		return _eye_attach.global_position
 	if eye_bone >= 0:
 		return skeleton.global_transform * skeleton.get_bone_global_pose(eye_bone).origin
 	if head_bone >= 0:

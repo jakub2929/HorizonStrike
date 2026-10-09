@@ -8,6 +8,7 @@ const Combat := preload("res://core/combat.gd")
 const Log := preload("res://core/log.gd")
 const MachineRig := preload("res://machines/machine_rig.gd")
 const Projectile := preload("res://machines/projectile.gd")
+const MachineAudio := preload("res://machines/machine_audio.gd")
 
 const LAYER_WORLD := 1
 const LAYER_PLAYER := 2
@@ -30,6 +31,7 @@ var home := Vector3.ZERO
 var rig: Node3D
 var last_hit_weapon := ""
 var meta := {}
+var audio: Node3D
 
 # tuning from sheets
 var archetype := "guard"
@@ -127,6 +129,10 @@ func _ready() -> void:
 	rig.name = "Rig"
 	add_child(rig)
 	rig.build(self, machine_type, meta)
+	audio = MachineAudio.new()
+	audio.name = "Audio"
+	add_child(audio)
+	audio.setup(self)
 	var cs := CollisionShape3D.new()
 	var cap := CapsuleShape3D.new()
 	var hgt: float = rig.body_height
@@ -190,6 +196,8 @@ func take_hit(weapon_id: String, base_damage: float, part: String, is_weak: bool
 	last_hit_weapon = weapon_id
 	if rig:
 		rig.flinch(is_weak)
+	if audio:
+		audio.play_role("hit")
 	if health <= 0.0:
 		health = 0.0
 		_die(weapon_id)
@@ -323,6 +331,8 @@ func _set_state(s: String) -> void:
 	Game.emit_machine_state(self, old, s)
 	if rig:
 		rig.on_state(s)
+	if audio:
+		audio.on_state(s)
 
 
 func _go_alert() -> void:
@@ -480,6 +490,8 @@ func _do_attack(delta: float) -> Array:
 
 
 func _start_attack(a: Dictionary) -> void:
+	if audio:
+		audio.play_role("attack")
 	_attack = a
 	_attack_phase = "windup"
 	_attack_t = 0.0

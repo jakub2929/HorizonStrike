@@ -26,6 +26,8 @@ var _stride := 1.6
 var _step_h := 0.35
 var _gait := "biped"
 var _initialized := false
+var _t := 0.0
+var _scan_w := 0.0
 
 
 func on_state(s: String) -> void:
@@ -156,6 +158,15 @@ func _rotate_global(sk: Skeleton3D, b: int, q: Quaternion) -> void:
 	_set_global_basis(sk, b, Basis(q) * g.basis.orthonormalized())
 
 
+## Rotates a bone chain by `total` radians around `axis` (skeleton space), spread evenly over its bones.
+func _rot_chain(sk: Skeleton3D, bones: PackedInt32Array, axis: Vector3, total: float) -> void:
+	if bones.is_empty() or absf(total) < 0.00001:
+		return
+	var per := total / bones.size()
+	for b in bones:
+		_rotate_global(sk, b, Quaternion(axis, per))
+
+
 func _ground(world_pos: Vector3) -> float:
 	var space := get_world_3d().direct_space_state if is_inside_tree() else null
 	if space == null:
@@ -260,36 +271,48 @@ func _process_modification_with_delta(delta: float) -> void:
 			_graze = 1.0 - _graze
 		want_graze = _graze
 	_look_w = move_toward(_look_w, want_graze, delta * 1.2)
+	_t += delta
 	var right_sk := (xf.basis.inverse() * m.global_transform.basis.x).normalized()
 	var up_sk := (xf.basis.inverse() * Vector3.UP).normalized()
+	var move_k := clampf(speed / 6.0, 0.0, 1.0)
 	if _look_w > 0.001:
-		for b in _neck_bones:
-			_rotate_global(sk, b, Quaternion(right_sk, -deg_to_rad(35.0) * _look_w))
+		_rot_chain(sk, _neck_bones, right_sk, -deg_to_rad(55.0) * _look_w)
+	# neck bob in step with the gait
+	if speed > 0.15:
+		_rot_chain(sk, _neck_bones, right_sk, sin(_phase * TAU * 2.0) * deg_to_rad(5.0) * move_k)
+	# tail: raised a little, swaying with a delay along the chain (stronger when running)
+	if not _tail_bones.is_empty():
+		var n := _tail_bones.size()
+		for i in n:
+			var k := float(i + 1) / n
+			var sway := sin(_t * (1.4 + 2.0 * move_k) - k * 2.2) * deg_to_rad(28.0 + 20.0 * move_k) / n
+			_rotate_global(sk, _tail_bones[i], Quaternion(up_sk, sway) * Quaternion(right_sk, -deg_to_rad(14.0) / n))
+	# calm guards scan the area with the head (Watcher eye sweep)
+	var guard: bool = rig.machine.archetype == "guard"
+	var scan_w := 1.0 if guard and _state in ["idle", "patrol"] else 0.0
+	_scan_w = move_toward(_scan_w, scan_w, delta)
+	if _scan_w > 0.001 and rig.head_bone >= 0:
+		_rotate_global(sk, rig.head_bone, Quaternion(up_sk, sin(_t * 0.6) * deg_to_rad(40.0) * _scan_w))
 	if _pose != "":
 		_pose_t += delta
 		var e := clampf(_pose_t / _pose_dur, 0.0, 1.0)
 		var env := sin(PI * e)
 		match _pose:
 			"lunge_bite", "ram", "charge":
-				for b in _neck_bones:
-					_rotate_global(sk, b, Quaternion(right_sk, -deg_to_rad(25.0) * env))
+				_rot_chain(sk, _neck_bones, right_sk, -deg_to_rad(30.0) * env)
 			"tail_sweep":
-				for b in _tail_bones:
-					_rotate_global(sk, b, Quaternion(up_sk, deg_to_rad(70.0) * sin(TAU * e)))
+				_rot_chain(sk, _tail_bones, up_sk, deg_to_rad(120.0) * sin(TAU * e))
 			"eye_charge":
-				for b in _neck_bones:
-					_rotate_global(sk, b, Quaternion(right_sk, deg_to_rad(10.0) * env))
+				_rot_chain(sk, _neck_bones, right_sk, deg_to_rad(12.0) * env)
 			"rear_kick":
 				if _body_bone >= 0:
 					_rotate_global(sk, _body_bone, Quaternion(right_sk, -deg_to_rad(12.0) * env))
 			"rotor_sweep":
-				for b in _neck_bones:
-					_rotate_global(sk, b, Quaternion(up_sk, deg_to_rad(40.0) * sin(TAU * e)))
+				_rot_chain(sk, _neck_bones, up_sk, deg_to_rad(50.0) * sin(TAU * e))
 		if e >= 1.0:
 			_pose = ""
 	if _flinch > 0.0:
-		for b in _spine_bones:
-			_rotate_global(sk, b, Quaternion(right_sk, deg_to_rad(8.0) * _flinch))
+		_rot_chain(sk, _spine_bones if not _spine_bones.is_empty() else _neck_bones, right_sk, deg_to_rad(10.0) * _flinch)
 		_flinch = maxf(_flinch - delta * 4.0, 0.0)
 	# ---- head look-at the player when aware
 	var head: int = rig.head_bone
@@ -304,8 +327,17 @@ func _process_modification_with_delta(delta: float) -> void:
 			var axis := fwd_sk.cross(to).normalized()
 			var lim := minf(ang, deg_to_rad(55.0))
 			_rotate_global(sk, head, Quaternion(axis, lim * 0.7))
-			for b in _neck_bones:
-				_rotate_global(sk, b, Quaternion(axis, lim * 0.3 / maxf(_neck_bones.size(), 1)))
+			_rot_chain(sk, _neck_bones, axis, lim * 0.3)
+	if debug_measure:
+		debug_moved = 0
+		for i in sk.get_bone_count():
+			if _global(sk, i).origin.distance_to(sk.get_bone_global_rest(i).origin) > 0.01:
+				debug_moved += 1
+
+
+## Dev: count of bones the last modification moved (only computed when debug_measure is on).
+var debug_measure := false
+var debug_moved := 0
 
 
 ## Analytic two-bone IK in skeleton space: hip = chain[0], knee = chain[knee_i], end = last joint (the foot contact).
