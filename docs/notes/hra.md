@@ -117,6 +117,14 @@ Rules I follow: no class_name lookups across files (everything via preload, so a
   _built/_tex_built sets; the build job dictionary got keys inserted after add_task while the worker wrote into it
   -> worker writes a pre-sized array slot only; converter/mock event queues were size-checked without the mutex.
   After: 0/20 + 0/36 stressed + 0/5 real. Converter now re-exports missing meshes (svet); GC pinning kept as a net.
+- HOTFIX 0.1.1 buy wheel: the wheel's full-screen root Control has mouse_filter STOP, so the GUI consumed every
+  mouse motion/click and _unhandled_input (where hover + click lived) never saw them -> nothing could be bought with
+  the mouse in 0.1.0 (t03 used Game.buy). Mouse now goes through _root.gui_input; hold B + release over an item buys;
+  a tap / release with nothing selected keeps the wheel open; warp via Viewport.warp_mouse; the automated-run guard
+  that ignored B is gone (tests drive real input); log lines `buywheel: open/hover/select/denied/bought`.
+  Verified with dev/buy_input_driver.gd (real InputEvents) in the editor and in an exported release exe (release
+  templates ignore --script: the driver is added as an autoload through override.cfg next to the exe) at 1600x900,
+  1280x720, 1920x1080.
 
 ## Notes for teammates (relay via main)
 - test (t10): real cells outside the start area are ~11 MB (meshes/textures shared), 5 steps east add ~164 MB, so

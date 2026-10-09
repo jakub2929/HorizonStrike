@@ -3,7 +3,7 @@ extends Node
 ## --mock-data) -> bootstrap with real progress -> world streaming -> player at the start campfire -> world_ready.
 ## Also: autotest runner hook (--autotest), death + campfire respawn (respawn.*), mouse capture, error screen.
 
-const VERSION := "0.1.0"
+const VERSION := "0.1.1"
 const Args := preload("res://core/args.gd")
 const Log := preload("res://core/log.gd")
 const Paths := preload("res://core/paths.gd")
