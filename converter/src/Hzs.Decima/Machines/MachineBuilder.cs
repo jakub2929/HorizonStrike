@@ -290,15 +290,60 @@ public sealed class MachineBuilder(Resolver res, MachinesRow row, JsonObject? re
         {
             ["id"] = row.Id,
             ["hzd_internal_name"] = row.HzdInternalName,
+            ["model"] = "model.glb",
+            ["up"] = "y",
+            ["forward"] = "-z",
+            ["scale_m"] = 1.0,
             ["space"] = "godot: meters, Y up, forward -Z (hzd (x,y,z) -> (x,z,-y))",
+            ["bone_roles"] = BoneRoles(),
+            ["points"] = Points(),
             ["height_m"] = R(height),
             ["bones"] = bones,
             ["weak_spots"] = weak,
-            ["leg_chains"] = new JsonArray(LegChains().Select(c => (JsonNode)new JsonArray(c.Select(n => (JsonNode)n).ToArray())).ToArray()),
+            ["leg_chains"] = RoleLegChains(),
+            ["leg_chains_bones"] = new JsonArray(LegChains().Select(c => (JsonNode)new JsonArray(c.Select(n => (JsonNode)n).ToArray())).ToArray()),
         };
     }
 
     private static double R(float v) => Math.Round(v, 4);
+
+    // ---------------- content contract (sheet bone_roles / points, checked against the converted skeleton) ----------------
+
+    private JsonObject BoneRoles()
+    {
+        var o = new JsonObject();
+        if (Json(row.BoneRoles) is not JsonObject roles) return o;
+        foreach (var (role, bone) in roles)
+        {
+            var b = bone?.GetValue<string>() ?? "";
+            if (_names.Contains(b)) o[role] = b;
+            else log.Warn($"{row.Id}: bone_roles.{role} = {b} not in the skeleton (dropped)");
+        }
+        return o;
+    }
+
+    private JsonObject Points()
+    {
+        var o = new JsonObject();
+        if (Json(row.Points) is not JsonObject pts) return o;
+        foreach (var (name, p) in pts)
+        {
+            var b = p?["bone"]?.GetValue<string>() ?? "";
+            if (_names.Contains(b)) o[name] = p!.DeepClone();
+            else log.Warn($"{row.Id}: points.{name}.bone = {b} not in the skeleton (dropped)");
+        }
+        return o;
+    }
+
+    /// <summary>Leg chains as role names (leg_&lt;id&gt;_upper/lower/foot/toe present in bone_roles), one array per leg.</summary>
+    private JsonArray RoleLegChains()
+    {
+        var roles = BoneRoles();
+        var legs = roles.Select(kv => kv.Key).Where(k => k.StartsWith("leg_", StringComparison.Ordinal))
+            .GroupBy(k => k[..k.LastIndexOf('_')]).OrderBy(g => g.Key, StringComparer.Ordinal);
+        string[] order = ["upper", "lower", "foot", "toe"];
+        return new JsonArray(legs.Select(g => (JsonNode)new JsonArray(order.Select(part => g.Key + "_" + part).Where(g.Contains).Select(r => (JsonNode)r).ToArray())).ToArray());
+    }
 
     private static JsonNode? Json(string text) { try { return JsonNode.Parse(text); } catch { return null; } }
 

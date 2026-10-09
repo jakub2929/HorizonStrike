@@ -201,3 +201,15 @@ mole = Burrower were wrong. Grazer is `harvester`.
   median 0.1 s / max 5.7 s per cell; 131 cells have placed objects (1.63 M instances), 209 outer cells only terrain +
   procedural vegetation; 167 campfires, 80 machine sites; cache hzd 4.2 GB (cells 2.6 GB, meshes 1.1 GB,
   textures 0.39 GB).
+
+## Content contract (D32, 2026-10-09)
+- sheets/machines.json columns content_model / bone_roles / points (owner svet), all 3 rows filled. meta.json now has
+  model, up "y", forward "-z", scale_m 1.0, bone_roles (role -> bone, only bones present in the converted skeleton),
+  points ({bone, offset, radius?, kind weak_spot|attack_origin|fx, part?}), leg_chains as role names
+  (leg_<id>_upper/lower/foot/toe; biped watcher: leg_l/leg_r, quadrupeds leg_fl/fr/bl/br) and leg_chains_bones.
+- Weak-spot points: watcher weak_eye (Eye_helper), strider weak_canister, grazer weak_canister_1..4.
+- Converter audio choice comes from systems audio.music_explore_track / audio.ambience_track. Still in converter code:
+  combat/sneak music track families, the start marker name, layer-name skip lists, sound-role name patterns
+  (converter-side mapping of HZD data; the game never sees them).
+- S8: tools/proto_smoke.py -> PROTO OK (bootstrap 70 s on an empty cache incl. CS2, 4 ring cells, priority change,
+  cancel, cached re-request, 2 parallel workers, bye + exit 0).

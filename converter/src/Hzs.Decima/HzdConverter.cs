@@ -173,7 +173,7 @@ public static class HzdConverter
             .OrderBy(t => t.Name, StringComparer.OrdinalIgnoreCase).Take(max);
         var cues = new (string File, Audio.Music.Track[] Tracks)[]
         {
-            ("explore_nora", new[] { T("exploration_nora_02_flutetheme") }.OfType<Audio.Music.Track>().ToArray()),
+            ("explore_nora", new[] { T(SystemsSheet.AudioMusicExploreTrack.Value.Trim('"')) }.OfType<Audio.Music.Track>().ToArray()), // sheet systems audio.music_explore_track
             ("explore_nora_2", new[] { T("exploration_nora_03_full_pt01"), T("exploration_nora_03_full_pt02") }.OfType<Audio.Music.Track>().ToArray()),
             ("combat", new[] { music.Tracks.FirstOrDefault(t => t.Name.EndsWith("robot_fight_v4-intro", StringComparison.OrdinalIgnoreCase)) }.OfType<Audio.Music.Track>()
                 .Concat(music.Tracks.Where(t => t.Name.Contains("robot_fight_v4-high-", StringComparison.OrdinalIgnoreCase))
@@ -222,7 +222,8 @@ public static class HzdConverter
                 }
             }
         }
-        var env = res.TryFile("sounds/environments/senv_fauna_forestconiferous");
+        var envPath = SystemsSheet.AudioAmbienceTrack.Value.Trim('"'); // sheet systems audio.ambience_track
+        var env = res.TryFile(envPath);
         if (env is not null)
             foreach (var es in env.All("EnvironmentSound").Take(10))
             {
@@ -233,7 +234,7 @@ public static class HzdConverter
             }
         ExportFolder("sounds/effects/world/global/fire/fire_festivalcampfires/", "campfire", 2);
         index["ambience"] = amb;
-        index["ambience_source"] = "sounds/environments/senv_fauna_forestconiferous";
+        index["ambience_source"] = envPath;
         progress.Report("audio", 2, 3);
 
         var json = System.Text.Encoding.UTF8.GetBytes(index.ToJsonString(new System.Text.Json.JsonSerializerOptions { WriteIndented = true }));
