@@ -525,11 +525,7 @@ func _mesh_gc() -> void:
 		if used.has(id):
 			continue
 		var p := mdir.path_join(f)
-		var sz := 0
-		var fa := FileAccess.open(p, FileAccess.READ)
-		if fa:
-			sz = fa.get_length()
-			fa.close()
+		var sz := FsUtil.file_bytes(p)
 		if DirAccess.remove_absolute(p) == OK:
 			removed += 1
 			freed += sz
@@ -543,10 +539,9 @@ func _mesh_gc() -> void:
 			if used_tex.has(f.get_basename()) or used_tex.has(f):
 				continue
 			var tp := tdir.path_join(f)
-			var fa2 := FileAccess.open(tp, FileAccess.READ)
-			var sz2 := fa2.get_length() if fa2 else 0
-			if fa2:
-				fa2.close()
+			if tp.ends_with(".tmp") or not FileAccess.file_exists(tp):
+				continue
+			var sz2 := FsUtil.file_bytes(tp)
 			if DirAccess.remove_absolute(tp) == OK:
 				removed += 1
 				freed += sz2

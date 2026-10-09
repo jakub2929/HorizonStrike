@@ -10,15 +10,26 @@ static func dir_bytes(dir: String) -> int:
 		return 0
 	d.include_hidden = true
 	for f in d.get_files():
-		var fa := FileAccess.open(dir.path_join(f), FileAccess.READ)
-		if fa:
-			total += fa.get_length()
+		total += file_bytes(dir.path_join(f))
 	for sub in d.get_directories():
 		var p := dir.path_join(sub)
 		if d.is_link(sub):
 			continue
 		total += dir_bytes(p)
 	return total
+
+
+## Size of one cache file, 0 for in-progress `*.tmp` files and files that are gone (the converter and mesh GC
+## add/remove files while a scan runs). Never asks the engine for the size of a missing file (that logs an error).
+static func file_bytes(path: String) -> int:
+	if path.ends_with(".tmp") or not FileAccess.file_exists(path):
+		return 0
+	var fa := FileAccess.open(path, FileAccess.READ)
+	if fa == null:
+		return 0
+	var n := fa.get_length()
+	fa.close()
+	return maxi(n, 0)
 
 
 static func is_inside(path: String, root: String) -> bool:
