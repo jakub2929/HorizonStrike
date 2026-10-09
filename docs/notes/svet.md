@@ -401,3 +401,10 @@ Sites of the new machines (svet 0.2 V3, hzsconv hzd-sites after site_map type:di
   snow = (1 - rock) x smoothstep(0.50, 0.62) of the ecotope effect (frost 0.54-0.6 / snow > 0.6 like the placement
   curves), grass = rest x clamp(undergrowth density x 1.5 - roads), dirt = rest. 4_-3: snow 0.48, grass 0.13,
   dirt 0.02, rock 0.37; after BC7 |sum - 1| mean 0.005, 0.5 % of pixels > 0.05 (max 0.19) -> the shader normalises.
+
+## 0.2 V5 water (2026-10-09)
+- Per tile levels/worlds/world/tiles/tile_x<X>_y<Y>/layers/water/tile_<X>_<Y>_water.core: ObjectCollection of
+  StaticMeshInstances -> LodMeshResources (river / lake surfaces, vertices in absolute height, instance origin y 0) +
+  water RenderEffects / ShaderResources (compiled water shading). Tile 4,-3: 31 surfaces, 182-299 m, following the
+  valleys and the river (Godot render cache-svetwork/shots/water_4_-3_0.png). cell.json format 7 water.instances
+  (meshes exported like the world meshes; hzd_content water.layer); systems render.water filled.

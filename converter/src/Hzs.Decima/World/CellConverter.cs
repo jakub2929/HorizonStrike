@@ -15,7 +15,7 @@ namespace Hzs.Decima.World;
 public static class CellConverter
 {
     /// <summary>cell.json "format"; bump when the cell layout changes so old cells are converted again.</summary>
-    public const int Format = 6;
+    public const int Format = 7;
 
     public static long Convert(ConvContext ctx, Resolver res, int x, int y, IProgressSink progress)
     {
@@ -151,6 +151,35 @@ public static class CellConverter
             }
             catch (Exception ex) { ctx.Log.Warn($"cell {x},{y}: vegetation: {ex.Message}"); }
 
+            // water surfaces: the tile's water layer (StaticMeshInstances of water meshes; the game applies its water shader)
+            JsonObject? water = null;
+            try
+            {
+                var wp = new Placements(res, ctx.Log).ForLayerFile($"{WorldTiles.TileDir(x, y)}/{HzdNames.Fill("water.layer", ("x", x.ToString()), ("y", y.ToString()))}");
+                if (wp.Count > 0)
+                {
+                    var wids = new System.Collections.Concurrent.ConcurrentDictionary<(string, Guid), MeshRef?>();
+                    Parallel.ForEach(wp.Select(q => (q.MeshFile, q.MeshUuid)).Distinct(), new ParallelOptions { MaxDegreeOfParallelism = 4, CancellationToken = ctx.Ct },
+                        u => wids[u] = meshes.Ensure(u.MeshFile, u.MeshUuid, written));
+                    var winst = new JsonArray();
+                    foreach (var q in wp)
+                    {
+                        if (wids.GetValueOrDefault((q.MeshFile, q.MeshUuid)) is not { } m) continue;
+                        usedMeshes.Add(m.Id);
+                        foreach (var t in m.Textures) usedTex.Add(t);
+                        var g = Assets.Space.M(q.World);
+                        winst.Add(new JsonObject { ["mesh"] = m.Id, ["xf"] = new JsonArray(Assets.Space.Xf(g).Select(v => (JsonNode)Math.Round(v, 4)).ToArray()) });
+                    }
+                    if (winst.Count > 0)
+                        water = new JsonObject
+                        {
+                            ["instances"] = winst,
+                            ["source"] = HzdNames.Fill("water.layer", ("x", x.ToString()), ("y", y.ToString())),
+                        };
+                }
+            }
+            catch (Exception ex) { ctx.Log.Warn($"cell {x},{y}: water: {ex.Message}"); }
+
             // terrain material layers: shared layer textures + per-cell blend masks (fallback from HZD world data)
             JsonObject? layers = null;
             try
@@ -210,6 +239,7 @@ public static class CellConverter
                 },
                 ["instances"] = instances,
                 ["vegetation"] = vegetation,
+                ["water"] = water,
                 ["campfires"] = campfires,
                 ["spawns"] = spawns,
                 ["spawns_skipped"] = skipped,
