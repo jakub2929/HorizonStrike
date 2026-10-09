@@ -128,3 +128,5 @@ anim/speeds/perception thresholds/attacks/herd/flee, machine_attacks.json. Newes
   (Broadhead holds its ground in alert, player outside fight_back_radius), standing at 12 m (Sawtooth inside
   stalk_until_m attacks without stalking), gunshot near crouched herds (grazer/strider: graze -> suspicious ->
   alert -> flee 0.41-0.42 s after the shot; Broadhead: suspicious -> alert, holds).
+  Second real autotest run (t05,t06): t05 PASS (suspicious 2.4 s at 39.7 m -> alert 6.4 s -> attack 7.0 s),
+  t06 PASS (12/12 checks).
