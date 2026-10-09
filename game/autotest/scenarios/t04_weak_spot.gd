@@ -91,24 +91,37 @@ func _run(ctx):
 
 func _shot(ctx, m: Node, part: String) -> Dictionary:
 	var before := float(m.get("health"))
-	var marker: Node3D = null
-	if part == "body":
-		# lower body (40 % of the height): from the front the eye sits in front of the body's aim point
-		var bx: AABB = Frame.global_aabb(m)
-		marker = Node3D.new()
-		marker.name = "AutotestBodyMarker"
-		ctx.runner.add_child(marker)
-		marker.global_position = bx.get_center() + Vector3(0, -0.1 * bx.size.y, 0)
-		await ctx.call_api(ctx.game, "aim_at", [marker, "body"])
-		marker.queue_free()
-	else:
-		await ctx.call_api(ctx.game, "aim_at", [m, part])
+	# line of sight from the camera to the point we shoot at; when something else is in the way (a tree, another
+	# machine) the player moves around the target at the same distance (8 directions) before firing
+	var los := {}
+	var moves := []
+	var base_off: Vector3 = ctx.player_pos() - (m as Node3D).global_position
+	base_off.y = 0.0
+	for attempt in 9:
+		await _aim(ctx, m, part)
+		await ctx.physics_frames(2)
+		los = _los(ctx, m, _target_point(m, part))
+		if los.clear:
+			break
+		moves.append(los.by)
+		if attempt == 8:
+			break
+		var center: Vector3 = (m as Node3D).global_position
+		var np := center + base_off.rotated(Vector3.UP, deg_to_rad(45.0 * (attempt + 1)))
+		var gy: Variant = await ctx.ground_y(np.x, np.z, center.y + 100.0)
+		np.y = float(gy) + 0.1 if gy != null else ctx.player_pos().y
+		await ctx.call_api(ctx.game, "teleport", [np])
+		await ctx.physics_frames(3)
 	await ctx.physics_frames(2)
 	var cam: Camera3D = ctx.camera()
 	var cam_pos: Vector3 = cam.global_position if cam != null else ctx.player_pos()
 	var r: Variant = await ctx.call_api(ctx.game, "fire")
 	await ctx.physics_frames(2)
 	var d: Dictionary = r if r is Dictionary else {}
+	var miss_by := ""
+	if not d.get("hit", false) or d.get("target") != m:
+		# report what the shot line meets now (the bullet itself has CS inaccuracy)
+		miss_by = str(_los(ctx, m, _target_point(m, part)).by)
 	var after := float(m.get("health")) if is_instance_valid(m) else 0.0
 	var dist := -1.0
 	var how := "machine origin"
@@ -133,7 +146,8 @@ func _shot(ctx, m: Node, part: String) -> Dictionary:
 		dmax = maxf(dmax, dd)
 	return {"hit": d.get("hit"), "part": d.get("part"), "damage": d.get("damage"), "target_ok": d.get("target") == m,
 		"health_before": before, "health_lost": before - after, "distance_m": snappedf(dist, 0.01), "distance_from": how,
-		"aabb_distance_m": [snappedf(dmin, 0.01), snappedf(dmax, 0.01)]}
+		"aabb_distance_m": [snappedf(dmin, 0.01), snappedf(dmax, 0.01)],
+		"line_of_sight": los.clear, "blocked_by_before_moving": moves, "miss_blocked_by": miss_by}
 
 
 func _expect(base: float, rm: float, step: float, u2m: float, shot: Dictionary) -> Dictionary:
@@ -148,3 +162,45 @@ func _expect(base: float, rm: float, step: float, u2m: float, shot: Dictionary) 
 		var far: float = shot.aabb_distance_m[1]
 		tol = maxf(absf(f.call(minf(near, d)) - v), absf(f.call(maxf(far, d)) - v)) + 0.05
 	return {"value": snappedf(v, 0.01), "tol": snappedf(tol, 0.01), "distance_m": d}
+
+
+static func _target_point(m: Node, part: String) -> Vector3:
+	## body: lower body (centre lowered by 10 % of the height) - from the front the eye sits in front of the body's
+	## aim point; weak spots: the machine's own aim point for that part
+	if part == "body" or not m.has_method("aim_point"):
+		var bx: AABB = Frame.global_aabb(m)
+		return bx.get_center() + Vector3(0, -0.1 * bx.size.y, 0)
+	return m.call("aim_point", part)
+
+
+func _aim(ctx, m: Node, part: String) -> void:
+	if part == "body":
+		var marker := Node3D.new()
+		marker.name = "AutotestBodyMarker"
+		ctx.runner.add_child(marker)
+		marker.global_position = _target_point(m, part)
+		await ctx.call_api(ctx.game, "aim_at", [marker, "body"])
+		marker.queue_free()
+	else:
+		await ctx.call_api(ctx.game, "aim_at", [m, part])
+
+
+static func _los(ctx, m: Node, to: Vector3) -> Dictionary:
+	## ray camera -> to (areas included: hitboxes); clear when the first thing hit belongs to m
+	var cam: Camera3D = ctx.camera()
+	if cam == null:
+		return {"clear": false, "by": "no camera"}
+	var q := PhysicsRayQueryParameters3D.create(cam.global_position, to)
+	q.exclude = ctx.player_rids()
+	q.collide_with_areas = true
+	var hit: Dictionary = ctx.runner.get_viewport().get_world_3d().direct_space_state.intersect_ray(q)
+	if hit.is_empty():
+		return {"clear": true, "by": ""}
+	var col: Variant = hit.get("collider")
+	if col is Node and (col == m or m.is_ancestor_of(col) or (col as Node).get_meta("machine", null) == m):
+		return {"clear": true, "by": str((col as Node).name)}
+	var owner_m: Variant = (col as Node).get_meta("machine", null) if col is Node else null
+	var label := str((col as Node).name) if col is Node else str(col)
+	if owner_m is Node:
+		label = "%s (hitbox of %s)" % [label, (owner_m as Node).name]
+	return {"clear": false, "by": label}

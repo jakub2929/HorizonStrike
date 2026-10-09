@@ -30,7 +30,7 @@ func _run(ctx):
 		return false
 	for m in herd:
 		if "ai_enabled" in m:
-			m.set("ai_enabled", true)
+			ctx.set_ai(m, true)
 	var calm := ["idle", "patrol", "graze"]
 	if not herd.all(func(m): return calm.has(str(m.get("state")))):
 		# the herd is still disturbed (an earlier scenario): step 150 m away and give it up to 90 s to calm down

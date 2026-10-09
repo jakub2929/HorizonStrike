@@ -58,6 +58,9 @@ var errlog := ErrLogger.new()
 var wanted := PackedStringArray()  # ids requested in this process (scenarios may host other rows, e.g. s02 in t05)
 var extra_results := {}  # id -> {pass, details} produced by a hosting scenario
 var _conns: Array = []  # [signal, callable] connected during the current scenario
+var spawned: Array = []  # machines the current scenario spawned through the API (removed afterwards)
+var ai_changed: Array = []  # [machine, original ai_enabled] of world machines a scenario switched
+var _player_state := {}  # player flags at scenario start (restored afterwards)
 var _log_file: FileAccess
 
 
@@ -327,12 +330,69 @@ func spawn_ahead(machine_type: String, dist_m: float, angle_deg: float = 0.0, ai
 				break
 	var m: Variant = await call_api(game, "spawn_machine", [machine_type, pos])
 	if m is Node:
+		spawned.append(m)
 		if "ai_enabled" in m:
 			m.set("ai_enabled", ai)
 		note("spawned %s at %s (%.1f m, ai=%s)" % [machine_type, str(pos), dist_m, str(ai)])
 		return m
 	note("spawn_machine(%s) returned %s" % [machine_type, str(m)])
 	return null
+
+
+func set_ai(m: Node, on: bool) -> void:
+	## switch a machine's AI for test setup; world machines get their original flag back after the scenario
+	if not is_instance_valid(m) or not ("ai_enabled" in m):
+		return
+	if not spawned.has(m) and ai_changed.filter(func(e): return e[0] == m).is_empty():
+		ai_changed.append([m, m.get("ai_enabled")])
+	m.set("ai_enabled", on)
+
+
+func begin_scenario() -> void:
+	spawned.clear()
+	ai_changed.clear()
+	_player_state = {}
+	var p := player
+	if p != null:
+		for k in ["invulnerable", "crouched", "crouching"]:
+			if k in p:
+				_player_state[k] = p.get(k)
+
+
+func cleanup() -> Dictionary:
+	## makes scenarios independent of their order: frees the machines this scenario spawned (they would hold slots
+	## of spawning.max_active_machines and block later lines of fire), gives world machines their AI flag back
+	## (an alerted one stays frozen so it cannot chase the player into the next scenario), restores player flags
+	var out := {"removed": 0, "ai_restored": 0, "kept_frozen": []}
+	for m in spawned:
+		if is_instance_valid(m):
+			(m as Node).queue_free()
+			out.removed += 1
+	spawned.clear()
+	for e in ai_changed:
+		var m: Variant = e[0]
+		if not is_instance_valid(m):
+			continue
+		if e[1] == true and str(m.get("state")) in ["alert", "attack"]:
+			m.set("ai_enabled", false)
+			out.kept_frozen.append("%s %s" % [m.name, m.get("state")])
+		else:
+			m.set("ai_enabled", e[1])
+			out.ai_restored += 1
+	ai_changed.clear()
+	var p := player
+	if p != null:
+		if _player_state.has("crouched") or _player_state.has("crouching"):
+			var was: bool = bool(_player_state.get("crouched", _player_state.get("crouching", false)))
+			if p.has_method("set_crouch"):
+				p.call("set_crouch", was)
+		if _player_state.has("invulnerable"):
+			p.set("invulnerable", _player_state.invulnerable)
+	var g := game
+	if g != null and g.has_method("close_buy_wheel"):
+		g.call("close_buy_wheel")
+	await frames(2)
+	return out
 
 
 func line_of_sight_to(m: Node, part: String = "body") -> Dictionary:
