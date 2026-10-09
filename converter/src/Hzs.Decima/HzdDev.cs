@@ -9,6 +9,11 @@ namespace Hzs.Decima;
 /// <summary>Developer commands (hzd-ls, hzd-dump). They only read the HZD install; output goes to stdout or --out.</summary>
 public static partial class HzdDev
 {
+    // default cell of the dev commands = sheet systems streaming.start_cell
+    private static int[] Start => System.Text.Json.JsonSerializer.Deserialize<int[]>(Hzs.Generated.SystemsSheet.StreamingStartCell.Value)!;
+    private static int StartX => Start[0];
+    private static int StartY => Start[1];
+
     public static int Run(string[] args)
     {
         string? Get(string name)
@@ -81,8 +86,8 @@ public static partial class HzdDev
                     var res = new Resolver(arc);
                     var tiles = WorldTiles.Scan(arc).Terrain.ToList();
                     var ring = int.TryParse(Get("--ring"), out var rr) ? rr : 1;
-                    var cells = tiles.Where(t => Has("--all") || Math.Max(Math.Abs(t.X - 4), Math.Abs(t.Y + 3)) <= ring)
-                        .OrderBy(t => Math.Max(Math.Abs(t.X - 4), Math.Abs(t.Y + 3))).ThenBy(t => t.X).ThenBy(t => t.Y).ToList();
+                    var cells = tiles.Where(t => Has("--all") || Math.Max(Math.Abs(t.X - StartX), Math.Abs(t.Y - StartY)) <= ring)
+                        .OrderBy(t => Math.Max(Math.Abs(t.X - StartX), Math.Abs(t.Y - StartY))).ThenBy(t => t.X).ThenBy(t => t.Y).ToList();
                     var workers = int.TryParse(Get("--workers"), out var ww) ? ww : 1;
                     var results = new System.Collections.Concurrent.ConcurrentBag<string>();
                     var sink = new NullSink();
@@ -169,7 +174,7 @@ public static partial class HzdDev
             case "hzd-meshes":
                 {
                     // dev: why do meshes of a tile come out empty? prints the LOD structure of the first N failures
-                    var c = (Get("--cell") ?? "4,-3").Split(',').Select(int.Parse).ToArray();
+                    var c = (Get("--cell") ?? $"{StartX},{StartY}").Split(',').Select(int.Parse).ToArray();
                     using var log = new Hzs.Common.Log(null);
                     var res = new Resolver(arc);
                     var pl = new Placements(res, log).ForTile(c[0], c[1]);
@@ -197,7 +202,7 @@ public static partial class HzdDev
                 }
             case "hzd-cellstats":
                 {
-                    var c = (Get("--cell") ?? "4,-3").Split(',').Select(int.Parse).ToArray();
+                    var c = (Get("--cell") ?? $"{StartX},{StartY}").Split(',').Select(int.Parse).ToArray();
                     using var log = new Hzs.Common.Log(null);
                     var res = new Resolver(arc);
                     var pl = new Placements(res, log).ForTile(c[0], c[1]);

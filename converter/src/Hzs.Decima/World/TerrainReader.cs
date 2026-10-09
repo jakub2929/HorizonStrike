@@ -2,6 +2,8 @@ using System.Buffers.Binary;
 using Hzs.Decima.Assets;
 using Hzs.Decima.Core;
 
+using Hzs.Decima.Sheets;
+
 namespace Hzs.Decima.World;
 
 /// <summary>Heights of one cell in Godot layout: row-major, row 0 = north edge, column 0 = west edge.</summary>
@@ -22,8 +24,8 @@ public static class TerrainReader
     public const float TileSize = 512f;
     public const float HeightScale = 1f / 32f;
 
-    public static string HeightPath(int x, int y) => $"{WorldTiles.TileDir(x, y)}/worlddata/worlddata_height_terrain";
-    public static string AlbedoPath(int x, int y) => $"{WorldTiles.TileDir(x, y)}/worlddata/worlddata_flattened_albedo";
+    public static string HeightPath(int x, int y) => $"{WorldTiles.TileDir(x, y)}/{HzdNames.Str("terrain.height")}";
+    public static string AlbedoPath(int x, int y) => $"{WorldTiles.TileDir(x, y)}/{HzdNames.Str("terrain.albedo")}";
 
     public static TerrainData? ReadReal(Resolver res, int x, int y)
     {

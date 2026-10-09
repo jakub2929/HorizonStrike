@@ -85,3 +85,13 @@
   dist/converter = 97 MB; `dist\converter\hzsconv.exe --help` exit 0; the published exe converts ak47.
   Note: the worktree guard refuses to launch powershell from the agent's Bash tool, so build.ps1 itself was not
   executed by cs2; its exact publish command and copies were run by hand with the same arguments.
+- Content contract 2026-10-09 (CLAUDE.md "Content is data, not code"): sheets/weapons.json columns content_model
+  ({view, world} cache-relative), bone_roles (camera/root, attach, hand_r, hand_l, weapon, mag, bolt, trigger, pin)
+  and points (muzzle, eject, mag_drop, flame: {bone, offset m bone-local, rotation, forward, kind}) with evidence;
+  the converter writes cs2/weapons/<id>/meta.json from the models (arms skeleton, weapon skeleton, vmdl attachments
+  muzzle_flash / muzzle_flash2 for the suppressed M4A1-S / shell_eject / mag_drop / molotov_particle, attach bone
+  from viewmodel.vnmskel m_secondarySkeletons; knives/grenades are not listed there -> the one bone all 13 listed
+  entries use) and reports any difference to the sheet as a problem: 14 items, 0 problems. Attachment offsets are
+  bone-local inches -> x 0.0254; bone-local frames are unchanged by the glTF conversion (only roots turn).
+  Points render on the muzzle / ejection port / P250 mag / molotov rag in Godot (BoneAttachment3D + offset).
+  cs2_format 2 (meta.json). Bones and points refer to view.glb; world.glb stays a static mesh.

@@ -81,7 +81,8 @@ manifest.json                          {"format":1,"converter":"x.y.z","cs2_buil
 cs2/weapons.json                       per weapon id (sheet id): stats read from the player's CS2 data
 cs2/weapons/<id>/world.glb             third-person/world model
 cs2/weapons/<id>/view.glb              first-person viewmodel incl. arms + clips (draw, idle, fire, reload, inspect)
-cs2/weapons/<id>/icon.png              buy wheel icon
+cs2/weapons/<id>/icon.svg              buy wheel icon
+cs2/weapons/<id>/meta.json             content contract: content_model, bone_roles, points
 cs2/weapons/<id>/snd/<event>_<n>.(wav|mp3)
 cs2/ui/...                             any other CS2 UI art used (money/armor icons)
 hzd/index.json                         world grid: cell size, bounds, list of cells, start cell, campfires, spawn sites
