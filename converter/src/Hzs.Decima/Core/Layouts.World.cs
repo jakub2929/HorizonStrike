@@ -33,6 +33,12 @@ public static partial class Layouts
         L(0xE605F6EC1EE0979D, "PlacementLayer", "PlacementDistance:float CreationOrder:int GroupingFlags:e4 BakedData:Ref ProcData:Ref");
         L(0x2B9D634C4B5A2EBA, "PlacementProceduralData", "DensityProgram:Ref Placement:Ref ChunkSizeSetting:e4 UsageMask:e4 UseBlendedShadows:bool StencilScale:float DensityScale:float HeightWorldDataType:Ref");
         L(0x739AB497DD04F1B5, "PlacementSet", "Name:String DensityGraph:Ref Children:Array<Ref> DensityBehavior:e4 NormalizeDensity:bool DensityScale:float HeightMap:Ref");
+        // density graph nodes (only what decides where a species may grow: ecotope effect curves)
+        L(0xC668B09FA794005F, "CurveResource", "Name:String Points:Array<Vec2> Tangents:Array<float> Smooth:bool");
+        L(0x55866559C84E2E51, "DensityCurveLookup", "Name:String Map:Ref Curve:Ref");
+        L(0xCF14BCDFC23C50FB, "DensityMultiply", "Name:String Inputs:Array<Ref>");
+        L(0x512BDCB5C8D28807, "DensityWorldDataMap", "Name:String Curve:Ref WorldDataType:Ref Channel:e4");
+        L(0xE2D58392C3A704E7, "DensityInvert", "Name:String InputDensity:Ref");
         L(0x0DA8EE7190FB26F7, "MeshPlacement", "Name:String DensityGraph:Ref UsageMask:e4 DensityBehavior:e4 DensityScale:float ChunkSize:e4 MaxSlope:float MinSlope:float RotationType:e4 RotationOffset:float RotationVariance:float BaseElevation:float ElevationVariance:float WanderingDistance:float RandomTiltFactor:float TerrainTiltFactor:float UpTiltFactor:float ManualTilt:Vec3 Scale:float ScaleVariance:float ApplyShadowBlending:bool MaxRenderDistance:float Footprint:float Mesh:Ref PlacementTargets:Array<Ref>");
 
         // robot sites

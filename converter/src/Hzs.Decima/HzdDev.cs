@@ -262,8 +262,14 @@ public static partial class HzdDev
                         Console.WriteLine($"{g.Count(),4} {g.Key}");
                     Console.WriteLine($"layers {rows.Count}");
                     using var vlog = new Hzs.Common.Log(Get("--log-dir"));
-                    foreach (var s in new Vegetation(res, vlog).Species(c[0], c[1], 100))
-                        Console.WriteLine($"  species {s.Channel,-14} layers {s.Layers,3} {s.Name,-40} {s.MeshFile}");
+                    var veg = new Vegetation(res, vlog);
+                    var all = veg.Species(c[0], c[1]);
+                    Console.WriteLine($"species {all.Count} (all channels)");
+                    foreach (var p in veg.Pick(c[0], c[1], veg.Density(c[0], c[1]), veg.Effect(c[0], c[1], 512), int.TryParse(Get("--per"), out var per) ? per : null))
+                    {
+                        var s = p.Species;
+                        Console.WriteLine($"  {s.Channel,-13} exp {p.Expected,9:F0} per_m2 {s.PerM2,7:F3} fp {s.Footprint,4:F1} effect {s.EffectLo:F2}..{s.EffectHi:F2} layers {s.Layers,2} {s.Name,-36} {s.MeshFile}");
+                    }
                     return 0;
                 }
             case "hzd-tex":
