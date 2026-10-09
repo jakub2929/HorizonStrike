@@ -8,3 +8,4 @@ Když nevíš, kde jsi: přečti NOC.md a MODLOG.md a pokračuj od posledního z
 - 22:01 Start nočního běhu. 0.1.1 odeslaná k publikování (in_review, sleduje se), Controls řádek v listingu
   upraven. Hotovo: brief 0.2, pravidlo testů přes vstup. Běží: agent plan (sheety 3 nových strojů, rozpis 0.2).
   Další: po planu spustit svet, hra, stroje, test.
+- 22:10 0.1.1 LIVE (mod_status: live version 0.1.1, one click yes); listing ukazuje nový řádek Controls a screenshoty. Běží: plan. Další: svet/hra/stroje/test po planu.
