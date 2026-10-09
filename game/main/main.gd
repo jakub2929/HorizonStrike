@@ -41,6 +41,9 @@ var _error_shown := false
 var _respawn_left := -1.0
 var _death_pos := Vector3.ZERO
 var _quitting := false
+var _env: Environment
+var _sky_mat: ProceduralSkyMaterial
+var _sun: DirectionalLight3D
 
 
 func _ready() -> void:
@@ -214,6 +217,7 @@ func _cache_playable() -> bool:
 func _on_bootstrapped() -> void:
 	_phase = "world"
 	Sheets.load_resolved(Game.cache_root)
+	apply_render_settings()
 	for err in Sheets.resolved_errors:
 		Log.warn("resolved data: " + err)
 	var idx = FsUtil.read_json(Game.cache_root.path_join("hzd/index.json"))
@@ -379,31 +383,69 @@ func quit_game(code: int) -> void:
 
 
 func _make_environment() -> void:
-	var env := Environment.new()
-	env.background_mode = Environment.BG_SKY
+	_env = Environment.new()
+	_env.background_mode = Environment.BG_SKY
 	var sky := Sky.new()
-	var sm := ProceduralSkyMaterial.new()
-	sm.sky_top_color = Color(0.32, 0.5, 0.75)
-	sm.sky_horizon_color = Color(0.75, 0.8, 0.85)
-	sm.ground_horizon_color = Color(0.6, 0.62, 0.6)
-	sm.ground_bottom_color = Color(0.25, 0.25, 0.22)
-	sky.sky_material = sm
-	env.sky = sky
-	env.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
-	env.ambient_light_energy = 0.8
-	env.tonemap_mode = Environment.TONE_MAPPER_FILMIC
-	env.fog_enabled = true
-	env.fog_light_color = Color(0.7, 0.76, 0.82)
-	env.fog_density = 0.0006
-	env.fog_sky_affect = 0.3
+	_sky_mat = ProceduralSkyMaterial.new()
+	sky.sky_material = _sky_mat
+	_env.sky = sky
+	_env.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
+	_env.fog_enabled = true
 	var we := WorldEnvironment.new()
-	we.environment = env
+	we.environment = _env
 	add_child(we)
-	var sun := DirectionalLight3D.new()
-	sun.name = "Sun"
-	sun.rotation = Vector3(deg_to_rad(-48.0), deg_to_rad(-35.0), 0)
-	sun.light_energy = 1.25
-	sun.shadow_enabled = true
-	sun.directional_shadow_max_distance = 100.0
-	sun.directional_shadow_mode = DirectionalLight3D.SHADOW_PARALLEL_2_SPLITS
-	add_child(sun)
+	_sun = DirectionalLight3D.new()
+	_sun.name = "Sun"
+	_sun.shadow_enabled = true
+	_sun.directional_shadow_mode = DirectionalLight3D.SHADOW_PARALLEL_2_SPLITS
+	add_child(_sun)
+	apply_render_settings()
+
+
+## Fixed morning (render.time_of_day_h) from the render.* rows; the HZD-bound rows resolve after the converter wrote
+## hzd/systems.json, so this runs again once the resolved values are loaded.
+## HZD -> Godot: sun azimuth from north (-Z) towards east (+X), elevation above the horizon; fog start/end as depth
+## fog, its density row (percent) as the maximum fog amount, fog height + falloff as height fog; sky colour on the
+## zenith, a lighter mix on the horizon; the fog takes the sky colour (aerial perspective).
+func apply_render_settings() -> void:
+	var elev := deg_to_rad(Sheets.sys_num("render.sun_elevation_deg", 35.0))
+	var az := deg_to_rad(Sheets.sys_num("render.sun_azimuth_deg", 120.0))
+	var to_sun := Vector3(sin(az) * cos(elev), sin(elev), -cos(az) * cos(elev)).normalized()
+	_sun.basis = Basis.looking_at(-to_sun, Vector3.UP if absf(to_sun.y) < 0.99 else Vector3.FORWARD)
+	_sun.light_energy = Sheets.sys_num("render.sun_energy", 1.6)
+	# low morning sun: a little warm
+	_sun.light_color = Color(1.0, 0.95, 0.86).lerp(Color.WHITE, clampf(rad_to_deg(elev) / 45.0, 0.0, 1.0))
+	_sun.light_angular_distance = clampf(Sheets.sys_num("render.sun_shape_size", 0.5), 0.1, 5.0)
+	_sun.directional_shadow_max_distance = Sheets.sys_num("render.shadow_distance_m", 100.0)
+	var sky_c := _color_row("render.sky_color", Color(0.32, 0.5, 0.75))
+	_sky_mat.sky_top_color = sky_c.lerp(Color(0.2, 0.35, 0.6), 0.45)
+	_sky_mat.sky_horizon_color = sky_c.lerp(Color(0.86, 0.89, 0.92), 0.7)
+	_sky_mat.ground_horizon_color = _sky_mat.sky_horizon_color.darkened(0.15)
+	_sky_mat.ground_bottom_color = Color(0.25, 0.25, 0.22)
+	_sky_mat.sun_angle_max = 20.0
+	_env.ambient_light_energy = Sheets.sys_num("render.ambient_energy", 0.6)
+	_env.tonemap_mode = Environment.TONE_MAPPER_AGX if str(Sheets.sys("render.tonemap")) == "agx" else Environment.TONE_MAPPER_FILMIC
+	_env.tonemap_exposure = Sheets.sys_num("render.exposure", 1.0)
+	_env.fog_mode = Environment.FOG_MODE_DEPTH
+	_env.fog_depth_begin = Sheets.sys_num("render.fog_start_m", 50.0)
+	_env.fog_depth_end = maxf(Sheets.sys_num("render.fog_end_m", 950.0), _env.fog_depth_begin + 10.0)
+	_env.fog_depth_curve = 1.6
+	_env.fog_density = clampf(Sheets.sys_num("render.fog_density", 60.0) / 100.0, 0.0, 1.0)
+	_env.fog_light_color = _color_row("render.fog_color", Color(0.8, 0.85, 0.9)).lerp(_sky_mat.sky_horizon_color, 0.5)
+	_env.fog_aerial_perspective = 0.6
+	_env.fog_sky_affect = 0.25
+	_env.fog_sun_scatter = 0.15
+	_env.fog_height = Sheets.sys_num("render.fog_height_m", 0.0)
+	# HZD falloff is per metre of an exponential; Godot adds height_density per metre below fog_height to the depth
+	# fog amount (0.16 gave a white sheet over the village) -> scaled down to a light valley haze
+	_env.fog_height_density = Sheets.sys_num("render.fog_height_falloff", 0.0) * 0.02
+	_env.volumetric_fog_enabled = Sheets.sys_bool("render.volumetric_fog", false)
+	Log.info("render: sun elevation %.1f az %.1f, fog %.0f-%.0f m x%.2f, height fog %.0f m %.3f, tonemap %s" % [rad_to_deg(elev), rad_to_deg(az),
+		_env.fog_depth_begin, _env.fog_depth_end, _env.fog_density, _env.fog_height, _env.fog_height_density, Sheets.sys("render.tonemap")])
+
+
+func _color_row(id: String, fallback: Color) -> Color:
+	var v: Variant = Sheets.sys(id)
+	if v is Array and (v as Array).size() >= 3:
+		return Color(float(v[0]), float(v[1]), float(v[2]))
+	return fallback
