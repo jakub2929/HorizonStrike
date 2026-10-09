@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Text.Json.Nodes;
 using Hzs.Common;
 using Hzs.Decima.Core;
+using Hzs.Decima.Sheets;
 
 namespace Hzs.Decima.World;
 
@@ -13,12 +14,14 @@ namespace Hzs.Decima.World;
 public static class CellConverter
 {
     /// <summary>cell.json "format"; bump when the cell layout changes so old cells are converted again.</summary>
-    public const int Format = 1;
+    public const int Format = 2;
 
-    public static long Convert(ConvContext ctx, Resolver res, int x, int y, IProgressSink progress, int texPx = 1024)
+    public static long Convert(ConvContext ctx, Resolver res, int x, int y, IProgressSink progress)
     {
+        var texPx = HzdNames.Int("terrain.albedo_px");
         var sw = Stopwatch.StartNew();
         var target = ctx.Cache.Cell(x, y);
+        var written = new System.Runtime.CompilerServices.StrongBox<long>(); // shared meshes/textures this job wrote
         var tmp = Atomic.BeginDir(target);
         try
         {
@@ -31,12 +34,13 @@ public static class CellConverter
             }
             File.WriteAllBytes(Path.Combine(tmp, "height.r32"), TerrainReader.ToR32(terrain.Heights));
             string? albedo = null;
+            Assets.Image? albedoImg = null;
             try
             {
-                var img = TerrainReader.ReadAlbedo(res, x, y, texPx);
-                if (img is not null)
+                albedoImg = TerrainReader.ReadAlbedo(res, x, y, texPx);
+                if (albedoImg is not null)
                 {
-                    File.WriteAllBytes(Path.Combine(tmp, "albedo.png"), img.ToPng());
+                    File.WriteAllBytes(Path.Combine(tmp, "albedo.png"), albedoImg.ToPng());
                     albedo = "albedo.png";
                 }
             }
@@ -47,11 +51,11 @@ public static class CellConverter
             var placements = new Placements(res, ctx.Log).ForTile(x, y);
             var unique = placements.Select(p => (p.MeshFile, p.MeshUuid)).Distinct().ToList();
             var meshes = Meshes(ctx, res);
-            var ids = new System.Collections.Concurrent.ConcurrentDictionary<(string, Guid), (string Id, string[] Textures)?>();
+            var ids = new System.Collections.Concurrent.ConcurrentDictionary<(string, Guid), MeshRef?>();
             var done = 0;
             Parallel.ForEach(unique, new ParallelOptions { MaxDegreeOfParallelism = 4, CancellationToken = ctx.Ct }, u =>
             {
-                ids[u] = meshes.Ensure(u.MeshFile, u.MeshUuid);
+                ids[u] = meshes.Ensure(u.MeshFile, u.MeshUuid, written);
                 var d = Interlocked.Increment(ref done);
                 if (d % 50 == 0) progress.Report("meshes", d, unique.Count);
             });
@@ -59,13 +63,17 @@ public static class CellConverter
             var instances = new JsonArray();
             var usedMeshes = new SortedSet<string>(StringComparer.Ordinal);
             var usedTex = new SortedSet<string>(StringComparer.Ordinal);
+            var tint = albedoImg is null ? null : new GroundTint(albedoImg, x, y);
             foreach (var p in placements)
             {
                 if (ids.GetValueOrDefault((p.MeshFile, p.MeshUuid)) is not { } m) continue;
                 usedMeshes.Add(m.Id);
                 foreach (var t in m.Textures) usedTex.Add(t);
-                var xf = Assets.Space.Xf(Assets.Space.M(p.World));
-                instances.Add(new JsonObject { ["mesh"] = m.Id, ["xf"] = new JsonArray(xf.Select(v => (JsonNode)Math.Round(v, 4)).ToArray()) });
+                var g = Assets.Space.M(p.World);
+                var inst = new JsonObject { ["mesh"] = m.Id, ["xf"] = new JsonArray(Assets.Space.Xf(g).Select(v => (JsonNode)Math.Round(v, 4)).ToArray()) };
+                if (m.Colorized && tint?.At(g.M41, g.M43) is { } c)
+                    inst["tint"] = new JsonArray(Math.Round(c.X, 3), Math.Round(c.Y, 3), Math.Round(c.Z, 3));
+                instances.Add(inst);
             }
 
             // campfires
@@ -87,8 +95,8 @@ public static class CellConverter
                     File.WriteAllBytes(Path.Combine(tmp, "veg_density.png"), density.ToPng());
                     var species = new JsonArray();
                     var sp = veg.Species(x, y);
-                    var vids = new System.Collections.Concurrent.ConcurrentDictionary<int, (string Id, string[] Textures)?>();
-                    Parallel.For(0, sp.Count, new ParallelOptions { MaxDegreeOfParallelism = 4, CancellationToken = ctx.Ct }, i => vids[i] = meshes.Ensure(sp[i].MeshFile, sp[i].MeshUuid));
+                    var vids = new System.Collections.Concurrent.ConcurrentDictionary<int, MeshRef?>();
+                    Parallel.For(0, sp.Count, new ParallelOptions { MaxDegreeOfParallelism = 4, CancellationToken = ctx.Ct }, i => vids[i] = meshes.Ensure(sp[i].MeshFile, sp[i].MeshUuid, written));
                     for (var i = 0; i < sp.Count; i++)
                     {
                         if (vids.GetValueOrDefault(i) is not { } m) continue;
@@ -165,7 +173,7 @@ public static class CellConverter
             try { Directory.Delete(tmp, true); } catch (IOException) { }
             throw;
         }
-        var bytes = Sizes.DirBytes(target) + Meshes(ctx, res).BytesWritten;
+        var bytes = Sizes.DirBytes(target) + Interlocked.Read(ref written.Value);
         ctx.Log.Info($"cell {x},{y}: {bytes} bytes (cell + new shared meshes/textures), {sw.ElapsedMilliseconds} ms");
         return bytes;
     }

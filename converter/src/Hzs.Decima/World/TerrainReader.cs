@@ -85,7 +85,15 @@ public static class TerrainReader
         var texObj = file?.FirstObj("Texture");
         if (texObj is null) return null;
         var tex = HzdTexture.Parse(texObj);
-        return tex.Decode(res.Archive, tex.MipFor(maxPx)).Fit(maxPx);
+        var img = tex.Decode(res.Archive, tex.MipFor(maxPx)).Fit(maxPx);
+        if (img.Channels != 4) return img;
+        // the bake's alpha is unused (255): RGB keeps the per-cell file smaller
+        var rgb = new byte[img.Width * img.Height * 3];
+        for (int i = 0, n = img.Width * img.Height; i < n; i++)
+        {
+            rgb[i * 3] = img.Pixels[i * 4]; rgb[i * 3 + 1] = img.Pixels[i * 4 + 1]; rgb[i * 3 + 2] = img.Pixels[i * 4 + 2];
+        }
+        return new Image(img.Width, img.Height, 3, rgb);
     }
 
     public static byte[] ToR32(float[] heights)

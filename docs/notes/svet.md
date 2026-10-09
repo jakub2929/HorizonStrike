@@ -227,3 +227,34 @@ mole = Burrower were wrong. Grazer is `harvester`.
 - proto_smoke.py now passes --log-dir inside the test cache: the default log (logs/ next to the cache root) can be
   held open by another converter process, and Hzs.Common.Log opens it exclusively (FileShare.Read) -> the second
   converter crashed at start (reported to main).
+
+## Fix round (F6 + visuals, 2026-10-09)
+- F6: cell done.bytes was cell dir + WorldMeshes.BytesWritten (process-wide cumulative). Ensure now takes a per-job
+  counter; a mesh another job is exporting is counted by that job. Check: sum over 5 cells of (logged - cell dir) ==
+  hzd/meshes + hzd/textures on disk (384623522 bytes).
+- TinyBCSharp writes 4 bytes per pixel for every format (BC4: R replicated to RGB + A 255; BC5: R, G, 0, 255). We
+  labelled BC4/BC5 images 1/2 channels without repacking -> garbage (fine grid) in every BC4/BC5 read: foliage masks,
+  AO of rocks. HzdTexture.Decode now keeps the first channels.
+- Foliage cut-out = the channel of PackingInfo type Alpha (2), usually its own BC4 entry ("AlphaToCoverageBC4",
+  values ~0.55-0.65 inside, soft edge); cutoff 0.5 gives the real thin needles/blades (lower cutoffs give blobs).
+  Any other colour-map alpha (unused / translucency / height) is dropped (RGB PNG) - before, bark got holes.
+  PackingInfo byte: low nibble type, bits 4-5 source channel, bit 7 set for single-channel sources (0x80 = none).
+- Grass (carex etc.): colour is a standalone Texture "*_clr_tra" (BC3, A = translucency) outside any set, the mask is
+  an alpha-only TextureSet bound to the same effect -> sheet materials.standalone_color + effect-level alpha set.
+- Shared meshes: glb asset.extras.format = WorldMeshes.Format (2); older meshes are re-exported under the same id
+  (textures rewritten once per process). cell.json format 2.
+- Terrain: per-tile ShaderResources in layers/terrain/terraintiledata.core are HZD's compiled terrain shader (ecotope
+  rules + shaders/ecotope/texturesetarrays/terrain_texture_array, 155 MB TextureList) - not reproducible from data.
+  worlddata_flattened_albedo is the engine's bake of it (2048^2 BC1, alpha 255): now exported at full res
+  (hzd_content terrain.albedo_px, RGB, ~8 MB per cell instead of ~3). Tile 4,-3 is snowy in HZD: the topo map
+  channel A (ecotope_effect, placement curves: > 0.6 snow, 0.54-0.6 frost) marks 67% snow, and the tile's
+  layers/ingamemap texture is white in the same area. worlddata_terrain_normal = 2048^2 BC5 (not exported: the
+  game's terrain mesh has no tangents for a tangent-space map).
+- Rocks: colourised assets (no colour map) are coloured in HZD by shaders/ecotope/colorize_maps/colorize_array_64
+  (2DArray 128x8 x 64 RGBA ramps; Ecotope.EcotopeIndex probably selects the slice) inside compiled shaders - lookup
+  not verifiable. Approximation: cell.json instances[].tint (linear multiplier) on meshes flagged #colorized =
+  stone pulled towards the terrain bake around the instance (5x5 samples within 2 m, weight materials.ground_tint 0.5).
+  4_-3: 5874 of 23093 instances tinted, median tint ~1.3 (snow).
+- Found, not fixed (outside this round): procedural species - most MeshPlacements have Mesh null and use
+  PlacementTargets (-> PrefabResource with StaticMeshInstances); Vegetation.Species only reads Mesh, so 4_-3 lists
+  3 tree species and no ground cover (241 placement layers). Dev: hzsconv hzd-veg --cell X,Y.
