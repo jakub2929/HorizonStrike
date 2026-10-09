@@ -178,7 +178,7 @@ func capture_for_look() -> bool:
 
 func yaw_pitch() -> Vector2:
 	## camera yaw (0 = looking at -Z, positive to the left like Node3D.rotation.y) and pitch, radians
-	var cam: Camera3D = ctx.camera()
+	var cam: Camera3D = ctx.player_camera()
 	if cam == null:
 		return Vector2.ZERO
 	var f := -cam.global_transform.basis.z
@@ -214,7 +214,7 @@ func learn_sensitivity(before: Vector2, after: Vector2, sent_dx: float) -> void:
 func aim_at_point(p: Vector3, tol_rad: float = 0.002, max_frames: int = 240) -> Dictionary:
 	## turn the camera onto a world point with relative mouse motion only (closed loop on the camera's real
 	## orientation; the sensitivity is learned from the response)
-	var cam: Camera3D = ctx.camera()
+	var cam: Camera3D = ctx.player_camera()
 	if cam == null:
 		return {"ok": false, "why": "no camera"}
 	var err := Vector2(INF, INF)

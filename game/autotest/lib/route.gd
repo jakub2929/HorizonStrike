@@ -156,7 +156,7 @@ func _go(goal: Vector3, info: Dictionary, on_cell: Callable, final: bool) -> voi
 			var pl: Node = ctx.player
 			var vel: Variant = pl.get("velocity") if pl != null and "velocity" in pl else Vector3.ZERO
 			ctx.note("route trace: pos %s goal dist %.0f heading %+.0f speed %.1f m/s" % [str(p.round()), d, rad_to_deg(heading), Vector2(vel.x, vel.z).length() if vel is Vector3 else 0.0])
-		var cam: Camera3D = ctx.camera()
+		var cam: Camera3D = ctx.player_camera()
 		if cam != null:
 			var dir := Vector3(goal.x - p.x, 0.0, goal.z - p.z).normalized().rotated(Vector3.UP, heading)
 			var aim := cam.global_position + dir * 30.0 + Vector3(0, -2.0, 0)

@@ -31,8 +31,12 @@ const SCENARIOS := {
 	"r01": preload("res://autotest/scenarios/r01_shots.gd"),
 	"t14": preload("res://autotest/scenarios/t14_normals.gd"),
 	"t16": preload("res://autotest/scenarios/t16_stress.gd"),
-	## no sheet row: the child part of t16 (started by t16 itself, one process per run)
+	"r02": preload("res://autotest/scenarios/r02_machine_videos.gd"),
+	"r03": preload("res://autotest/scenarios/r03_cell_crossing.gd"),
+	## no sheet rows: child parts started by t16 / r02 / r03 themselves (lib/movie.gd for the recordings)
 	"t16run": preload("res://autotest/scenarios/t16run.gd"),
+	"r02clip": preload("res://autotest/scenarios/r02clip.gd"),
+	"r03walk": preload("res://autotest/scenarios/r03walk.gd"),
 }
 ## rows produced inside another scenario's run (sheet: s02 "taken inside t05")
 const HOSTED := {"s02": "t05"}

@@ -19,7 +19,7 @@ static func first_hit(ctx, m: Node, to: Vector3, part: String = "body") -> Dicti
 	## ray camera -> to, as a bullet travels (hitbox areas and world bodies; the target's own movement body is not a
 	## bullet target). Clear only when the FIRST thing hit is the wanted hitbox of m: for a weak spot the hitbox of that
 	## part, for "body" any non-weak hitbox of m. `by` names the first hit either way.
-	var cam: Camera3D = ctx.camera()
+	var cam: Camera3D = ctx.player_camera()
 	if cam == null:
 		return {"clear": false, "by": "no camera"}
 	var q := PhysicsRayQueryParameters3D.create(cam.global_position, to + (to - cam.global_position).normalized() * 0.5)

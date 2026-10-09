@@ -106,6 +106,13 @@ func camera() -> Camera3D:
 	return runner.get_viewport().get_camera_3d()
 
 
+func player_camera() -> Camera3D:
+	## the camera mouse look turns and the weapons fire from; differs from camera() only while a recording
+	## scenario films through its own camera
+	var c: Variant = player.get("camera") if player != null and "camera" in player else null
+	return c if c is Camera3D and is_instance_valid(c) else camera()
+
+
 func missing_api(obj: Object, props: Array, methods: Array = [], signals: Array = []) -> Array:
 	## names of documented Game API members that `obj` lacks (obj == null -> all of them)
 	var out := []
