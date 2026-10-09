@@ -1,0 +1,24 @@
+# tools, downloads, reference clones (never committed)
+_tools/
+# build outputs
+dist/
+build/
+**/bin/
+**/obj/
+# Godot
+game/.godot/
+game/export/
+# any converted game content must never enter the repo
+cache/
+**/hzs_cache/
+*.vpk
+*.core
+*.stream
+*.vmdl_c
+*.vtex_c
+*.vsnd_c
+*.wem
+# local
+*.log
+.vs/
+.vscode/
