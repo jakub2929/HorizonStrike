@@ -11,6 +11,7 @@ const CellBuilder := preload("res://world/cell_builder.gd")
 const Machine := preload("res://machines/machine.gd")
 const Spawner := preload("res://machines/spawner.gd")
 const Campfire := preload("res://world/campfire.gd")
+const CellProfiler := preload("res://world/cell_profiler.gd")
 
 var cache_root := ""
 var index := {}
@@ -18,6 +19,7 @@ var cell_size := 512.0
 var converter: Node = null
 var meshes: RefCounted
 var spawner: Node
+var profiler: Node
 
 var valid_cells := {}          # Vector2i -> true (from index.json)
 var on_disk := {}              # Vector2i -> true
@@ -68,6 +70,13 @@ func setup(root: String, idx: Dictionary, conv: Node) -> void:
 	spawner.name = "Spawner"
 	spawner.world = self
 	add_child(spawner)
+	profiler = CellProfiler.new()
+	profiler.name = "CellProfiler"
+	profiler.world = self
+	if Game.args:
+		profiler.profile = bool(Game.args.get("profile_cells"))
+		profiler.quit_after = int(Game.args.get("quit_after_cells"))
+	add_child(profiler)
 	Log.info("world: cell_size=%.1f cells=%d on_disk=%d cache=%d bytes" % [cell_size, valid_cells.size(), on_disk.size(), _cache_bytes])
 
 
@@ -283,8 +292,13 @@ func _start_build(c: Vector2i) -> void:
 	var out: Array = [{}]
 	var lib := meshes
 	var job := {"result": {}, "stage": "prepare", "out": out, "t0": Time.get_ticks_msec(), "task": -1}
-	job["task"] = WorkerThreadPool.add_task(func(): out[0] = CellBuilder.prepare(dir, lib), false, "cell %s" % c)
+	job["task"] = WorkerThreadPool.add_task(func():
+		var tw := Time.get_ticks_usec()
+		var r: Dictionary = CellBuilder.prepare(dir, lib)
+		r["prepare_wall_ms"] = (Time.get_ticks_usec() - tw) / 1000.0
+		out[0] = r, false, "cell %s" % c)
 	building[c] = job
+	profiler.begin(c)
 
 
 ## Main-thread budget per frame for glTF mesh loading (RenderingServer resources are created on the main thread).
@@ -314,20 +328,37 @@ func _poll_builds() -> void:
 			continue
 		var pending: Array = job["pending"]
 		var waiting: Array = []
+		var tu := Time.get_ticks_usec()
+		var tex0: float = meshes.stat_tex_upload_ms
 		while not pending.is_empty() and Time.get_ticks_msec() - t_frame < MESH_BUDGET_MS:
 			var mid := str(pending.pop_back())
 			if meshes.is_pending(mid):
 				waiting.append(mid)   # another cell's worker is still parsing it
 			else:
 				meshes.get_entry(mid)
+		var tex_d: float = meshes.stat_tex_upload_ms - tex0
+		profiler.add_main(c, "tex_upload", tex_d)
+		profiler.add_main(c, "mesh_upload", maxf((Time.get_ticks_usec() - tu) / 1000.0 - tex_d, 0.0))
 		pending.append_array(waiting)
 		if not pending.is_empty():
 			if waiting.size() == pending.size() and Time.get_ticks_msec() - t_frame < MESH_BUDGET_MS:
 				continue
 			return
 		building.erase(c)
+		var ti := Time.get_ticks_usec()
+		var tex1: float = meshes.stat_tex_upload_ms
 		var node := CellBuilder.instantiate(data, meshes)
+		var inst_ms := (Time.get_ticks_usec() - ti) / 1000.0
+		var tex_i: float = meshes.stat_tex_upload_ms - tex1
+		ti = Time.get_ticks_usec()
 		add_child(node)
+		var add_ms := (Time.get_ticks_usec() - ti) / 1000.0
+		var ph: Dictionary = (node.get_meta("phases", {}) as Dictionary).duplicate()
+		ph["mesh_upload"] = maxf(float(ph.get("mesh_upload", 0.0)) - tex_i, 0.0)
+		profiler.add_main(c, "tex_upload", tex_i)
+		profiler.inserted(c, ph, data.get("t", {}), float(data.get("prepare_wall_ms", 0.0)), inst_ms - tex_i, add_ms,
+			{"instances": (data["info"].get("instances", []) as Array).size(), "vegetation": _veg_count(data.get("vegetation", {})),
+			"shapes": int(node.get_meta("collision_shapes", 0)), "bodies": int(node.get_meta("collision_bodies", 0))})
 		loaded[c] = node
 		loaded_at[c] = Time.get_ticks_msec()
 		var veg: Dictionary = data.get("vegetation", {})

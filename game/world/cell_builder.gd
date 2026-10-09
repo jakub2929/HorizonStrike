@@ -22,6 +22,8 @@ const LAYER_WORLD := 1
 
 static func prepare(cell_dir: String, meshes: RefCounted) -> Dictionary:
 	var out := {"ok": false, "dir": cell_dir}
+	var tp := {}   # worker phase times in ms (profiling, H1)
+	var tw := Time.get_ticks_usec()
 	var info = FsUtil.read_json(cell_dir.path_join("cell.json"))
 	if typeof(info) != TYPE_DICTIONARY:
 		out["error"] = "cell.json missing or invalid in %s" % cell_dir
@@ -32,6 +34,8 @@ static func prepare(cell_dir: String, meshes: RefCounted) -> Dictionary:
 	var origin := Vector3(float(org[0]), float(org[1]), float(org[2]))
 	out["origin"] = origin
 	out["size"] = size
+	tp["read_json"] = (Time.get_ticks_usec() - tw) / 1000.0
+	tw = Time.get_ticks_usec()
 	# ---- terrain
 	var terr: Dictionary = info.get("terrain", {}) if typeof(info.get("terrain")) == TYPE_DICTIONARY else {}
 	var res: Array = terr.get("res", [0, 0])
@@ -60,6 +64,8 @@ static func prepare(cell_dir: String, meshes: RefCounted) -> Dictionary:
 	out["col_heights"] = col[0]
 	out["col_w"] = col[1]
 	out["col_h"] = col[2]
+	tp["terrain"] = (Time.get_ticks_usec() - tw) / 1000.0
+	tw = Time.get_ticks_usec()
 	for key in ["albedo", "normal"]:
 		var f := str(terr.get(key, ""))
 		if f != "" and FileAccess.file_exists(cell_dir.path_join(f)):
@@ -70,6 +76,8 @@ static func prepare(cell_dir: String, meshes: RefCounted) -> Dictionary:
 				if key == "albedo" and not img.is_compressed() and OS.has_feature("editor"):
 					img.compress(Image.COMPRESS_S3TC, Image.COMPRESS_SOURCE_SRGB)
 				out[key + "_img"] = img
+	tp["terrain_tex"] = (Time.get_ticks_usec() - tw) / 1000.0
+	tw = Time.get_ticks_usec()
 	# ---- instances grouped by mesh
 	var groups := {}
 	var tints := {}      # mesh id -> Array[Color] parallel to groups[mid] (only for meshes with any tint)
@@ -93,8 +101,11 @@ static func prepare(cell_dir: String, meshes: RefCounted) -> Dictionary:
 			tints[mid].append(Color.WHITE)
 	out["instances"] = groups
 	out["tints"] = tints
+	tp["instances"] = (Time.get_ticks_usec() - tw) / 1000.0
+	tw = Time.get_ticks_usec()
 	# ---- vegetation scattered from the density map
 	out["vegetation"] = _scatter(cell_dir, info, heights, w, h, origin, size)
+	tp["scatter"] = (Time.get_ticks_usec() - tw) / 1000.0
 	var ids := {}
 	for mid in groups:
 		ids[mid] = true
@@ -103,7 +114,11 @@ static func prepare(cell_dir: String, meshes: RefCounted) -> Dictionary:
 			ids[out["vegetation"][key]["mesh"]] = true
 	out["mesh_ids"] = ids.keys()
 	# parse meshes + decode their textures here, on the worker thread
-	meshes.prepare(out["mesh_ids"])
+	var ms: Dictionary = meshes.prepare(out["mesh_ids"])
+	tp["mesh_parse"] = ms.get("parse_ms", 0.0)
+	tp["mesh_lod"] = ms.get("lod_ms", 0.0)
+	tp["tex_decode"] = ms.get("tex_ms", 0.0)
+	out["t"] = tp
 	out["ok"] = true
 	return out
 
@@ -369,6 +384,8 @@ static func instantiate(data: Dictionary, meshes: RefCounted) -> Node3D:
 	root.name = "Cell_%d_%d" % [int(cell[0]), int(cell[1])]
 	var origin: Vector3 = data["origin"]
 	var size: float = data["size"]
+	var ph := {"terrain": 0.0, "terrain_collision": 0.0, "multimesh": 0.0, "collision": 0.0, "mesh_upload": 0.0}
+	var tw := Time.get_ticks_usec()
 	# terrain visual
 	var tm := MeshInstance3D.new()
 	tm.name = "Terrain"
@@ -379,6 +396,8 @@ static func instantiate(data: Dictionary, meshes: RefCounted) -> Node3D:
 	var nrm: Texture2D = ImageTexture.create_from_image(data["normal_img"]) if data.has("normal_img") else null
 	tm.material_override = TerrainMaterial.make(alb, nrm)
 	root.add_child(tm)
+	ph["terrain"] = (Time.get_ticks_usec() - tw) / 1000.0
+	tw = Time.get_ticks_usec()
 	# terrain collision (HeightMapShape3D is centred on its node; uniform scale = grid spacing)
 	var cw: int = data["col_w"]
 	var chh: int = data["col_h"]
@@ -402,6 +421,7 @@ static func instantiate(data: Dictionary, meshes: RefCounted) -> Node3D:
 	cs.transform = Transform3D(Basis().scaled(Vector3(spacing, spacing, spacing)), origin + Vector3((cw - 1) * spacing * 0.5, 0.0, (chh - 1) * spacing * 0.5))
 	body.add_child(cs)
 	root.add_child(body)
+	ph["terrain_collision"] = (Time.get_ticks_usec() - tw) / 1000.0
 	# static objects: shapes grouped into static bodies of SHAPES_PER_BODY (shape owners, no node per shape)
 	var objects := Node3D.new()
 	objects.name = "ObjectBodies"
@@ -412,12 +432,18 @@ static func instantiate(data: Dictionary, meshes: RefCounted) -> Node3D:
 	var inst_data: Dictionary = data["instances"]
 	var n_shapes := 0
 	for mid in inst_data:
+		tw = Time.get_ticks_usec()
 		var e: Dictionary = meshes.get_entry(mid)
+		ph["mesh_upload"] += (Time.get_ticks_usec() - tw) / 1000.0
 		if e.is_empty():
 			continue
 		var xfs: Array = inst_data[mid]
+		tw = Time.get_ticks_usec()
 		_add_chunked(inst_root, mid, e, xfs, origin, (data.get("tints", {}) as Dictionary).get(mid, []))
+		ph["multimesh"] += (Time.get_ticks_usec() - tw) / 1000.0
+		tw = Time.get_ticks_usec()
 		n_shapes += _add_collision(objects, meshes, mid, e, xfs)
+		ph["collision"] += (Time.get_ticks_usec() - tw) / 1000.0
 	# vegetation
 	var veg_root := Node3D.new()
 	veg_root.name = "Vegetation"
@@ -427,12 +453,19 @@ static func instantiate(data: Dictionary, meshes: RefCounted) -> Node3D:
 		if str(key).begins_with("_"):
 			continue
 		var v: Dictionary = veg[key]
+		tw = Time.get_ticks_usec()
 		var ve: Dictionary = meshes.get_entry(str(v["mesh"]))
+		ph["mesh_upload"] += (Time.get_ticks_usec() - tw) / 1000.0
 		if ve.is_empty():
 			continue
+		tw = Time.get_ticks_usec()
 		_add_chunked(veg_root, str(key), ve, v["xfs"], origin)
+		ph["multimesh"] += (Time.get_ticks_usec() - tw) / 1000.0
 		if v["channel"] == "trees":
+			tw = Time.get_ticks_usec()
 			n_shapes += _add_collision(objects, meshes, str(v["mesh"]), ve, v["xfs"])
+			ph["collision"] += (Time.get_ticks_usec() - tw) / 1000.0
+	root.set_meta("phases", ph)
 	root.set_meta("collision_shapes", n_shapes)
 	root.set_meta("collision_bodies", objects.get_child_count())
 	# campfires

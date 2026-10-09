@@ -24,6 +24,9 @@ var _shapes := {}      # id -> Shape3D or null                         (main)
 var _built := {}       # ids that have an entry in _entries              (worker + main, mutex)
 var _tex_built := {}   # texture names that have a _textures entry        (worker + main, mutex)
 var _mutex := Mutex.new()
+# main-thread time counters (profiling, H1): callers read the difference around their work
+var stat_mesh_ms := 0.0      # ArrayMesh/material building in get_entry
+var stat_tex_upload_ms := 0.0   # ImageTexture.create_from_image (GPU upload) in _texture
 
 
 func _init(meshes_dir: String) -> void:
@@ -33,7 +36,9 @@ func _init(meshes_dir: String) -> void:
 
 # ------------------------------------------------------------------ worker thread
 
-func prepare(ids: Array) -> void:
+## Returns worker time per phase in ms {parse_ms, lod_ms, tex_ms} for the meshes this call actually prepared.
+func prepare(ids: Array) -> Dictionary:
+	var st := {"parse_ms": 0.0, "lod_ms": 0.0, "tex_ms": 0.0}
 	for raw_id in ids:
 		var id := str(raw_id)
 		_mutex.lock()
@@ -43,19 +48,26 @@ func prepare(ids: Array) -> void:
 		_mutex.unlock()
 		if done:
 			continue
+		var t0 := Time.get_ticks_usec()
 		var p := GlbReader.read(dir.path_join(id + ".glb"), false)
+		var t1 := Time.get_ticks_usec()
 		if not p.is_empty():
 			if _wants_trimesh(p):
 				p["faces"] = _faces(p)
 			_generate_lods(p)
+		st["parse_ms"] += (t1 - t0) / 1000.0
+		st["lod_ms"] += (Time.get_ticks_usec() - t1) / 1000.0
 		_mutex.lock()
 		_parsed[id] = p
 		_mutex.unlock()
 		if p.is_empty():
 			continue
+		var t2 := Time.get_ticks_usec()
 		for m in p["materials"]:
 			if str(m["image"]) != "":
 				_decode(str(m["image"]))
+		st["tex_ms"] += (Time.get_ticks_usec() - t2) / 1000.0
+	return st
 
 
 ## Solid meshes big enough to block the player get a triangle-mesh collider (faces built here, on the worker).
@@ -142,10 +154,12 @@ func get_entry(id: String) -> Dictionary:
 		p = _parsed.get(id)
 		_mutex.unlock()
 	var entry: Dictionary = {}
+	var t0 := Time.get_ticks_usec()
 	if typeof(p) == TYPE_DICTIONARY and not (p as Dictionary).is_empty():
 		entry = _build(p)
 	if entry.is_empty():
 		entry = _load_gltf(id)
+	stat_mesh_ms += (Time.get_ticks_usec() - t0) / 1000.0
 	_entries[id] = entry
 	_mutex.lock()
 	_parsed.erase(id)
@@ -201,7 +215,9 @@ func _texture(tex_name: String) -> Texture2D:
 	_mutex.unlock()
 	if img == null:
 		img = _load_image(tex_name)
+	var t0 := Time.get_ticks_usec()
 	var tex: Texture2D = ImageTexture.create_from_image(img) if img != null else null
+	stat_tex_upload_ms += (Time.get_ticks_usec() - t0) / 1000.0
 	_textures[tex_name] = tex
 	_mutex.lock()
 	_images.erase(tex_name)
