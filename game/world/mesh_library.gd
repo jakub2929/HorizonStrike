@@ -166,6 +166,9 @@ func _material(m: Dictionary) -> Material:
 		return _materials[key]
 	var mat := StandardMaterial3D.new()
 	mat.albedo_color = m["color"]
+	# per-instance tint (cell.json instances[].tint) arrives as the MultiMesh instance colour; meshes carry no vertex
+	# colours, so untinted instances multiply by white
+	mat.vertex_color_use_as_albedo = true
 	if str(m["image"]) != "":
 		mat.albedo_texture = _texture(str(m["image"]))
 	# alpha only where the glTF material says so (alphaMode MASK/BLEND, alphaCutoff, doubleSided)
