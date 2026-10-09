@@ -4,7 +4,7 @@ extends RefCounted
 const SITE_CELLS := [Vector2i(5, -2), Vector2i(3, -2)]  # sheet t05/t06/s03: real Watcher / Grazer sites
 
 
-static func find_site(ctx, machine_type: String, min_count: int = 1) -> Dictionary:
+static func find_site(ctx, machine_type: String, min_count: int = 1, avoid_types: Array = [], avoid_m: float = 120.0) -> Dictionary:
 	## a spawn of machine_type (count >= min_count) in the site cells, preferring sites whose original HZD machine is
 	## this machine itself (e.g. a Grazer herd at an antelope site, not at a variant-B site); {} when the cache has none
 	var own := str(MachinesSheet.ROWS.get(machine_type, {}).get("hzd_internal_name", ""))
@@ -17,6 +17,12 @@ static func find_site(ctx, machine_type: String, min_count: int = 1) -> Dictiona
 				if pos == Vector3.INF:
 					continue
 				var site := {"cell": cell, "pos": pos, "site": str(s.get("site")), "orig_type": str(s.get("orig_type")), "count": int(s.get("count", 1)), "radius": float(s.get("radius", 30.0))}
+				var guarded := false
+				for o in cj.get("spawns", []):
+					if o is Dictionary and str(o.get("type")) in avoid_types and ctx.v3(o.get("pos")).distance_to(pos) <= avoid_m:
+						guarded = true
+				if guarded:
+					continue
 				if site.orig_type == own:
 					return site
 				if best.is_empty():

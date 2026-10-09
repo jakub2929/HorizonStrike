@@ -281,7 +281,7 @@ func hit_evidence(dmg_rec: Rec, hud_rec: Rec) -> Array:
 	## emits for an invulnerable player
 	var out := []
 	for e in dmg_rec.events:
-		out.append("player_damaged %s" % str(e.args[0]))
+		out.append("player_damaged %s %s" % [str(e.args[0]), str(e.args[1]) if e.args[1] != null else ""])
 	for e in hud_rec.events:
 		if str(e.args[0]).begins_with("Hit"):
 			out.append(str(e.args[0]))

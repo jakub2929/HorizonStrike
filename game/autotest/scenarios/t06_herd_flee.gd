@@ -31,14 +31,22 @@ func _run(ctx):
 	for m in herd:
 		if "ai_enabled" in m:
 			m.set("ai_enabled", true)
+	var calm := ["idle", "patrol", "graze"]
+	if not herd.all(func(m): return calm.has(str(m.get("state")))):
+		# the herd is still disturbed (an earlier scenario): step 150 m away and give it up to 90 s to calm down
+		var away: Vector3 = _centroid(herd) + Vector3(150.0, 0.0, 0.0)
+		var gy: Variant = await ctx.ground_y(away.x, away.z)
+		away.y = float(gy) + 0.3 if gy != null else away.y + 30.0
+		await ctx.call_api(g, "teleport", [away])
+		var calmed: bool = await ctx.wait_until(func(): return herd.all(func(m): return is_instance_valid(m) and calm.has(str(m.get("state")))), 90.0)
+		note("herd was disturbed at arrival; calm after waiting: %s" % str(calmed))
 	var center := _centroid(herd)
 	var placed: Dictionary = await Sites.place_player_facing(ctx, center, DIST_M, ctx.player_pos() - center)
 	data.placement = {"distance_m": DIST_M, "line_of_sight": placed.get("los")}
 	await _crouch(ctx, p, true)
 	await Combat.equip(ctx, "glock")
-	await ctx.wait(2.0)
+	await ctx.wait(0.5)
 
-	var calm := ["idle", "patrol", "graze"]
 	var sus_thr: float = o.f(o.machine("grazer", "suspicious_threshold"))
 	var before := herd.map(func(m): return {"state": str(m.get("state")), "suspicion": m.get("suspicion")})
 	data.herd_before = before
@@ -47,6 +55,7 @@ func _run(ctx):
 	var health0 := float(p.get("health"))
 	var dmg_rec = ctx.record(g, "player_damaged")
 	var hud_rec = ctx.record(g, "hud_message")
+	var died_rec = ctx.record(g, "player_died")
 
 	# expected suspicion from the shot at the herd distance (systems suspicion.shot_gain_*), for the details
 	var radius: float = o.f(o.weapon("glock", "suspicion_radius_m"))
@@ -80,13 +89,19 @@ func _run(ctx):
 	check("within %d s every herd member state == flee" % int(FLEE_WITHIN_S), all_fast, "%d/%d fled, times %s" % [fled_at.size(), herd.size(), str(fled_at.values())])
 	check("after %d s the mean distance grew by >= %d m" % [int(WAIT_S), int(GROW_M)], d1 - d0 >= GROW_M, "%.1f -> %.1f m" % [d0, d1])
 	var hits: Array = ctx.hit_evidence(dmg_rec, hud_rec)
-	check("no grazer damaged the player", float(p.get("health")) >= health0 and hits.is_empty(), "health %s -> %s, hits %s" % [str(health0), str(p.get("health")), str(hits)])
+	var grazer_hits := hits.filter(func(h): return str(h).to_lower().contains("grazer"))
+	data.player_hits = hits
+	check("no grazer damaged the player", grazer_hits.is_empty(), "grazer hits %s; all hits %s; health %s -> %s" % [str(grazer_hits), str(hits), str(health0), str(p.get("health"))])
+	check("player alive through the scenario (distances are meaningful)", not died_rec_has_events(died_rec), "player_died %d" % died_rec.events.size())
 	await _crouch(ctx, p, false)
 	return true
 
 
 func _find_herd(ctx, need: int) -> Array:
-	var site: Dictionary = Sites.find_site(ctx, "grazer", need)
+	# a herd without guards nearby: a Watcher guarding the herd would alert it and attack the player (setup noise)
+	var site: Dictionary = Sites.find_site(ctx, "grazer", need, ["watcher"])
+	if site.is_empty():
+		site = Sites.find_site(ctx, "grazer", need)
 	if not site.is_empty():
 		data.site = {"cell": str(site.cell), "site": site.site, "orig_type": site.orig_type, "count": site.count}
 		var found: Array = await Sites.go_near_site(ctx, site, "grazer", need)
@@ -145,3 +160,7 @@ static func _mean_dist(ctx, ms: Array) -> float:
 			s += (m as Node3D).global_position.distance_to(pp)
 			n += 1
 	return s / maxf(1.0, n)
+
+
+static func died_rec_has_events(rec) -> bool:
+	return not rec.events.is_empty()

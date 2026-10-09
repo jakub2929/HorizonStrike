@@ -6,6 +6,7 @@ extends "res://autotest/lib/scenario.gd"
 ## Every machine type must report >= 1 weak spot.
 
 const Combat := preload("res://autotest/lib/combat.gd")
+const Frame := preload("res://autotest/lib/frame.gd")
 const DIST_M := 10.0
 
 
@@ -90,7 +91,18 @@ func _run(ctx):
 
 func _shot(ctx, m: Node, part: String) -> Dictionary:
 	var before := float(m.get("health"))
-	await ctx.call_api(ctx.game, "aim_at", [m, part])
+	var marker: Node3D = null
+	if part == "body":
+		# lower body (40 % of the height): from the front the eye sits in front of the body's aim point
+		var bx: AABB = Frame.global_aabb(m)
+		marker = Node3D.new()
+		marker.name = "AutotestBodyMarker"
+		ctx.runner.add_child(marker)
+		marker.global_position = bx.get_center() + Vector3(0, -0.1 * bx.size.y, 0)
+		await ctx.call_api(ctx.game, "aim_at", [marker, "body"])
+		marker.queue_free()
+	else:
+		await ctx.call_api(ctx.game, "aim_at", [m, part])
 	await ctx.physics_frames(2)
 	var cam: Camera3D = ctx.camera()
 	var cam_pos: Vector3 = cam.global_position if cam != null else ctx.player_pos()
@@ -111,8 +123,17 @@ func _shot(ctx, m: Node, part: String) -> Dictionary:
 		how = "machine.aim_point(part)"
 	else:
 		dist = cam_pos.distance_to((m as Node3D).global_position)
+	# without the exact hit distance the hit lies somewhere on the machine: its AABB gives the distance range
+	var box: AABB = Frame.global_aabb(m) if is_instance_valid(m) else AABB()
+	var dmin := INF
+	var dmax := 0.0
+	for i in 8:
+		var dd := cam_pos.distance_to(box.get_endpoint(i))
+		dmin = minf(dmin, dd)
+		dmax = maxf(dmax, dd)
 	return {"hit": d.get("hit"), "part": d.get("part"), "damage": d.get("damage"), "target_ok": d.get("target") == m,
-		"health_before": before, "health_lost": before - after, "distance_m": snappedf(dist, 0.01), "distance_from": how}
+		"health_before": before, "health_lost": before - after, "distance_m": snappedf(dist, 0.01), "distance_from": how,
+		"aabb_distance_m": [snappedf(dmin, 0.01), snappedf(dmax, 0.01)]}
 
 
 func _expect(base: float, rm: float, step: float, u2m: float, shot: Dictionary) -> Dictionary:
@@ -122,7 +143,8 @@ func _expect(base: float, rm: float, step: float, u2m: float, shot: Dictionary) 
 	var f := func(m: float) -> float: return base * pow(rm, (m / u2m) / step)
 	var v: float = f.call(d)
 	var tol := 0.05
-	var band: float = {"fire().distance": 0.0, "fire().point": 0.0, "machine.aim_point(part)": 0.75}.get(shot.distance_from, 1.5)
-	if band > 0.0:
-		tol = maxf(absf(f.call(maxf(0.0, d - band)) - v), absf(f.call(d + band) - v)) + 0.05
+	if shot.distance_from != "fire().distance" and shot.distance_from != "fire().point":
+		var near: float = shot.aabb_distance_m[0]
+		var far: float = shot.aabb_distance_m[1]
+		tol = maxf(absf(f.call(minf(near, d)) - v), absf(f.call(maxf(far, d)) - v)) + 0.05
 	return {"value": snappedf(v, 0.01), "tol": snappedf(tol, 0.01), "distance_m": d}

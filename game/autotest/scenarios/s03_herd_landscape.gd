@@ -19,7 +19,9 @@ func _run(ctx):
 	var g: Node = ctx.game
 	if not api_check(ctx.missing_api(g, ["machines", "player"], ["teleport", "aim_at"])):
 		return false
-	var site: Dictionary = Sites.find_site(ctx, "grazer", NEED)
+	var site: Dictionary = Sites.find_site(ctx, "grazer", NEED, ["watcher"])
+	if site.is_empty():
+		site = Sites.find_site(ctx, "grazer", NEED)
 	var herd := []
 	var cell := Vector2i.ZERO
 	if not site.is_empty():
@@ -36,6 +38,10 @@ func _run(ctx):
 				herd.append(m)
 	if herd.size() < NEED:
 		return false
+	# a screenshot, not an AI test: the herd holds still so the chosen view still shows it at capture time
+	for m in herd:
+		if "ai_enabled" in m:
+			m.set("ai_enabled", false)
 	var center := Vector3.ZERO
 	for m in herd:
 		center += (m as Node3D).global_position
@@ -53,6 +59,9 @@ func _run(ctx):
 	await ctx.physics_frames(2)
 	var shot: Dictionary = await ctx.screenshot("herd_landscape.png")
 	marker.queue_free()
+	for m in herd:
+		if is_instance_valid(m) and "ai_enabled" in m:
+			m.set("ai_enabled", true)
 	data.screenshot = shot
 	check("file exists (fresh)", shot.get("exists", false) and shot.get("fresh", false), shot.get("path"))
 	check("not blank (luma stddev > 10)", float(shot.get("luma_stddev", 0.0)) > 10.0, str(shot.get("luma_stddev")))
@@ -97,7 +106,7 @@ func _run(ctx):
 
 func _raised_point(ctx, center: Vector3, herd: Array) -> Dictionary:
 	## ground 40-60 m from the herd (loaded collision only) from which the most herd members are unoccluded (one ray
-	## from eye height to each member's centre); ties go to the higher point
+	## from eye height to each member's centre); ties go to the nearer ring, then the higher point
 	var world: World3D = ctx.runner.get_viewport().get_world_3d()
 	var best := {}
 	for r in [40.0, 50.0, 60.0]:
@@ -116,7 +125,7 @@ func _raised_point(ctx, center: Vector3, herd: Array) -> Dictionary:
 				var los: Dictionary = Frame.line_of_sight(world, eye, Frame.global_aabb(m).get_center(), m, ctx.player_rids())
 				if los.clear:
 					seen += 1
-			if seen > 0 and (best.is_empty() or seen > int(best.seen) or (seen == int(best.seen) and p.y > float(best.pos.y))):
+			if seen > 0 and (best.is_empty() or seen > int(best.seen) or (seen == int(best.seen) and r == float(best.dist) and p.y > float(best.pos.y))):
 				best = {"pos": p, "rise": snappedf(p.y - center.y, 0.1), "dist": r, "seen": seen}
 	if best.is_empty():
 		best = {"pos": center + Vector3(50.0, 10.0, 0.0), "rise": 10.0, "dist": 50.0, "seen": 0}
