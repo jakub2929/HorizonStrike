@@ -5,6 +5,7 @@ extends Node3D
 
 const Sheets := preload("res://core/sheets.gd")
 const SoundLib := preload("res://audio/sound_lib.gd")
+const Content := preload("res://core/content.gd")
 
 var machine: Node3D
 var _dir := ""
@@ -17,7 +18,7 @@ var _rng := RandomNumberGenerator.new()
 
 func setup(m: Node3D) -> void:
 	machine = m
-	_dir = Game.cache_root.path_join("hzd/machines/%s/snd" % m.machine_type)
+	_dir = Game.cache_root.path_join(Content.machine_dir(m.machine_type)).path_join(str(Content.machine_meta(m.machine_type).get("sounds", "snd")))
 	var maxd := Sheets.sys_num("audio.machine_max_distance_m", 60.0)
 	_voice = AudioStreamPlayer3D.new()
 	_steps = AudioStreamPlayer3D.new()

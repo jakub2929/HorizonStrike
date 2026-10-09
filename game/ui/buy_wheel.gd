@@ -6,6 +6,7 @@ extends CanvasLayer
 const Sheets := preload("res://core/sheets.gd")
 const Log := preload("res://core/log.gd")
 const SoundLib := preload("res://audio/sound_lib.gd")
+const Content := preload("res://core/content.gd")
 
 const RADIUS := 330.0
 const INNER := 105.0
@@ -93,8 +94,8 @@ func _icon(id: String) -> Texture2D:
 	if _icons.has(id):
 		return _icons[id]
 	var tex: Texture2D = null
-	var p := Game.cache_root.path_join("cs2/weapons/%s/icon.svg" % id)
-	if FileAccess.file_exists(p):
+	var p := Content.weapon_icon(id)
+	if p != "":
 		var bytes := FileAccess.get_file_as_bytes(p)
 		var img := Image.new()
 		if img.load_svg_from_buffer(bytes, 1.0) == OK and img.get_width() > 0 and img.get_height() > 0:

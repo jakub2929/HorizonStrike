@@ -6,6 +6,7 @@ extends RigidBody3D
 const Sheets := preload("res://core/sheets.gd")
 const Log := preload("res://core/log.gd")
 const WeaponAudio := preload("res://audio/weapon_audio.gd")
+const Content := preload("res://core/content.gd")
 
 const LAYER_WORLD := 1
 const HE_FUSE_S := 1.6
@@ -62,8 +63,8 @@ static var _models := {}   # weapon id -> PackedScene of cs2/weapons/<id>/world.
 func _world_model() -> Node3D:
 	if not _models.has(weapon_id):
 		_models[weapon_id] = null
-		var path := Game.cache_root.path_join("cs2/weapons/%s/world.glb" % weapon_id)
-		if FileAccess.file_exists(path):
+		var path := Content.weapon_world_model(weapon_id)
+		if path != "":
 			var doc := GLTFDocument.new()
 			var st := GLTFState.new()
 			if doc.append_from_file(path, st) == OK:

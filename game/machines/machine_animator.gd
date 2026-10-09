@@ -70,17 +70,45 @@ func _init_legs(sk: Skeleton3D) -> void:
 		_body_bone = roots[0]
 		while _body_bone >= 0 and not _is_ancestor_of_all(sk, _body_bone, roots):
 			_body_bone = sk.get_bone_parent(_body_bone)
-	var helpers: Dictionary = rig.helper_bones if "helper_bones" in rig else {}
-	for i in sk.get_bone_count():
-		if helpers.has(i):
-			continue
-		var nm := sk.get_bone_name(i).to_lower()
-		if nm.contains("tail"):
-			_tail_bones.append(i)
-		elif nm.contains("neck"):
-			_neck_bones.append(i)
-		elif nm.contains("spine") or nm.contains("chest"):
-			_spine_bones.append(i)
+	# chains from the content contract's bone roles only (no bone names in code)
+	_tail_bones = tail_chain()
+	_neck_bones = _path(sk, int(rig.roles.get("neck", -1)), int(rig.roles.get("head", -1)))
+	var spine := int(rig.roles.get("spine", -1))
+	if spine >= 0:
+		_spine_bones = _path(sk, _body_bone, spine)
+		if _spine_bones.is_empty():
+			_spine_bones = PackedInt32Array([spine])
+
+
+## Bones from `from` down to `to` (exclusive) along the parent chain; empty when `to` is not below `from`.
+func _path(sk: Skeleton3D, from: int, to: int) -> PackedInt32Array:
+	var out := PackedInt32Array()
+	if from < 0 or to < 0:
+		return out
+	var b := sk.get_bone_parent(to)
+	while b >= 0:
+		out.insert(0, b)
+		if b == from:
+			return out
+		b = sk.get_bone_parent(b)
+	return PackedInt32Array()
+
+
+## The tail: the role "tail" bone and its chain of (non-helper) first children.
+func tail_chain() -> PackedInt32Array:
+	var out := PackedInt32Array()
+	var sk: Skeleton3D = rig.skeleton
+	var b := int(rig.roles.get("tail", -1))
+	var helpers: Dictionary = rig.helper_bones
+	while b >= 0 and out.size() < 64:
+		out.append(b)
+		var next := -1
+		for c in sk.get_bone_children(b):
+			if not helpers.has(c):
+				next = c
+				break
+		b = next
+	return out
 
 
 ## The knee of a leg chain: the joint that bends furthest off the hip->foot line, among the joints between 25% and

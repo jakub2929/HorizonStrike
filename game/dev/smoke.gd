@@ -144,11 +144,15 @@ func _run() -> void:
 	var got := [-1]
 	_game.kill_reward.connect(func(_t, _w, amount): got[0] = amount)
 	var shots := 0
-	while not m.is_dead() and shots < 40:
+	while not m.is_dead() and shots < 60:
 		_game.aim_at(m, "body")
-		_game.fire()
+		var fr: Dictionary = _game.fire()
+		if shots < 3:
+			print("  kill shot %d: %s (target %s health %.1f armor %.1f max %.1f)" % [shots, fr, m.name, m.health, m.armor, m.max_health])
 		shots += 1
-		await _wait(0.15)
+		if fr.get("reason", "") == "empty":
+			await _wait(Sheets.weapon_num("ak47", "reload_time", 2.5) + 0.3)
+		await _wait(0.2)
 	var expect_reward := Combat.kill_reward("ak47", "watcher")
 	_check(m.is_dead(), "watcher killed in %d shots" % shots)
 	_check(got[0] == expect_reward and _game.money == 800 + expect_reward, "kill reward +$%d (expected %d), money $%d" % [got[0], expect_reward, _game.money])

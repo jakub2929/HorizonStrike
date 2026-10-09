@@ -182,13 +182,27 @@ func weak_spots() -> Array[String]:
 	return out
 
 
+## Weak spot: its hitbox centre. "body": centre of mass = the largest body hitbox (the trunk).
 func aim_point(part: String) -> Vector3:
+	if part != "body":
+		for h in rig.hitboxes:
+			if str(h.get_meta("part", "")) == part:
+				return (h as Node3D).global_position
+	var best: Node3D = null
+	var best_v := -1.0
 	for h in rig.hitboxes:
-		if str(h.get_meta("part", "")) == part:
-			return (h as Node3D).global_position
-	for h in rig.hitboxes:
-		if str(h.get_meta("part", "")) == "body":
-			return (h as Node3D).global_position
+		if str(h.get_meta("part", "")) != "body":
+			continue
+		var cs := (h as Node).get_child(0) as CollisionShape3D
+		var v := 0.0
+		if cs and cs.shape is BoxShape3D:
+			var sz: Vector3 = (cs.shape as BoxShape3D).size
+			v = sz.x * sz.y * sz.z
+		if v > best_v:
+			best_v = v
+			best = h
+	if best:
+		return best.global_position
 	return global_position + Vector3(0, rig.body_height * 0.6, 0)
 
 

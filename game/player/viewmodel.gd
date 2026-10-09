@@ -6,6 +6,7 @@ extends Node3D
 
 const Log := preload("res://core/log.gd")
 const Sheets := preload("res://core/sheets.gd")
+const Content := preload("res://core/content.gd")
 
 const VM_FOV := 60.0
 
@@ -81,8 +82,8 @@ func _get_model(id: String) -> Node3D:
 	if _cache.has(id):
 		return _cache[id]
 	var root: Node3D = null
-	var path := Game.cache_root.path_join("cs2/weapons/%s/view.glb" % id)
-	if FileAccess.file_exists(path):
+	var path := Content.weapon_view_model(id)
+	if path != "":
 		var doc := GLTFDocument.new()
 		var st := GLTFState.new()
 		if doc.append_from_file(path, st) == OK:

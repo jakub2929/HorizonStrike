@@ -8,6 +8,7 @@ const Sheets := preload("res://core/sheets.gd")
 const Log := preload("res://core/log.gd")
 const FsUtil := preload("res://core/fsutil.gd")
 const Machine := preload("res://machines/machine.gd")
+const Content := preload("res://core/content.gd")
 
 var world: Node3D
 var sites := {}            # site id -> {id, type, count, pos, radius, cell, alive, members, cleared_at, active}
@@ -23,8 +24,8 @@ func _ready() -> void:
 func meta_for(type: String) -> Dictionary:
 	if _metas.has(type):
 		return _metas[type]
-	var m = FsUtil.read_json(Game.cache_root.path_join("hzd/machines/%s/meta.json" % type))
-	var d: Dictionary = m if typeof(m) == TYPE_DICTIONARY else {"mock": true}
+	var m: Dictionary = Content.machine_meta(type)
+	var d: Dictionary = m if not m.is_empty() else {"mock": true}
 	_metas[type] = d
 	return d
 

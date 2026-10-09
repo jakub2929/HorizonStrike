@@ -6,6 +6,7 @@ extends Node3D
 const Log := preload("res://core/log.gd")
 const Sheets := preload("res://core/sheets.gd")
 const Animator := preload("res://machines/machine_animator.gd")
+const Content := preload("res://core/content.gd")
 
 const LAYER_HITBOX := 8
 const LAYER_WEAK := 16
@@ -21,6 +22,8 @@ var body_radius := 0.6
 var eye_bone := -1
 var head_bone := -1
 var leg_chains: Array = []      # Array of PackedInt32Array (hip..foot)
+var roles := {}                 # role -> bone index (content contract bone_roles)
+var points := {}                # point name -> {bone: int, offset: Vector3, radius: float, kind, part}
 var is_placeholder := true
 var _eye_mats: Array = []
 var _eye_light: OmniLight3D
@@ -31,8 +34,8 @@ func build(m: Node3D, type: String, meta: Dictionary) -> void:
 	machine = m
 	machine_type = type
 	body_height = float(meta.get("height_m", Sheets.machine_num(type, "body_height_m", 2.4)))
-	var model_path := Game.cache_root.path_join("hzd/machines/%s/model.glb" % type)
-	if not meta.get("mock", false) and FileAccess.file_exists(model_path) and _build_from_glb(model_path, meta):
+	var model_path := Content.machine_model(type)
+	if not meta.get("mock", false) and model_path != "" and _build_from_glb(model_path, meta):
 		is_placeholder = false
 	else:
 		_build_placeholder(type)
@@ -81,38 +84,36 @@ func _build_from_glb(path: String, meta: Dictionary) -> bool:
 			var bi := skeleton.find_bone(str(b.get("name", "")))
 			if bi >= 0:
 				helper_bones[bi] = true
-	# leg chains from meta (names) -> bone indices
-	for chain in meta.get("leg_chains", []):
+	# content contract: roles, points and leg chains (role names or bone names) -> bone indices
+	var role_names := Content.machine_bone_roles(machine_type)
+	for r in role_names:
+		var rb := skeleton.find_bone(str(role_names[r]))
+		if rb >= 0:
+			roles[str(r)] = rb
+	for chain in Content.machine_leg_chains(machine_type):
 		var ids := PackedInt32Array()
 		var names: Array = chain if chain is Array else Array(str(chain).split(","))
 		for n in names:
-			var b := skeleton.find_bone(str(n).strip_edges())
+			var key := str(n).strip_edges()
+			var b: int = roles.get(key, skeleton.find_bone(key))
 			if b >= 0:
 				ids.append(b)
 		if ids.size() >= 3:
 			leg_chains.append(ids)
+	var pts := Content.machine_points(machine_type)
+	for pn in pts:
+		var parts := Content.point_parts(pts[pn])
+		var pb: int = roles.get(parts[0], skeleton.find_bone(parts[0]))
+		if pb >= 0:
+			points[str(pn)] = {"bone": pb, "offset": parts[1], "radius": parts[2], "kind": str(pts[pn].get("kind", "")),
+				"part": str(pts[pn].get("part", pn))}
+	head_bone = int(roles.get("head", -1))
+	var sense := _sense_point()
+	eye_bone = int(sense["bone"]) if not sense.is_empty() else head_bone
 	var weak_bones := {}
-	for ws in meta.get("weak_spots", []):
-		var wb := skeleton.find_bone(str(ws.get("bone", "")))
-		if wb >= 0:
-			weak_bones[wb] = str(ws.get("part", "weak"))
-	# head: an exact head joint, else the parent of the eye, else a non-helper bone named like a head
-	for cand in ["headJoint", "Head", "head", "Head_Bone", "Cam_Bone"]:
-		if head_bone < 0:
-			head_bone = skeleton.find_bone(cand)
-	for wb in weak_bones:
-		if eye_bone < 0 and str(weak_bones[wb]) == "eye":
-			eye_bone = wb
-	if eye_bone < 0:
-		for cand2 in ["eye_helper", "Eye_helper", "Eye_Lx_helper", "eyeJoint"]:
-			if eye_bone < 0:
-				eye_bone = skeleton.find_bone(cand2)
-	if head_bone < 0 and eye_bone >= 0:
-		head_bone = skeleton.get_bone_parent(eye_bone)
-	if head_bone < 0:
-		for i in skeleton.get_bone_count():
-			if head_bone < 0 and not helper_bones.has(i) and skeleton.get_bone_name(i).to_lower().contains("head"):
-				head_bone = i
+	for pn in points:
+		if points[pn]["kind"] == "weak_spot":
+			weak_bones[points[pn]["bone"]] = points[pn]
 	var aabb := _skeleton_aabb()
 	body_radius = clampf(aabb.size.x * 0.6, 0.35, 0.9)
 	if body_height <= 0.1:
@@ -120,8 +121,8 @@ func _build_from_glb(path: String, meta: Dictionary) -> bool:
 	_build_hitboxes(scene, weak_bones)
 	_add_eye_glow()
 	Log.info("machine %s: real model, %d bones, %d leg chains, head %s, eye %s, %d hitboxes, height %.2f m" % [machine_type,
-		skeleton.get_bone_count(), leg_chains.size(), skeleton.get_bone_name(head_bone) if head_bone >= 0 else "-",
-		skeleton.get_bone_name(eye_bone) if eye_bone >= 0 else "-", hitboxes.size(), body_height])
+		skeleton.get_bone_count(), leg_chains.size(), "role" if head_bone >= 0 else "-",
+		"point" if not _sense_point().is_empty() else "-", hitboxes.size(), body_height])
 	return true
 
 
@@ -144,9 +145,10 @@ func _build_hitboxes(scene: Node, weak_bones: Dictionary) -> void:
 			continue
 		var bb: AABB = e[1]
 		if weak_bones.has(b):
+			var wp: Dictionary = weak_bones[b]
 			var sph := SphereShape3D.new()
-			sph.radius = maxf(bb.size[bb.get_longest_axis_index()] * 0.5, 0.12)
-			_add_hitbox_bone(str(weak_bones[b]), true, sph, b, bb.get_center())
+			sph.radius = float(wp["radius"]) if float(wp["radius"]) > 0.0 else maxf(bb.size[bb.get_longest_axis_index()] * 0.5, 0.12)
+			_add_hitbox_bone(str(wp["part"]), true, sph, b, wp["offset"] if (wp["offset"] as Vector3).length() > 0.0 else bb.get_center())
 			weak_done[b] = true
 			continue
 		if int(e[2]) < 24 or bb.size.length() < 0.08:
@@ -158,9 +160,10 @@ func _build_hitboxes(scene: Node, weak_bones: Dictionary) -> void:
 	for b in weak_bones:
 		if weak_done.has(b):
 			continue
+		var wp2: Dictionary = weak_bones[b]
 		var sph2 := SphereShape3D.new()
-		sph2.radius = clampf(h * 0.08, 0.15, 0.35)
-		_add_hitbox_bone(str(weak_bones[b]), true, sph2, b, Vector3.ZERO)
+		sph2.radius = float(wp2["radius"]) if float(wp2["radius"]) > 0.0 else clampf(h * 0.08, 0.15, 0.35)
+		_add_hitbox_bone(str(wp2["part"]), true, sph2, b, wp2["offset"])
 
 
 func _compute_bone_boxes(scene: Node) -> Array:
@@ -226,10 +229,24 @@ func _mesh_instances(n: Node) -> Array:
 	return out
 
 
+## The machine's sensing point (point kind "sense" or named "eye"), else {}.
+func _sense_point() -> Dictionary:
+	for pn in points:
+		if points[pn]["kind"] == "sense":
+			return points[pn]
+	return points.get("eye", {})
+
+
 func _add_eye_glow() -> void:
 	if eye_bone < 0:
 		return
-	var ba := _attach(eye_bone)
+	var ba: Node3D = _attach(eye_bone)
+	var sp := _sense_point()
+	if not sp.is_empty():
+		var holder := Node3D.new()
+		holder.position = sp["offset"]
+		ba.add_child(holder)
+		ba = holder
 	_eye_attach = ba
 	var mi := MeshInstance3D.new()
 	var sm := SphereMesh.new()
@@ -246,6 +263,7 @@ func _add_eye_glow() -> void:
 	_eye_light.omni_range = 3.0
 	_eye_light.light_energy = 1.5
 	ba.add_child(_eye_light)
+	_eye_attach = ba
 
 
 func _find_skeleton(n: Node) -> Skeleton3D:
@@ -294,6 +312,7 @@ func _build_placeholder(type: String) -> void:
 		eye_bone = _bone("eye", head_bone, Vector3(0, 0.02, -h * 0.16))
 		var t1 := _bone("tail1", pelvis, Vector3(0, 0.05, h * 0.22))
 		var t2 := _bone("tail2", t1, Vector3(0, -0.05, h * 0.25))
+		roles = {"root": root, "spine": spine, "neck": neck, "head": head_bone, "tail": t1}
 		_part(pelvis, "box", Vector3(h * 0.22, h * 0.2, h * 0.36), Vector3(0, 0.05, -0.05), metal)
 		_part(spine, "box", Vector3(h * 0.2, h * 0.18, h * 0.22), Vector3(0, 0.05, -0.1), metal)
 		_part(neck, "box", Vector3(h * 0.08, h * 0.16, h * 0.08), Vector3(0, 0.06, -0.05), dark)
@@ -328,6 +347,7 @@ func _build_placeholder(type: String) -> void:
 		head_bone = _bone("head", neck, Vector3(0, h * 0.14, -h * 0.12))
 		eye_bone = _bone("eye", head_bone, Vector3(0, 0.03, -h * 0.14))
 		var can := _bone("canister", spine, Vector3(0, h * 0.13, 0))
+		roles = {"root": root, "spine": spine, "neck": neck, "head": head_bone}
 		_part(pelvis, "box", Vector3(h * 0.26, h * 0.22, body_len * 0.5), Vector3(0, 0, -body_len * 0.1), metal)
 		_part(spine, "box", Vector3(h * 0.24, h * 0.2, body_len * 0.5), Vector3(0, 0, -body_len * 0.2), metal)
 		_part(chest, "box", Vector3(h * 0.26, h * 0.24, body_len * 0.35), Vector3(0, 0, 0), metal)
@@ -464,23 +484,29 @@ func _add_hitbox_static(part: String, weak: bool, shape: Shape3D, offset: Vector
 
 # ------------------------------------------------------------------ runtime
 
-## Bounds (machine space, rest pose) of the trunk: bones that are not helpers, tails or legs.
+## Bounds (machine space) of the trunk: the body hitboxes that are not on leg chains or the tail.
 func trunk_bounds() -> AABB:
-	var leg := {}
+	var skip := {}
 	for ch in leg_chains:
 		for b in ch:
-			leg[b] = true
+			skip[b] = true
+	if animator:
+		for b in animator.tail_chain():
+			skip[b] = true
+	var to_machine := global_transform.affine_inverse()
 	var aabb := AABB()
 	var first := true
-	var to_machine := global_transform.affine_inverse() * skeleton.global_transform
-	for i in skeleton.get_bone_count():
-		var n := skeleton.get_bone_name(i).to_lower()
-		if helper_bones.has(i) or leg.has(i) or n.contains("tail") or n.contains("root") or n.contains("ground") or n.contains("mount") or n.begins_with("ik"):
+	for h in hitboxes:
+		var a := h as Area3D
+		if a.get_meta("weak", false):
 			continue
-		var p := to_machine * skeleton.get_bone_global_rest(i).origin
+		var ba := a.get_parent() as BoneAttachment3D
+		if ba and skip.has(ba.bone_idx):
+			continue
+		var p := to_machine * a.global_position
 		aabb = AABB(p, Vector3.ZERO) if first else aabb.expand(p)
 		first = false
-	return aabb
+	return aabb.grow(0.2)
 
 
 func eye_global() -> Vector3:
