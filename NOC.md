@@ -19,3 +19,4 @@ Když nevíš, kde jsi: přečti NOC.md a MODLOG.md a pokračuj od posledního z
 - 00:39 Sloučeno hra H4–H8 (release trasa 98 fps, 1% low 46, max load 48,7 ms, VRAM 1,4 GB). Otevřené: konverze na pozadí sráží fps (→ svet: nízká priorita), vzácný segfault (→ hra), t05 Watcher přeskočí suspicious (→ stroje), 1x1 DDS (→ svet). Běží: test.
 - 00:47 Sloučeno svet: throttle konvertoru (CPU 28 %→10 %), DDS min 4x4, automatická rekonverze buněk při změně sheetů. Běží: hra (segfault + napojení throttle), stroje (t05), test.
 - 01:13 Sloučeno stroje: oprava průběhu podezření (t05 PASS). Běží: hra (segfault + throttle), test.
+- 01:23 Sloučeno stroje: showcase scéna pro videa strojů (Watcher walk/attack/death natočeno, snímky ne prázdné). Běží: hra (segfault+throttle), test.
