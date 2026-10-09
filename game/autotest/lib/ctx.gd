@@ -279,6 +279,30 @@ func read_wheel() -> Dictionary:
 	return {"source": "none", "items": items}
 
 
+func wheel_on_screen() -> Array:
+	## buy wheel slots as the player sees them: a visible "$<price>" label next to a visible item-name label;
+	## [{name, price_shown, center}] with center in viewport coordinates; [] when the wheel is not on screen
+	var out := []
+	for l in tree.root.find_children("*", "Label", true, false):
+		var lab := l as Label
+		if not lab.is_visible_in_tree():
+			continue
+		var t := lab.text.strip_edges()
+		var digits := t.trim_prefix("$").replace(",", "")
+		if not t.begins_with("$") or not digits.is_valid_int():
+			continue
+		var parent := lab.get_parent()
+		# a slot is a small group (icon, name, price); the HUD's money label sits among many HUD nodes
+		if not (parent is Control) or parent.get_child_count() > 4 or parent.get_children().filter(func(n): return n is Label).size() != 2:
+			continue
+		for sib in parent.get_children():
+			if sib is Label and sib != lab and (sib as Label).is_visible_in_tree() and not (sib as Label).text.strip_edges().begins_with("$") and (sib as Label).text.strip_edges() != "":
+				var pc := parent as Control
+				out.append({"name": (sib as Label).text.strip_edges(), "price_shown": int(digits), "center": pc.get_global_transform_with_canvas() * (pc.size * 0.5)})
+				break
+	return out
+
+
 func hit_evidence(dmg_rec: Rec, hud_rec: Rec) -> Array:
 	## player hits seen during a scenario: the player_damaged signal, or the game's "Hit: ..." HUD message that it
 	## emits for an invulnerable player
@@ -357,6 +381,8 @@ func begin_scenario() -> void:
 		for k in ["invulnerable", "crouched", "crouching"]:
 			if k in p:
 				_player_state[k] = p.get(k)
+		if "inventory" in p:
+			_player_state.inventory = Array(p.get("inventory")).map(func(x): return str(x))
 
 
 func cleanup() -> Dictionary:
@@ -388,6 +414,30 @@ func cleanup() -> Dictionary:
 				p.call("set_crouch", was)
 		if _player_state.has("invulnerable"):
 			p.set("invulnerable", _player_state.invulnerable)
+		# a scenario that began with the start loadout (knife + Glock) and lost part of it (buying a pistol replaces
+		# the Glock, CS rule) gives it back through the game's own path: death -> respawn at the last campfire
+		var start_ids: Array = oracle.start_loadout() if oracle != null else []
+		var had: Array = _player_state.get("inventory", [])
+		var now: Array = Array(p.get("inventory")).map(func(x): return str(x)) if "inventory" in p else []
+		# (had is empty when the scenario started before the player existed: the game then hands out the start loadout)
+		var lost := not start_ids.is_empty() and (had.is_empty() or start_ids.all(func(i): return had.has(i))) and not start_ids.all(func(i): return now.has(i))
+		if lost and game != null and game.has_method("kill_player"):
+			var resp := record(game, "player_respawned")
+			if "invulnerable" in p:
+				p.set("invulnerable", false)
+			game.call("kill_player")
+			var ok: bool = await wait_until(func(): return not resp.events.is_empty(), float(oracle.f(oracle.system("respawn.delay_s"))) + 20.0)
+			disconnect_all()
+			if _player_state.has("invulnerable"):
+				p.set("invulnerable", _player_state.invulnerable)
+			out.start_loadout_restored = {"via": "kill_player + respawn", "ok": ok, "inventory": Array(p.get("inventory"))}
+	# never leave the user's mouse captured (t03 captures it for a moment, as during play)
+	if Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
+		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+	# keys a scenario may still hold (an aborted scenario never released them)
+	for action in ["crouch", "buy", "fire", "walk", "alt_fire"]:
+		if InputMap.has_action(action) and Input.is_action_pressed(action):
+			Input.action_release(action)
 	var g := game
 	if g != null and g.has_method("close_buy_wheel"):
 		g.call("close_buy_wheel")

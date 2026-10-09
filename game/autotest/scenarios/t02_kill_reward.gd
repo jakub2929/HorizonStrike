@@ -1,6 +1,7 @@
 extends "res://autotest/lib/scenario.gd"
 ## t02 Kill adds the right reward: reward = round(weapon.kill_award * economy.kill_award_factor *
 ## machine.kill_reward_mult), money capped at economy.max_money; the kill_reward signal amount equals the money delta.
+## The weapon is taken with its slot key and fired with the fire button (simulated input); aim_at points the camera.
 
 const Combat := preload("res://autotest/lib/combat.gd")
 
@@ -14,7 +15,7 @@ func _run(ctx):
 		return false
 	var g: Node = ctx.game
 	var p: Node = ctx.player
-	if not api_check(ctx.missing_api(g, ["money", "player"], ["buy", "equip", "spawn_machine", "aim_at", "fire"], ["kill_reward"]) + ctx.missing_api(p, ["inventory"])):
+	if not api_check(ctx.missing_api(g, ["money", "player"], ["buy", "spawn_machine", "aim_at"], ["kill_reward"]) + ctx.missing_api(p, ["inventory"])):
 		return false
 	var o = ctx.oracle
 	var factor: float = o.f(o.system("economy.kill_award_factor"))
@@ -48,7 +49,8 @@ func _case(ctx, g: Node, o, c: Dictionary, factor: float, cap: int) -> Dictionar
 	var reward := int(round(award * factor * mult))
 	var expected := mini(int(c.money) + reward, cap)
 	var info := {"label": c.label, "machine": c.machine, "weapon": c.weapon, "kill_award": award, "machine_mult": mult, "start_money": c.money, "expected_money": expected}
-	await Combat.equip(ctx, c.weapon)
+	if not check("%s: %s taken with its slot key" % [c.label, c.weapon], await Combat.equip(ctx, c.weapon), "current %s" % str(ctx.player.get("current_weapon"))):
+		return info
 	g.set("money", int(c.money))
 	await ctx.frames(1)
 	var m: Node = await ctx.spawn_ahead(c.machine, c.dist, c.angle, false, c.base)

@@ -1,7 +1,23 @@
 extends "res://autotest/lib/scenario.gd"
-## t03 Buying subtracts the price: money = ak47.price + hegrenade.price (= 3000 on CS2 b25815307) -> buy ak47 ->
-## buy hegrenade (money 0) -> buy awp (refused). Prices come from the resolved cache (synthetic ones with --mock-data);
-## the wheel must list exactly the weapons rows with buy_wheel_index >= 0 at those prices.
+## t03 Buying subtracts the price - through the player's input only (simulated keyboard/mouse events in the game
+## process, Input.parse_input_event): the buy key opens the wheel, the mouse moves onto the item's slot as it is
+## drawn on screen (found by the item's displayed name and price, not by internal ids) and clicks it; one item is
+## bought the other way a player does it, by releasing the buy key over the slot. Cases: a pistol, a rifle, a grenade
+## and Kevlar each subtract the resolved price and give the item; one more pistol starts with the mouse captured as
+## during play (the wheel must make the cursor visible; the game warps it to the window centre once); then a buy with
+## too little money is refused.
+## Game.money is set as setup; Game.buy() is never called.
+
+const InputSim := preload("res://autotest/lib/inputsim.gd")
+
+const CASES := [
+	{"id": "p250", "kind": "pistol", "how": "click"},
+	{"id": "ak47", "kind": "rifle", "how": "click"},
+	{"id": "hegrenade", "kind": "grenade", "how": "release buy key over the slot"},
+	{"id": "kevlar", "kind": "armor", "how": "click"},
+	{"id": "deagle", "kind": "pistol", "how": "click, mouse captured as during play", "captured": true},
+]
+const REFUSED := "awp"
 
 
 func _init() -> void:
@@ -13,79 +29,158 @@ func _run(ctx):
 		return false
 	var g: Node = ctx.game
 	var p: Node = ctx.player
-	if not api_check(ctx.missing_api(g, ["money", "player", "machines"], ["buy", "open_buy_wheel", "close_buy_wheel"]) + ctx.missing_api(p, ["inventory"])):
+	if not api_check(ctx.missing_api(g, ["money", "player", "machines"]) + ctx.missing_api(p, ["inventory", "armor"])):
 		return false
 	var o = ctx.oracle
+	var inp = InputSim.new(ctx)
+	data.buy_key = inp.describe("buy")
+	if not check("the game binds a buy key", inp.binding("buy") != null, data.buy_key):
+		return false
 	var busy := []
 	for m in g.get("machines"):
 		if is_instance_valid(m) and str(m.get("state")) in ["alert", "attack"]:
 			busy.append("%s %s" % [m.get("machine_type"), m.get("state")])
 	check("setup: no machine alerted", busy.is_empty(), str(busy))
-	var inv0: Array = Array(p.get("inventory")).map(func(x): return str(x))
+	var inv0: Array = _inv(p)
 	data.inventory_start = inv0
-	check("setup: ak47 and hegrenade not owned yet", not inv0.has("ak47") and not inv0.has("hegrenade"), str(inv0))
+	var owned := CASES.filter(func(c): return c.id != "kevlar" and inv0.has(c.id))
+	check("setup: the items to buy are not owned yet", owned.is_empty(), str(inv0))
 
-	var p_ak: int = o.i(o.weapon("ak47", "price"))
-	var p_he: int = o.i(o.weapon("hegrenade", "price"))
-	var p_awp: int = o.i(o.weapon("awp", "price"))
-	data.prices = {"ak47": p_ak, "hegrenade": p_he, "awp": p_awp}
-	var start := p_ak + p_he
-	data.start_money = start
-	check("setup: awp is dearer than nothing (awp.price > 0)", p_awp > 0, str(p_awp))
-	g.set("money", start)
-	await ctx.frames(1)
-	await ctx.call_api(g, "open_buy_wheel")
-	await ctx.wait(0.3)
-	await _check_wheel(ctx, g, o)
+	var total := 0
+	for c in CASES:
+		total += o.i(o.weapon(c.id, "price"))
+	g.set("money", total)
+	await ctx.frames(2)
+	data.start_money = total
 	var money_rec = ctx.record(g, "money_changed")
-
-	var ok_ak: Variant = await ctx.call_api(g, "buy", ["ak47"])
-	await ctx.frames(2)
-	var m1 := int(g.get("money"))
-	var inv1: Array = Array(p.get("inventory")).map(func(x): return str(x))
-	check("buy(ak47) returns true", ok_ak == true, str(ok_ak))
-	check("after ak47: money == %d - ak47.price (%d)" % [start, start - p_ak], m1 == start - p_ak, "money %d" % m1)
-	check("after ak47: inventory contains ak47", inv1.has("ak47"), str(inv1))
-
-	var ok_he: Variant = await ctx.call_api(g, "buy", ["hegrenade"])
-	await ctx.frames(2)
-	var m2 := int(g.get("money"))
-	var inv2: Array = Array(p.get("inventory")).map(func(x): return str(x))
-	check("buy(hegrenade) returns true", ok_he == true, str(ok_he))
-	check("after hegrenade: money == %d" % (start - p_ak - p_he), m2 == start - p_ak - p_he, "money %d" % m2)
-	check("after hegrenade: inventory contains hegrenade", inv2.has("hegrenade"), str(inv2))
-
-	var ok_awp: Variant = await ctx.call_api(g, "buy", ["awp"])
-	await ctx.frames(2)
-	var m3 := int(g.get("money"))
-	var inv3: Array = Array(p.get("inventory")).map(func(x): return str(x))
-	check("buy(awp) with $%d < %d returns false" % [m2, p_awp], ok_awp == false, str(ok_awp))
-	check("after awp: money unchanged (%d)" % m2, m3 == m2, "money %d" % m3)
-	check("after awp: inventory unchanged", inv3 == inv2, str(inv3))
-	var vals := []
-	for e in money_rec.events:
-		vals.append(e.args[0])
-	data.money_changed = vals
-	check("money_changed reported the new values", vals.size() >= 2 and int(vals[vals.size() - 1]) == m2, str(vals))
-	await ctx.call_api(g, "close_buy_wheel")
+	var cases := []
+	for c in CASES:
+		cases.append(await _buy_case(ctx, inp, g, p, o, c))
+	# too little money: the click must not buy
+	var refused := await _refused_case(ctx, inp, g, p, o)
+	cases.append(refused)
+	data.cases = cases
+	data.money_changed = money_rec.events.map(func(e): return e.args[0])
+	data.input_sent = inp.sent.slice(0, 80)
+	if await _wheel_open(ctx):
+		await inp.tap("buy")
 	return true
 
 
-func _check_wheel(ctx, g: Node, o) -> void:
-	## wheel items as shown (ctx.read_wheel: API, else the wheel's UI nodes)
-	var want: Array = o.wheel_items()
-	data.wheel_expected = want
-	var wheel: Dictionary = await ctx.read_wheel()
-	var got: Array = wheel.items
-	data.wheel_shown = wheel
-	var ok: bool = got.size() == want.size() and want.size() <= o.i(o.system("economy.buy_wheel_max_items"))
-	var diffs := []
-	for w in want:
-		var hit := got.filter(func(x): return x.id == w.id)
-		if hit.is_empty():
-			diffs.append("%s missing" % w.id)
-			ok = false
-		elif hit[0].price != int(w.price):
-			diffs.append("%s price %d != %d" % [w.id, hit[0].price, int(w.price)])
-			ok = false
-	check("wheel lists exactly the buy_wheel_index >= 0 rows (%d) with resolved prices" % want.size(), ok, "%d shown; %s" % [got.size(), "; ".join(diffs)])
+func _buy_case(ctx, inp, g: Node, p: Node, o, c: Dictionary) -> Dictionary:
+	var id: String = c.id
+	var price: int = o.i(o.weapon(id, "price"))
+	var name := str(WeaponsSheet.ROWS[id].display_name)
+	var info := {"item": id, "kind": c.kind, "how": c.how, "price": price}
+	var money0 := int(g.get("money"))
+	var armor0 := float(p.get("armor"))
+	var label := "%s %s (%s)" % [c.kind, name, c.how]
+	var slot: Dictionary
+	if c.get("captured", false):
+		# as during play: the mouse is captured when the buy key is pressed (brief: the wheel frees it again)
+		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+		await ctx.frames(2)
+		info.mouse_mode_before = Input.mouse_mode
+		slot = await _open_and_find(ctx, inp, name, false)
+		info.mouse_mode_after_buy_key = Input.mouse_mode
+		check("%s: the buy key makes the mouse visible (mode %d -> %d)" % [label, info.mouse_mode_before, info.mouse_mode_after_buy_key], Input.mouse_mode == Input.MOUSE_MODE_VISIBLE, "captured before: %s" % str(info.mouse_mode_before == Input.MOUSE_MODE_CAPTURED))
+		if not slot.is_empty():
+			await inp.click(slot.center)
+			await ctx.wait(0.4)
+	elif c.how == "click":
+		slot = await _open_and_find(ctx, inp, name, false)
+		if not slot.is_empty():
+			await inp.click(slot.center)
+			await ctx.wait(0.4)
+	else:
+		slot = await _open_and_find(ctx, inp, name, true)
+		if not slot.is_empty():
+			await inp.mouse_move(slot.center)
+			await ctx.wait(0.3)
+			inp.release("buy")
+			await ctx.wait(0.4)
+		else:
+			inp.release("buy")
+	info.slot = slot
+	if not check("%s: wheel open and the slot visible on screen" % label, not slot.is_empty(), "buy key %s" % inp.describe("buy")):
+		await _close(ctx, inp)
+		return info
+	check("%s: slot shows the resolved price $%d" % [label, price], int(slot.price_shown) == price, "shown $%s" % str(slot.price_shown))
+	var money := int(g.get("money"))
+	var inv: Array = _inv(p)
+	info.money = [money0, money]
+	info.inventory = inv
+	check("%s: money %d - %d = %d" % [label, money0, price, money0 - price], money == money0 - price, "money %d" % money)
+	if id == "kevlar":
+		var ap: float = o.f(o.weapon("kevlar", "armor_points"))
+		info.armor = [armor0, float(p.get("armor"))]
+		check("%s: armor == %s" % [label, str(ap)], is_equal_approx(float(p.get("armor")), ap), "armor %s" % str(p.get("armor")))
+	else:
+		check("%s: inventory contains %s" % [label, id], inv.has(id), str(inv))
+	await _close(ctx, inp)
+	return info
+
+
+func _refused_case(ctx, inp, g: Node, p: Node, o) -> Dictionary:
+	var price: int = o.i(o.weapon(REFUSED, "price"))
+	var name := str(WeaponsSheet.ROWS[REFUSED].display_name)
+	g.set("money", maxi(0, price - 1))
+	await ctx.frames(2)
+	var money0 := int(g.get("money"))
+	var inv0: Array = _inv(p)
+	var label := "refused %s with $%d < $%d (click)" % [name, money0, price]
+	var info := {"item": REFUSED, "how": "click", "price": price, "money_before": money0}
+	var slot: Dictionary = await _open_and_find(ctx, inp, name, false)
+	info.slot = slot
+	if not check("%s: wheel open and the slot visible on screen" % label, not slot.is_empty()):
+		await _close(ctx, inp)
+		return info
+	await inp.click(slot.center)
+	await ctx.wait(0.4)
+	var money := int(g.get("money"))
+	var inv: Array = _inv(p)
+	info.money_after = money
+	check("%s: money unchanged" % label, money == money0, "money %d" % money)
+	check("%s: %s not given" % [label, REFUSED], not inv.has(REFUSED) and inv == inv0, str(inv))
+	await _close(ctx, inp)
+	return info
+
+
+func _open_and_find(ctx, inp, display_name: String, hold: bool) -> Dictionary:
+	## press the buy key (and release it unless hold), then look for the item's slot on screen
+	if await _wheel_open(ctx):
+		await inp.tap("buy")
+		await ctx.wait(0.3)
+	if hold:
+		inp.press("buy")
+		await ctx.physics_frames(2)
+	else:
+		await inp.tap("buy")
+	await ctx.wait(0.3)
+	return _find_slot(ctx, display_name)
+
+
+func _close(ctx, inp) -> void:
+	if await _wheel_open(ctx):
+		await inp.tap("buy")
+		await ctx.wait(0.3)
+
+
+func _wheel_open(ctx) -> bool:
+	await ctx.frames(1)
+	return not _slots(ctx).is_empty()
+
+
+static func _slots(ctx) -> Array:
+	return ctx.wheel_on_screen()
+
+
+static func _find_slot(ctx, display_name: String) -> Dictionary:
+	for s in _slots(ctx):
+		if s.name == display_name:
+			return s
+	return {}
+
+
+static func _inv(p: Node) -> Array:
+	return Array(p.get("inventory")).map(func(x): return str(x))
