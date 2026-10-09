@@ -26,6 +26,18 @@ everything on Melty. Report decisions you make in your final report so the orche
 - Sheets are the source of truth: change the sheet first, then regenerate (`python tools/gen_sheets.py`), then code.
   Never hand-edit `game/generated/` or `converter/src/Hzs.Generated/`.
 
+## Unattended runs: forbidden commands (they prompt and hang, or fail)
+- git rebase, git branch -D, git stash (any), git checkout -- …, git restore … → make a new branch from main or a
+  new commit instead. git push (any form) → never. git reset --hard, git clean, anything with GIT_CONFIG_*,
+  hooksPath or CLAUDECODE.
+- rm, Remove-Item, del, rd → move to `C:\meshy\_to_delete\` instead. Tests that need a clean cache use a NEW cache
+  folder per run; never delete old ones.
+- docker system prune, claude -p, claude --bg; anything that can wait for input (UAC/admin installers, interactive
+  prompts, the Godot editor GUI with dialogs). If a tool needs an admin install, report it and build without it.
+- Long commands (build, export, autotest, conversion) always with a time limit; after it, kill only processes you
+  started (exact PID). Same step failing 3× → stop, report one sentence, build the nearest working version.
+- Commit all changes before reporting a task done. Never commit to main directly; the orchestrator merges.
+
 ## Content is data, not code (content contract)
 - The game never hard-codes a file, bone, mesh or path from HZD or CS2. It only knows **roles and named points**
   defined per row in the sheets and in the converter's per-asset `meta.json`.
