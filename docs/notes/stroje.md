@@ -66,3 +66,50 @@ anim/speeds/perception thresholds/attacks/herd/flee, machine_attacks.json. Newes
   Screenshots (windowed bench --shots): C:\meshy\_tools\stroje\shots1\*.png. Smoke (mock) SMOKE OK.
   Note: dev/check_scripts.gd reports 8 bad scripts, all under game/autotest/** (`AutotestSheet` not declared) -
   not touched by stroje.
+- 2026-10-09 M2 AI (machine.gd; behaviour column knobs, no sheet value changes):
+  - calm state per archetype: guard/predator `patrol`, scavenger `scavenge` (wander + head-down drill bouts),
+    herd `graze`. New states `stalk`, `scavenge`; `current_attack` = machine_attacks id while an attack runs.
+  - Sawtooth (predator): investigates suspicion, on alert stalks low and slow (stalk_speed_mps 2.2, crouched pose)
+    to stalk_until_m 18, then attacks (charge 9-30 m, pounce 5-9 m = leap covering the distance in active_s, bite
+    0-3 m); shot while stalking -> attacks at once; calls nobody (call_on_alert false).
+  - Scrapper (scavenger): radar ping every radar_ping_interval_s (+-15 %), visible ring; a ping that finds the
+    player within radar_ping_radius_m (no line of sight needed) adds 0.5 x alert threshold of suspicion (2 pings ->
+    alert); on alert calls the pack within pack_call_radius_m; laser burst = 1 bolt per 0.15 s of active_s (4);
+    circles the player at 10-20 m while attacks cool down; bite/lunge up close.
+  - Broadhead (herd + defend_charge): does not flee; alert -> attacks when the player is within
+    fight_back_radius_m 25 (50 for 10 s after being shot), else stands facing the threat pawing the ground and calms
+    after search_time; goes back to alert when the threat backs off beyond 1.5x the radius.
+  - Herds bolt from loud noises regardless of flee_on_alert (defenders then alert instead of fleeing).
+  AI check (`machine_bench.gd --ai`, stand-in player walks up from 70 m; dev only, not the autotest), cache with
+  svet's 6 models (copy of c40 = C:\meshy\_tools\cache-stroje2):
+  | machine | cycle | attacks used | hits on player |
+  |---|---|---|---|
+  | sawtooth | suspicious > patrol > suspicious > alert > stalk > attack | charge 1, bite 6-7 | 7-8 (250-285 HP) |
+  | scrapper x2 | (radar 6 of 10 pings found the player) > alert > attack, pack alerted | laser burst 2 (4 bolts), lunge 1, bite 5-6 | 26-27 |
+  | broadhead x2 | suspicious > graze > suspicious > alert > attack, never flees | charge 1, headbutt 4, stomp 2 | 11-12 |
+  | watcher | suspicious > alert > attack | eye bolt, tail sweep, bite | 11 |
+  | strider/grazer x2 | suspicious > alert > flee > suspicious > graze | - | 0 |
+  hra dev scenarios on real machines (mock world, seed C:\meshy\_tools\stroje\seed1): t05, t06, t07 PASS.
+- 2026-10-09 M3 all 6 machines on their real models (bench, cache-stroje2):
+  | machine | foot_slide_cm | penetration_cm | float_cm | poses |
+  |---|---|---|---|---|
+  | watcher | 0.0 | 0.3 | 0.0 | all ok |
+  | strider | 0.0 | 1.0 | 0.0 | all ok |
+  | grazer | 0.0 | 1.0 | 0.0 | all ok |
+  | sawtooth | 1.4 | 0.9 | 0.0 | all ok |
+  | scrapper | 1.2 | 1.0 | 0.0 | all ok |
+  | broadhead | 0.0 | 1.0 | 0.0 | all ok |
+  (penetration ~1 cm = the 5 cm terrain-height cache). Fixes for the new rigs: turning cadence from the farthest
+  foot (Sawtooth's origin sits near its front legs), free legs never below the ground, mandible pairs (jaw_l/jaw_r),
+  anim.neck_rest_pitch_deg 40 for Broadhead (its mesh carries the head raised over the Strider skeleton's rest),
+  death settling probes for plates on leg roots and horn tips. Screenshots C:\meshy\_tools\stroje\shots2,3.
+  Weak spots (hra's dev/weak_spots.gd, 8 directions, 12 m, real machines): watcher eye 8/8, strider canister 7/8,
+  grazer canister 8/8, sawtooth canister 8/8, scrapper power_cell 6/8 + radar 8/8, broadhead canister 7/8 ->
+  WEAKSPOTS OK (0.1.1: 7/8, 5/8, 8/8).
+- Performance (`--perf 24`, all types, AI on): ~140 us per machine update, 24 machines ~3.3 ms/frame without LOD
+  (GDScript overhead; ~0.5 raycasts per update thanks to a 5 cm terrain-height cache). Distance LOD: beyond
+  35/70/120 m from the camera the pose is recomputed every 2nd/3rd/6th frame (cached local poses in between).
+- Interface notes for hra (not changed by me): new states `stalk` and `scavenge` exist. `Game.in_combat()`
+  (core/game.gd:107) checks alert/attack -> should include `stalk`; audio_director counts only `attack` as combat
+  and suspicious/alert as wary -> `stalk` belongs to wary/combat; spawner._engaged -> add `stalk`. For test: t06's
+  calm list ["idle","patrol","graze"] -> add "scavenge" for Scrappers.

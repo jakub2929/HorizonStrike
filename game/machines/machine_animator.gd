@@ -30,6 +30,18 @@ var rig: Node3D
 var debug_measure := false
 var debug_moved := 0
 var debug_info := {}
+## Dev: total time spent in this modifier by all machines (only counted while profile is on).
+static var profile := false
+static var prof_us := 0
+static var prof_calls := 0
+static var prof_parts := {}
+## Distance LOD (design, stroje): beyond these camera distances the pose is recomputed only every 2nd/3rd/6th
+## frame; frames in between re-apply the last computed local poses (Godot restores the unmodified poses every frame).
+const LOD_DIST := [35.0, 70.0, 120.0]
+const LOD_STEP := [2, 3, 6]
+var _lod_n := 0
+var _lod_acc := 0.0
+var _cached := []
 
 # ---- skeleton facts (bind pose)
 var _initialized := false
@@ -80,6 +92,7 @@ var _clock := 0.0
 var _gait := ""
 var _gait_prev := ""
 var _gait_blend := 1.0
+var _gait_set := ""
 var _duty := 0.65
 var _period := 1.0
 var _moving := false
@@ -434,8 +447,10 @@ func _init_rig(sk: Skeleton3D) -> void:
 	_gait_prev = _gait
 	_duty = float(Gaits.params(_gait)["duty"])
 	_period = _walk_cycle
+	_gait_set = _gait
 	for l in _legs:
 		l["off"] = Gaits.offset(_gait, str(l["group"]))
+	_no_free.resize(_legs.size())
 
 
 ## Non-helper bones of the subtree under `b` (evenly sampled down to 32): ground-clearance probes.
@@ -555,6 +570,41 @@ func _is_ancestor_of_all(sk: Skeleton3D, b: int, bones: Array) -> bool:
 # ------------------------------------------------------------------ frame
 
 func _process_modification_with_delta(delta: float) -> void:
+	var t0 := Time.get_ticks_usec() if profile else 0
+	_lod_acc += delta
+	_lod_n += 1
+	var sk := get_skeleton()
+	if sk != null and _lod_n < _lod_step() and _cached.size() == _touched.size() and not _cached.is_empty():
+		for i in _touched.size():
+			sk.set_bone_pose(_touched[i], _cached[i])
+	else:
+		_lod_n = 0
+		var d := _lod_acc
+		_lod_acc = 0.0
+		_modify(d)
+		if sk != null:
+			_cached.resize(_touched.size())
+			for i in _touched.size():
+				_cached[i] = sk.get_bone_pose(_touched[i])
+	if profile:
+		prof_us += Time.get_ticks_usec() - t0
+		prof_calls += 1
+
+
+func _lod_step() -> int:
+	if not _initialized or rig == null or rig.machine == null or (_dead and not _death_frozen):
+		return 1
+	var cam := get_viewport().get_camera_3d() if is_inside_tree() else null
+	if cam == null:
+		return 1
+	var d := cam.global_position.distance_to(rig.machine.global_position)
+	for i in LOD_DIST.size():
+		if d < float(LOD_DIST[i]):
+			return 1 if i == 0 else int(LOD_STEP[i - 1])
+	return int(LOD_STEP[LOD_STEP.size() - 1])
+
+
+func _modify(delta: float) -> void:
 	var sk := get_skeleton()
 	if sk == null or rig == null or rig.machine == null:
 		return
@@ -576,12 +626,22 @@ func _process_modification_with_delta(delta: float) -> void:
 		_dead_t += delta
 		_process_death(sk, M, delta)
 	else:
+		var tp := Time.get_ticks_usec() if profile else 0
 		_update_motion(m, M, delta)
 		_update_channels(delta)
 		_plan_feet(M, delta)
+		var t1 := Time.get_ticks_usec() if profile else 0
 		_pose_body(sk, M, delta)
+		var t2 := Time.get_ticks_usec() if profile else 0
 		_solve_legs(sk, M)
+		var t3 := Time.get_ticks_usec() if profile else 0
 		_pose_upper(sk, M, delta)
+		if profile:
+			var t4 := Time.get_ticks_usec()
+			prof_parts["plan"] = int(prof_parts.get("plan", 0)) + (t1 - tp)
+			prof_parts["body"] = int(prof_parts.get("body", 0)) + (t2 - t1)
+			prof_parts["legs"] = int(prof_parts.get("legs", 0)) + (t3 - t2)
+			prof_parts["upper"] = int(prof_parts.get("upper", 0)) + (t4 - t3)
 	if debug_measure:
 		var feet := []
 		for l in _legs:
@@ -622,14 +682,17 @@ func _update_motion(m: Node3D, M: Transform3D, delta: float) -> void:
 		_gait_prev = _gait
 		_gait = g
 		_gait_blend = 0.0
-	_gait_blend = minf(_gait_blend + delta / 0.3, 1.0)
-	var pa := Gaits.params(_gait_prev)
-	var pb := Gaits.params(_gait)
-	_duty = lerpf(float(pa["duty"]), float(pb["duty"]), _gait_blend)
-	for l in _legs:
-		var oa := Gaits.offset(_gait_prev, str(l["group"]))
-		var ob := Gaits.offset(_gait, str(l["group"]))
-		l["off"] = fposmod(oa + wrapf(ob - oa, -0.5, 0.5) * _gait_blend, 1.0)
+	if _gait_blend < 1.0 or g != _gait_set:
+		# offsets and duty only change while two gaits blend
+		_gait_blend = minf(_gait_blend + delta / 0.3, 1.0)
+		_gait_set = g
+		var pa := Gaits.params(_gait_prev)
+		var pb := Gaits.params(_gait)
+		_duty = lerpf(float(pa["duty"]), float(pb["duty"]), _gait_blend)
+		for l in _legs:
+			var oa := Gaits.offset(_gait_prev, str(l["group"]))
+			var ob := Gaits.offset(_gait, str(l["group"]))
+			l["off"] = fposmod(oa + wrapf(ob - oa, -0.5, 0.5) * _gait_blend, 1.0)
 	var turn_v := absf(_yaw_rate) * _turn_r
 	var loco := maxf(spd, turn_v)
 	_moving = loco > 0.15
@@ -647,11 +710,12 @@ func _update_motion(m: Node3D, M: Transform3D, delta: float) -> void:
 
 
 ## Where leg l's contact should be `ahead` seconds from now (machine moving with `vel`, turning at `yaw_rate`).
-func _home_world(l: Dictionary, M: Transform3D, ahead: float, yaw_rate: float, vel: Vector3) -> Vector3:
+func _home_world(l: Dictionary, M: Transform3D, ahead: float, yaw_rate: float, vel: Vector3, with_ground: bool = true) -> Vector3:
 	var hm: Vector3 = l["mid_m"] if vel.length() > 0.3 else l["home_m"]
 	var off := Basis(Vector3.UP, yaw_rate * ahead) * Vector3(hm.x, 0.0, hm.z)
 	var p := M.origin + vel * ahead + M.basis * off
-	p.y = _ground(p) + float(l["c0"])
+	if with_ground:
+		p.y = _ground(p) + float(l["c0"])
 	return p
 
 
@@ -666,7 +730,7 @@ func _plan_feet(M: Transform3D, delta: float) -> void:
 	var walking := _gait in ["walk", "biped_walk"] or not _moving
 	var min_support := (1 if _biped else 2) if walking else 0
 	var stance_half := _duty * _period * 0.5
-	var free_req := _free_requests(M)
+	var free_req: Array = _free_requests(M) if (_ch.has("air") or _ch.has("front_lift") or _ch.has("rear_kick") or _ch.has("paw")) else _no_free
 	for i in _legs.size():
 		var l: Dictionary = _legs[i]
 		var st := str(l["state"])
@@ -697,7 +761,7 @@ func _plan_feet(M: Transform3D, delta: float) -> void:
 						lift = true
 						phased = true
 				else:
-					var home := _home_world(l, M, 0.0, 0.0, Vector3.ZERO)
+					var home := _home_world(l, M, 0.0, 0.0, Vector3.ZERO, false)
 					var drift := Vector2((l["planted"] as Vector3).x - home.x, (l["planted"] as Vector3).z - home.z).length()
 					if drift > maxf(0.06, float(l["L"]) * 0.08) and swinging == 0:
 						lift = true
@@ -768,6 +832,9 @@ func _start_swing(l: Dictionary, from: Vector3, M: Transform3D, dur: float, movi
 	l["sw_h"] = _step_h * lift_k * (clampf(0.5 + _speed / maxf(_walk_speed * 2.0, 0.5), 0.5, 1.0) if moving else 1.0)
 	var ahead := dur + (_duty * _period * 0.5 if moving else 0.0)
 	l["sw_to"] = _home_world(l, M, ahead, _yaw_rate if moving else 0.0, _vel if moving else Vector3.ZERO)
+
+
+var _no_free: Array = []
 
 
 ## Per leg: null (normal locomotion), true (free, rest-relative) or a world target (free, IK) from pose channels.
@@ -1327,7 +1394,27 @@ static func _smooth(x: float) -> float:
 
 # ------------------------------------------------------------------ terrain
 
+## Terrain height under a point. Results are cached on a 5 cm grid for 1 s (feet, swing paths and the body probe the
+## same spots every frame; 5 cm cells keep the error below ~1.5 cm on 17 deg slopes).
+var _gcache := {}
+var _gcache_t := 0.0
+
+
 func _ground(world_pos: Vector3) -> float:
+	if _t - _gcache_t > 1.0 or _gcache.size() > 512:
+		_gcache.clear()
+		_gcache_t = _t
+	var key := Vector3i(roundi(world_pos.x * 20.0), roundi(world_pos.y * 2.0), roundi(world_pos.z * 20.0))
+	if _gcache.has(key):
+		return _gcache[key]
+	var h := _ground_ray(world_pos)
+	_gcache[key] = h
+	return h
+
+
+func _ground_ray(world_pos: Vector3) -> float:
+	if profile:
+		prof_parts["rays"] = int(prof_parts.get("rays", 0)) + 1
 	var space := get_world_3d().direct_space_state if is_inside_tree() else null
 	if space == null:
 		return world_pos.y

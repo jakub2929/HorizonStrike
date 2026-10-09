@@ -49,6 +49,9 @@ func _initialize() -> void:
 				i += 1
 			"--ai":
 				r.ai = true
+			"--perf":
+				r.perf = int(nxt)
+				i += 1
 		i += 1
 	if r.types.is_empty():
 		r.types = ["watcher", "strider", "grazer"]
@@ -68,6 +71,7 @@ class Runner extends Node:
 	var only: Array = []          # optional phase filter (dev)
 	var shots := ""               # screenshot directory (windowed runs)
 	var ai := false
+	var perf := 0                 # --perf N: N machines (types round-robin) with AI on; animator cost per frame
 	var _fake: Node3D
 	var _ai_group: Array = []
 	var _ai_t := 0.0
@@ -114,6 +118,9 @@ class Runner extends Node:
 		_build_terrain()
 		if shots != "":
 			_build_view()
+		if perf > 0:
+			_start_perf.call_deferred()
+			return
 		if ai:
 			_fake = FakePlayer.new()
 			add_child(_fake)
@@ -330,6 +337,52 @@ class Runner extends Node:
 				m.rig.play_attack(a)
 			else:
 				m.rig.play_pose(str(a.get("pose", "")), float(a["windup_s"]) + float(a["active_s"]))
+
+	# ------------------------------------------------------------ performance
+
+	func _start_perf() -> void:
+		var Anim = load("res://machines/machine_animator.gd")
+		var ms: Array = []
+		for k in perf:
+			var type := str(types[k % types.size()])
+			var meta: Dictionary = {"mock": true}
+			if not mock:
+				var mm: Dictionary = Content.machine_meta(type)
+				if not mm.is_empty():
+					meta = mm
+			var m: Node = Machine.new()
+			m.setup(type, meta)
+			m.site = {"radius": 10.0, "id": "perf"}
+			add_child(m)
+			var pos := Vector3((k % 6) * 12.0 - 30.0, 0, int(k / 6) * 12.0)
+			m.global_position = Vector3(pos.x, height(pos.x, pos.z) + 0.4, pos.z)
+			m.home = m.global_position
+			ms.append(m)
+		if OS.get_environment("BENCH_PERF_CAM") != "":
+			# a camera at the edge of the group: machines from ~10 m to ~90 m away (distance LOD active)
+			var cam := Camera3D.new()
+			add_child(cam)
+			cam.global_position = Vector3(0, height(0, -25) + 3.0, -25)
+			cam.current = true
+		await get_tree().create_timer(3.0).timeout
+		Anim.profile = true
+		Anim.prof_us = 0
+		Anim.prof_calls = 0
+		var f0 := Engine.get_process_frames()
+		var t0 := Time.get_ticks_usec()
+		await get_tree().create_timer(8.0).timeout
+		var frames := Engine.get_process_frames() - f0
+		var wall := (Time.get_ticks_usec() - t0) / 1000.0
+		var us: int = Anim.prof_us
+		var calls: int = Anim.prof_calls
+		var moving := 0
+		for m in ms:
+			if m.speed_now() > 0.2:
+				moving += 1
+		print("PERF %d machines (%s): %d frames in %.0f ms, animator %.3f ms/frame total, %.1f us per machine update (%d calls), %d moving at the end" % [perf,
+			",".join(PackedStringArray(types)), frames, wall, us / 1000.0 / maxf(frames, 1), float(us) / maxf(calls, 1), calls, moving])
+		print("PERF parts (us total): %s" % str(Anim.prof_parts))
+		get_tree().quit(0)
 
 	# ------------------------------------------------------------ AI check
 
