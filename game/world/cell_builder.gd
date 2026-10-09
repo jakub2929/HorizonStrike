@@ -14,9 +14,8 @@ const TerrainMaterial := preload("res://world/terrain_material.gd")
 
 const MAX_VISUAL_VERTS := 257
 const MAX_COLLISION_VERTS := 1025
-## Vegetation budget per cell and channel (HZD scatters on the GPU; we place a capped sample of its density map).
-const CHANNEL_CAP := {"trees": 1600, "blockbush": 2500, "undergrowth": 3000, "stealthplants": 3000}
 const MIN_COLLISION_SIZE_M := 1.0
+const Sheets := preload("res://core/sheets.gd")
 
 const LAYER_WORLD := 1
 
@@ -67,9 +66,12 @@ static func prepare(cell_dir: String, meshes: RefCounted) -> Dictionary:
 			var img := Image.load_from_file(cell_dir.path_join(f))
 			if img:
 				img.generate_mipmaps()
+				if key == "albedo" and not img.is_compressed():
+					img.compress(Image.COMPRESS_S3TC, Image.COMPRESS_SOURCE_SRGB)
 				out[key + "_img"] = img
 	# ---- instances grouped by mesh
 	var groups := {}
+	var tints := {}      # mesh id -> Array[Color] parallel to groups[mid] (only for meshes with any tint)
 	for inst in info.get("instances", []):
 		var mid := str(inst.get("mesh", ""))
 		var xf: Array = inst.get("xf", [])
@@ -78,7 +80,18 @@ static func prepare(cell_dir: String, meshes: RefCounted) -> Dictionary:
 		if not groups.has(mid):
 			groups[mid] = []
 		groups[mid].append(_xf(xf))
+		var t: Variant = inst.get("tint")
+		if t is Array and (t as Array).size() >= 3:
+			if not tints.has(mid):
+				var whites: Array = []
+				whites.resize(groups[mid].size() - 1)
+				whites.fill(Color.WHITE)
+				tints[mid] = whites
+			tints[mid].append(Color(float(t[0]), float(t[1]), float(t[2]), 1.0))
+		elif tints.has(mid):
+			tints[mid].append(Color.WHITE)
 	out["instances"] = groups
+	out["tints"] = tints
 	# ---- vegetation scattered from the density map
 	out["vegetation"] = _scatter(cell_dir, info, heights, w, h, origin, size)
 	var ids := {}
@@ -190,6 +203,10 @@ static func _collision_heights(heights: PackedFloat32Array, w: int, h: int) -> A
 	return [out, nw, nh]
 
 
+## Vegetation from cell.json `vegetation` {density, channels, species[], density_scale?}: per species `per_m2`
+## (max density where the channel is 1), `footprint_m` (minimum spacing between plants of that species), `scale`,
+## `scale_variance`, `max_slope_deg`, optional `density_scale`. Expected count = per_m2 x area x mean channel density
+## x scales; all species of a cell share streaming.vegetation_cell_cap by their expected counts.
 static func _scatter(cell_dir: String, info: Dictionary, heights: PackedFloat32Array, w: int, h: int, origin: Vector3, size: float) -> Dictionary:
 	var out := {}
 	var veg = info.get("vegetation", {})
@@ -209,32 +226,56 @@ static func _scatter(cell_dir: String, info: Dictionary, heights: PackedFloat32A
 	out["_channels"] = channels
 	var iw := img.get_width()
 	var ih := img.get_height()
-	var cell: Array = info.get("cell", [0, 0])
-	var species: Array = veg.get("species", [])
-	# split each channel's budget between its species by their density weight
-	var weight := {}
-	for sp in species:
-		var ch := str(sp.get("channel", ""))
-		weight[ch] = float(weight.get(ch, 0.0)) + float(sp.get("per_m2", 0.0))
-	var rng := RandomNumberGenerator.new()
-	var dx := size / float(w - 1)
-	for sp in species:
+	# mean density per channel (sampled)
+	var mean := [0.0, 0.0, 0.0, 0.0]
+	var n_s := 0
+	for py in range(0, ih, 4):
+		for px in range(0, iw, 4):
+			var c := img.get_pixel(px, py)
+			for k in 4:
+				mean[k] += c[k]
+			n_s += 1
+	for k in 4:
+		mean[k] /= maxf(n_s, 1)
+	var global_scale := Sheets.sys_num("streaming.vegetation_density_scale", 1.0) * float(veg.get("density_scale", 1.0))
+	var cell_cap := int(Sheets.sys_num("streaming.vegetation_cell_cap", 14000))
+	var species: Array = []
+	var total := 0.0
+	for sp in veg.get("species", []):
 		var ch := str(sp.get("channel", ""))
 		var ci := channels.find(ch)
 		var mid := str(sp.get("mesh", ""))
 		var per_m2 := float(sp.get("per_m2", 0.0))
 		if ci < 0 or ci > 3 or mid == "" or per_m2 <= 0.0:
 			continue
+		var expected := per_m2 * size * size * float(mean[ci]) * global_scale * float(sp.get("density_scale", 1.0))
+		if expected < 1.0:
+			continue
+		species.append([sp, ci, expected])
+		total += expected
+	var share := minf(1.0, float(cell_cap) / maxf(total, 1.0))
+	var cell: Array = info.get("cell", [0, 0])
+	var rng := RandomNumberGenerator.new()
+	var dx := size / float(w - 1)
+	for entry in species:
+		var sp: Dictionary = entry[0]
+		var ci: int = entry[1]
+		var target := int(float(entry[2]) * share)
+		if target <= 0:
+			continue
+		var ch := str(sp.get("channel", ""))
+		var mid := str(sp.get("mesh", ""))
 		rng.seed = hash([int(cell[0]), int(cell[1]), mid])
-		var cap := int(float(CHANNEL_CAP.get(ch, 2000)) * per_m2 / maxf(float(weight.get(ch, per_m2)), 0.000001))
-		cap = mini(cap, int(per_m2 * size * size))
 		var max_slope := deg_to_rad(float(sp.get("max_slope_deg", 90.0)))
 		var base_scale := float(sp.get("scale", 1.0))
 		var var_scale := float(sp.get("scale_variance", 0.15))
-		var attempts := cap * 4
+		# footprint spacing grows when the budget thins a species out (keeps the look even instead of clumped)
+		var spacing := maxf(float(sp.get("footprint_m", 0.0)), sqrt(size * size / maxf(target, 1.0)) * 0.5)
+		var grid := {}
 		var xfs: Array = []
+		var attempts := target * 6
 		for i in attempts:
-			if xfs.size() >= cap:
+			if xfs.size() >= target:
 				break
 			var u := rng.randf()
 			var v := rng.randf()
@@ -243,12 +284,22 @@ static func _scatter(cell_dir: String, info: Dictionary, heights: PackedFloat32A
 				continue
 			var x := origin.x + u * size
 			var z := origin.z + v * size
+			var key := Vector2i(floori(x / spacing), floori(z / spacing))
+			var close := false
+			for gy in range(-1, 2):
+				for gx in range(-1, 2):
+					var other: Variant = grid.get(key + Vector2i(gx, gy))
+					if other != null and Vector2(x, z).distance_to(other) < spacing:
+						close = true
+			if close:
+				continue
 			var y := sample_height(heights, w, h, origin, size, x, z)
 			if max_slope < PI * 0.49:
-				var gx := sample_height(heights, w, h, origin, size, x + dx, z) - y
-				var gz := sample_height(heights, w, h, origin, size, x, z + dx) - y
-				if atan(Vector2(gx, gz).length() / dx) > max_slope:
+				var gxs := sample_height(heights, w, h, origin, size, x + dx, z) - y
+				var gzs := sample_height(heights, w, h, origin, size, x, z + dx) - y
+				if atan(Vector2(gxs, gzs).length() / dx) > max_slope:
 					continue
+			grid[key] = Vector2(x, z)
 			var s := base_scale * (1.0 + rng.randf_range(-var_scale, var_scale))
 			var basis := Basis(Vector3.UP, rng.randf() * TAU).scaled(Vector3(s, s, s))
 			xfs.append(Transform3D(basis, Vector3(x, y - 0.05, z)))
@@ -312,7 +363,7 @@ static func instantiate(data: Dictionary, meshes: RefCounted) -> Node3D:
 		if e.is_empty():
 			continue
 		var xfs: Array = inst_data[mid]
-		_add_chunked(inst_root, mid, e, xfs, origin)
+		_add_chunked(inst_root, mid, e, xfs, origin, (data.get("tints", {}) as Dictionary).get(mid, []))
 		n_shapes += _add_collision(objects, meshes, mid, e, xfs)
 	# vegetation
 	var veg_root := Node3D.new()
@@ -356,7 +407,7 @@ static func _lod_class(aabb: AABB, scale: float, plant: bool) -> Array:
 	return [512.0, 0.0, true]
 
 
-static func _add_chunked(parent: Node3D, id: String, e: Dictionary, xfs: Array, origin: Vector3) -> void:
+static func _add_chunked(parent: Node3D, id: String, e: Dictionary, xfs: Array, origin: Vector3, tints: Array = []) -> void:
 	var mesh: Mesh = e["mesh"]
 	var aabb: AABB = e["aabb"]
 	var scale := 1.0
@@ -368,18 +419,23 @@ static func _add_chunked(parent: Node3D, id: String, e: Dictionary, xfs: Array, 
 	var impostor := _is_impostor(e, scale)
 	var chunk: float = cls[0]
 	var buckets := {}
-	for xf in xfs:
-		var t: Transform3D = xf
+	var colors := {}
+	var tinted := tints.size() == xfs.size() and not tints.is_empty()
+	for i in xfs.size():
+		var t: Transform3D = xfs[i]
 		var key := Vector2i(floori((t.origin.x - origin.x) / chunk), floori((t.origin.z - origin.z) / chunk))
 		if not buckets.has(key):
 			buckets[key] = []
+			colors[key] = []
 		buckets[key].append(t)
+		if tinted:
+			colors[key].append(tints[i])
 	for key in buckets:
 		var k: Vector2i = key
 		var center := origin + Vector3((k.x + 0.5) * chunk, 0.0, (k.y + 0.5) * chunk)
 		var list: Array = buckets[key]
 		center.y = (list[0] as Transform3D).origin.y
-		var mmi := _multimesh(id, mesh, list, center)
+		var mmi := _multimesh(id, mesh, list, center, colors[key] if tinted else [])
 		mmi.position = center
 		if impostor:
 			mmi.visibility_range_begin = maxf(220.0, maxf(aabb.size.x, aabb.size.z) * scale * 0.6)
@@ -440,16 +496,19 @@ static func _body_with_room(parent: Node3D) -> StaticBody3D:
 	return body
 
 
-static func _multimesh(id: String, mesh: Mesh, xfs: Array, center: Vector3) -> MultiMeshInstance3D:
+static func _multimesh(id: String, mesh: Mesh, xfs: Array, center: Vector3, colors: Array = []) -> MultiMeshInstance3D:
 	var mm := MultiMesh.new()
 	mm.transform_format = MultiMesh.TRANSFORM_3D
+	var use_colors := colors.size() == xfs.size() and not colors.is_empty()
+	mm.use_colors = use_colors
 	mm.mesh = mesh
 	mm.instance_count = xfs.size()
+	var stride := 16 if use_colors else 12
 	var buf := PackedFloat32Array()
-	buf.resize(xfs.size() * 12)
+	buf.resize(xfs.size() * stride)
 	var i := 0
-	for xf in xfs:
-		var t: Transform3D = xf
+	for n in xfs.size():
+		var t: Transform3D = xfs[n]
 		var b := t.basis
 		var o := t.origin - center
 		buf[i] = b.x.x
@@ -464,7 +523,13 @@ static func _multimesh(id: String, mesh: Mesh, xfs: Array, center: Vector3) -> M
 		buf[i + 9] = b.y.z
 		buf[i + 10] = b.z.z
 		buf[i + 11] = o.z
-		i += 12
+		if use_colors:
+			var c: Color = colors[n]
+			buf[i + 12] = c.r
+			buf[i + 13] = c.g
+			buf[i + 14] = c.b
+			buf[i + 15] = 1.0
+		i += stride
 	mm.buffer = buf
 	var mmi := MultiMeshInstance3D.new()
 	mmi.name = "MM_" + id.validate_node_name()
