@@ -87,11 +87,45 @@ public sealed class Materials(Resolver res, int maxPx)
     public (string? NormalKey, string? OrmKey) SurfaceMaps(Obj? effect, bool colorized, Func<string, bool>? acceptPath = null)
     {
         if (effect is null) return (null, null);
+        var refs = Bound(effect, acceptPath).Where(r => Tiers.Any(t => r.Path!.StartsWith(t, StringComparison.Ordinal))
+            && !NotOwnMaps.Any(b => r.Path!.Contains(b, StringComparison.OrdinalIgnoreCase)));
+        var (normal, ao, rough) = Scan(refs);
+        string? nk = null, ok = null;
+        if (normal is { } n)
+        {
+            nk = $"n:{n.R.Path}#{n.R.Uuid}/{n.E}/{n.Cx}{n.Cy}";
+            _maps.TryAdd(nk, () => NormalOf(n.R, n.E, n.Cx, n.Cy));
+        }
+        if (ao is not null && !colorized || rough is not null)
+        {
+            var a = colorized ? null : ao;
+            ok = $"o:{(a is { } x ? $"{x.R.Path}#{x.R.Uuid}/{x.E}/{x.C}" : "-")}|{(rough is { } y ? $"{y.R.Path}#{y.R.Uuid}/{y.E}/{y.C}" : "-")}";
+            _maps.TryAdd(ok, () => OrmOf(a, rough));
+        }
+        return (nk, ok);
+    }
+
+    /// <summary>Colour, normal (X, Y) and ORM images of one texture-set file (e.g. a terrain layer); null parts are missing.</summary>
+    public (Image? Color, Image? Normal, Image? Orm) SetMaps(string setPath)
+    {
+        var file = res.TryFile(setPath);
+        var set = file?.Objects.FirstOrDefault(o => o.TypeName == "TextureSet");
+        if (set is null) return (null, null, null);
+        var r = new Ref(RefKind.ExternalRef, set.Uuid, setPath);
+        var color = ColorOf(r, null);
+        var (normal, ao, rough) = Scan([r]);
+        var n = normal is { } nn ? NormalOf(nn.R, nn.E, nn.Cx, nn.Cy) : null;
+        var o = ao is not null || rough is not null ? OrmOf(ao, rough) : null;
+        return (color, n, o);
+    }
+
+    /// <summary>First normal (type 3 source 0/1 in one entry), AO (5) and roughness (6) channels of the sets, in order.</summary>
+    private ((Ref R, int E, int Cx, int Cy)? Normal, (Ref R, int E, int C)? Ao, (Ref R, int E, int C)? Rough) Scan(IEnumerable<Ref> refs)
+    {
         (Ref R, int E, int Cx, int Cy)? normal = null;
         (Ref R, int E, int C)? ao = null, rough = null;
-        foreach (var r in Bound(effect, acceptPath))
+        foreach (var r in refs)
         {
-            if (!Tiers.Any(t => r.Path!.StartsWith(t, StringComparison.Ordinal)) || NotOwnMaps.Any(b => r.Path!.Contains(b, StringComparison.OrdinalIgnoreCase))) continue;
             if (SetOf(r, out _) is not { } set) continue;
             var entries = set.Structs("Entries").ToList();
             for (var i = 0; i < entries.Count; i++)
@@ -111,19 +145,7 @@ public sealed class Materials(Resolver res, int maxPx)
                 if (normal is null && cx >= 0 && cy >= 0) normal = (r, i, cx, cy);
             }
         }
-        string? nk = null, ok = null;
-        if (normal is { } n)
-        {
-            nk = $"n:{n.R.Path}#{n.R.Uuid}/{n.E}/{n.Cx}{n.Cy}";
-            _maps.TryAdd(nk, () => NormalOf(n.R, n.E, n.Cx, n.Cy));
-        }
-        if (ao is not null && !colorized || rough is not null)
-        {
-            var a = colorized ? null : ao;
-            ok = $"o:{(a is { } x ? $"{x.R.Path}#{x.R.Uuid}/{x.E}/{x.C}" : "-")}|{(rough is { } y ? $"{y.R.Path}#{y.R.Uuid}/{y.E}/{y.C}" : "-")}";
-            _maps.TryAdd(ok, () => OrmOf(a, rough));
-        }
-        return (nk, ok);
+        return (normal, ao, rough);
     }
 
     /// <summary>Image of a key from <see cref="SurfaceMaps"/> (null when it cannot be decoded).</summary>

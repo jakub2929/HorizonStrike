@@ -20,15 +20,36 @@ public static class MachineSounds
     private static Dictionary<string, string> Fallback => HzdNames.Json("machines.sound_role_fallback").AsObject()
         .ToDictionary(kv => kv.Key, kv => kv.Value!.GetValue<string>());
 
-    public static long Export(Resolver res, string internalName, IEnumerable<string> roles, string outDir, Log log, int? perRoleOverride = null)
+    /// <summary>
+    /// Sound folders of a machine: its own internal name plus every robot folder its sheet sound banks live in (a machine
+    /// can use another machine's banks: the Broadhead's body sounds are the Strider's).
+    /// </summary>
+    public static List<string> Folders(string internalName, string soundBanksCell)
+    {
+        var tpl = HzdNames.Str("machines.sound_root");
+        var fixedPart = tpl[..tpl.IndexOf("{internal}", StringComparison.Ordinal)];
+        var names = new List<string> { internalName };
+        var i = 0;
+        while ((i = soundBanksCell.IndexOf(fixedPart, i, StringComparison.Ordinal)) >= 0)
+        {
+            i += fixedPart.Length;
+            var end = soundBanksCell.IndexOf('/', i);
+            if (end > i && !names.Contains(soundBanksCell[i..end])) names.Add(soundBanksCell[i..end]);
+        }
+        return names;
+    }
+
+    public static long Export(Resolver res, string internalName, IEnumerable<string> roles, string outDir, Log log, int? perRoleOverride = null, IEnumerable<string>? extraFolders = null)
     {
         var perRole = perRoleOverride ?? HzdNames.Int("machines.sounds_per_role");
         var patterns = Roles;
         var fallback = Fallback;
         var marker = HzdNames.Str("machines.sound_dir_marker");
-        var prefix = HzdNames.Fill("machines.sound_root", ("internal", internalName));
-        var waves = res.Archive.Paths.Where(p => p.StartsWith(prefix, StringComparison.Ordinal) && p.Contains(marker, StringComparison.Ordinal))
-            .OrderBy(p => p, StringComparer.Ordinal).ToList();
+        var prefixes = new[] { internalName }.Concat(extraFolders ?? []).Distinct()
+            .Select(n => HzdNames.Fill("machines.sound_root", ("internal", n))).ToList();
+        // own folder first, then the shared ones (ordinal order inside each)
+        var waves = prefixes.SelectMany(prefix => res.Archive.Paths.Where(p => p.StartsWith(prefix, StringComparison.Ordinal) && p.Contains(marker, StringComparison.Ordinal))
+            .OrderBy(p => p, StringComparer.Ordinal)).Distinct().ToList();
         var snd = Path.Combine(outDir, "snd");
         Directory.CreateDirectory(snd);
         var index = new JsonObject();

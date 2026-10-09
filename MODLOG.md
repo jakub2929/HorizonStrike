@@ -257,3 +257,10 @@ Full per-site table: `docs/notes/svet.md`. No placement references `ai/groups`, 
   types warmed on the loading screen): worst frame on route 77.3 ms (median 44.9), add_child max 11 ms; 2 frames >
   50 ms are first-draw shader compiles (H8). H3: DDS loads in the RELEASE template (BC1->DXT1, BC5->RGTC_RG,
   BC7->BPTC); release VRAM at start 1022 MB (texture 585, buffer 414) on the DDS cache.
+- Merged svet V3–V7 (596463f) with the site_map change for the new machines HELD BACK (stored in
+  _tools/site_map_v02.json; re-applied after stroje M2): V4 terrain layers (4 shared HZD layer sets snow/grass/dirt/rock
+  from 21-southernrockies + per-cell masks.dds from snow map, slope, undergrowth density, roads), V5 water (HZD tile
+  water layers -> cell.json water.instances; 31 in 4,-3), V6 occluders (boxes >= 8 m, max 256/cell + 33^2 terrain grid)
+  + hlod.glb (HZD coarse LODs, <= 20k tris), V7 ATRAC9 via vendored LibAtrac9 (Alex Barney, MIT; THIRD_PARTY_NOTICES)
+  -> wind_0/1, rain_0/1 stereo; render.* sky/fog/sun from the Mother's Heart cycle at 9:00 (sun elev 17.5 deg, az 90,
+  fog 50-950 m). cell.json format 8. Bootstrap 101.6 s with other agents loading the CPU.
