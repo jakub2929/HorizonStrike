@@ -125,6 +125,16 @@ Aligned with hra's in-progress code (read-only look at the hra worktree, not mer
 - Full run 2 (`C:\meshy\_tools\autotest-dev\full2`): 12/14 PASS; FAIL t10 (F6), t06 (F7).
   t09: bootstrap_seconds 75.1, 333.5 MiB at world_ready (start cell only), 749.0 MiB after the 3x3 (9.4 s later).
 
+## T6: exported build, launched as Melty does plus --autotest
+`C:\meshy\dist` (built from main) has no game/autotest (main does not contain this branch yet), so its exe cannot run
+the autotest. I exported my merged branch (main e8f117d + game/autotest) with the same preset to
+`C:\meshy\_tools\dist-test` and copied converter/, licenses/ and the txt files from `C:\meshy\dist`;
+`tools/preflight.py package` -> CLEAN (222 files). Launch: `HorizonStrike.exe --game <CS2> --autotest --out
+C:\meshy\_tools\autotest-dist` (no --cache-dir: real first launch into %LOCALAPPDATA%\HorizonStrike\cache).
+Result: ExitCode 1, 13/14 PASS, FAIL t10 (F6: Game.cache_bytes() 6 356 MiB vs folder 765 MiB, cap 2 746 MiB; HUD
+showed "Cache 3.3 GB / 4.0 GB"). t09: bootstrap_seconds 74.4, 341.5 MiB at world_ready, 749.0 MiB after the 3x3.
+Screenshots: `C:\meshy\_tools\autotest-dist\{buy_wheel,watcher_alert,herd_landscape}.png`.
+
 ## Pre-merge integration runs (hra 4ea177b snapshot, dev editor build)
 | id | name | mock | real data | key details (real) |
 |---|---|---|---|---|
