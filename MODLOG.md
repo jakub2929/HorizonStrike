@@ -156,3 +156,10 @@ Full per-site table: `docs/notes/svet.md`. No placement references `ai/groups`, 
   pink splotch was an eye light (now emissive only). Runner on real data: t05,t06,t10,s01-s03 PASS.
 - D41 (hra) Transparent meshes wider than 64 m (HZD far-forest impostors) render only beyond 220 m and have no
   collision; transparency follows glTF alphaMode/alphaCutoff/doubleSided only.
+- 2026-10-09 svet fix round merged (376a15c): F6 fixed (per-job bytes, exact sum check), BC4/BC5 decode fix (vegetation
+  alpha + rock AO were corrupted), alpha only from alpha-type channels, standalone colour textures (carex), terrain
+  albedo 2048 px (0.25 m/px; ~19 MB/cell, whole world ~+1.5 GB), optional instances[].tint (rock ground tint 0.5).
+- D42 Terrain colour: HZD computes it in per-tile compiled shaders; the engine-baked `flattened_albedo` is the
+  faithful source. Mother's Heart (4,-3) is 67 % snow in HZD's own snow map, so a white valley is correct. No HZD
+  close-up detail layers -> game adds own procedural detail noise. Terrain normal map not exported (no tangents).
+- D43 Vegetation species read via PlacementTargets (fix in progress) with per-species density + global density scale.
