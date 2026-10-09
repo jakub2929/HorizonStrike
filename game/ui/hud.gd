@@ -20,6 +20,8 @@ var _msg_t := 0.0
 var _flash_a := 0.0
 var _cache_timer := 0.0
 var _death_t := -1.0
+var _armor_icon: TextureRect
+var _scope: Control
 
 
 func _ready() -> void:
@@ -59,6 +61,23 @@ func _ready() -> void:
 	_cross.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_cross.draw.connect(_draw_cross)
 	add_child(_cross)
+	_scope = Control.new()
+	_scope.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_scope.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_scope.visible = false
+	_scope.draw.connect(_draw_scope)
+	add_child(_scope)
+	move_child(_scope, 1)
+	var svg := Game.cache_root.path_join("cs2/ui/armor.svg")
+	if FileAccess.file_exists(svg):
+		var img := Image.new()
+		if img.load_svg_from_buffer(FileAccess.get_file_as_bytes(svg), 1.2) == OK:
+			_armor_icon = TextureRect.new()
+			_armor_icon.texture = ImageTexture.create_from_image(img)
+			_armor_icon.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
+			_armor_icon.position = Vector2(150, -58)
+			_armor_icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
+			add_child(_armor_icon)
 	Game.hud_message.connect(message)
 	Game.money_changed.connect(func(_v): _refresh())
 
@@ -127,7 +146,12 @@ func _process(delta: float) -> void:
 	var p: Node3D = Game.player
 	if p:
 		_hp.text = "+ %d" % ceili(p.health)
-		_armor.text = "◈ %d" % ceili(p.armor)
+		_armor.text = ("    %d" if _armor_icon else "◈ %d") % ceili(p.armor)
+		var zoomed: bool = p.camera.fov < 70.0
+		if zoomed != _scope.visible:
+			_scope.visible = zoomed
+			_cross.visible = not zoomed
+			_scope.queue_redraw()
 		var id: String = p.current_weapon
 		var row := Sheets.weapon_row(id)
 		_weapon.text = str(row.get("display_name", id))
@@ -155,6 +179,20 @@ func _process(delta: float) -> void:
 	if _death_t >= 0.0:
 		_death_t = maxf(_death_t - delta, 0.0)
 		_center.text = "You died\nRespawning at the campfire in %d" % ceili(_death_t)
+
+
+func _draw_scope() -> void:
+	var sz := _scope.size
+	var c := sz * 0.5
+	var r := minf(sz.x, sz.y) * 0.46
+	var black := Color(0, 0, 0, 1)
+	# everything outside the scope circle: one thick ring (no polygon triangulation) + side bars
+	var w := sz.length()
+	_scope.draw_arc(c, r + w * 0.5, 0.0, TAU, 256, black, w, false)
+	_scope.draw_rect(Rect2(0, 0, c.x - r + 1.0, sz.y), black)
+	_scope.draw_rect(Rect2(c.x + r - 1.0, 0, sz.x - c.x - r + 1.0, sz.y), black)
+	_scope.draw_line(Vector2(c.x - r, c.y), Vector2(c.x + r, c.y), black, 1.5)
+	_scope.draw_line(Vector2(c.x, c.y - r), Vector2(c.x, c.y + r), black, 1.5)
 
 
 func _draw_cross() -> void:

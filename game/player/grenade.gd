@@ -34,6 +34,11 @@ func _ready() -> void:
 	s.radius = 0.06
 	cs.shape = s
 	add_child(cs)
+	var world_model := _world_model()
+	if world_model:
+		add_child(world_model)
+		body_entered.connect(_on_body_entered)
+		return
 	var mi := MeshInstance3D.new()
 	var m: PrimitiveMesh = SphereMesh.new() if weapon_id == "hegrenade" else CylinderMesh.new()
 	if m is SphereMesh:
@@ -49,6 +54,35 @@ func _ready() -> void:
 	mi.material_override = mat
 	add_child(mi)
 	body_entered.connect(_on_body_entered)
+
+
+static var _models := {}   # weapon id -> PackedScene of cs2/weapons/<id>/world.glb (null = none)
+
+
+func _world_model() -> Node3D:
+	if not _models.has(weapon_id):
+		_models[weapon_id] = null
+		var path := Game.cache_root.path_join("cs2/weapons/%s/world.glb" % weapon_id)
+		if FileAccess.file_exists(path):
+			var doc := GLTFDocument.new()
+			var st := GLTFState.new()
+			if doc.append_from_file(path, st) == OK:
+				var scene := doc.generate_scene(st)
+				if scene:
+					for c in scene.get_children():
+						_own(c, scene)
+					var ps := PackedScene.new()
+					if ps.pack(scene) == OK:
+						_models[weapon_id] = ps
+					scene.free()
+	var packed: PackedScene = _models[weapon_id]
+	return packed.instantiate() as Node3D if packed else null
+
+
+static func _own(n: Node, o: Node) -> void:
+	n.owner = o
+	for c in n.get_children():
+		_own(c, o)
 
 
 func _on_body_entered(_b: Node) -> void:
