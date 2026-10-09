@@ -111,6 +111,12 @@ Rules I follow: no class_name lookups across files (everything via preload, so a
   are freed only in a later session. Proper fix belongs in the converter (re-export when the glb is gone).
 - Spawner: a site activates only when its whole herd fits spawning.max_active_machines (nearest sites first; idle
   sites farther away are deactivated to make room; corpses do not count).
+- Segfault hunt (mock smoke crashed 1 of 4 during the first 3x3 load, never reproduced afterwards: 0/20 + 0/36
+  stressed (3 parallel) + 0/5 real before the fix). Found data races: cell workers read MeshLibrary._entries/_textures
+  (mutex-guarded on their side only) while the main thread inserted into them -> workers now read mutex-guarded
+  _built/_tex_built sets; the build job dictionary got keys inserted after add_task while the worker wrote into it
+  -> worker writes a pre-sized array slot only; converter/mock event queues were size-checked without the mutex.
+  After: 0/20 + 0/36 stressed + 0/5 real. Converter now re-exports missing meshes (svet); GC pinning kept as a net.
 
 ## Notes for teammates (relay via main)
 - test (t10): real cells outside the start area are ~11 MB (meshes/textures shared), 5 steps east add ~164 MB, so
