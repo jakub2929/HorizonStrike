@@ -26,7 +26,7 @@ public static class Cs2Converter
     /// Version of the cache/cs2 output layout written by this code; bump it whenever the output changes so caches
     /// made by an older converter from the same CS2 build are converted again. Stored as manifest.json cs2_format.
     /// </summary>
-    public const int Format = 1;
+    public const int Format = 2; // 2: meta.json (content contract)
 
     /// <summary>Weapons (stats, world + view models, sounds, icons) for every row of sheets/weapons.json.</summary>
     public static long ConvertWeapons(ConvContext ctx, IProgressSink progress) =>
@@ -95,6 +95,7 @@ public static class Cs2Converter
         {
             var dir = ctx.Cache.Cs2Weapon(row.Id);
             if (!File.Exists(Path.Combine(dir, "world.glb"))) return false;
+            if (!File.Exists(Path.Combine(dir, "meta.json"))) return false;
             if (row.ViewAnimGraph != "none" && !File.Exists(Path.Combine(dir, "view.glb"))) return false;
         }
         return true;

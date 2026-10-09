@@ -6,7 +6,8 @@ using ValveResourceFormat.ResourceTypes;
 namespace Hzs.Cs2;
 
 /// <summary>
-/// cache/cs2/weapons/&lt;id&gt;/: world.glb, view.glb (arms + weapon + clips), anim_events.json, icon.svg, snd/.
+/// cache/cs2/weapons/&lt;id&gt;/: world.glb, view.glb (arms + weapon + clips), meta.json (content contract),
+/// anim_events.json, icon.svg, snd/.
 /// Built in &lt;id&gt;.tmp and moved into place when complete.
 /// </summary>
 internal sealed class WeaponAssets(ConvContext ctx, Cs2Source src, SoundExport sounds)
@@ -36,20 +37,33 @@ internal sealed class WeaponAssets(ConvContext ctx, Cs2Source src, SoundExport s
 
         // viewmodel
         var clipSounds = new List<string>();
+        string? attachBone = null, primarySkeleton = null, secondarySkeleton = null;
+        var hasView = false;
         if (row.ViewAnimGraph != "none" && !string.IsNullOrEmpty(worldModel))
         {
             var clipPaths = ViewModel.GraphClips(src, row.ViewAnimGraph);
             var chosen = ViewModel.ChooseClips(src, clipPaths, ctx.Log);
-            if (chosen.Count == 0) problems.Add($"no clips found in {row.ViewAnimGraph}");
+            if (chosen.Count == 0) throw new InvalidDataException($"{row.Id}: no clips found in {row.ViewAnimGraph}");
+            // the arms bone the weapon hangs on comes from the clip skeleton's secondary-skeleton attachment
+            primarySkeleton = chosen[0].Clip.SkeletonName;
+            secondarySkeleton = chosen[0].Clip.SecondaryAnimations.FirstOrDefault()?.SkeletonName;
+            attachBone = secondarySkeleton is null ? null : WeaponMeta.AttachBone(src, primarySkeleton, secondarySkeleton);
+            if (attachBone is null) throw new InvalidDataException($"{row.Id}: no attach bone for {secondarySkeleton} in {primarySkeleton}");
             weaponSkinned = ModelExport.Export(src, worldModel, tmp, withSkeleton: true, ctx.Log, ctx.Ct);
             _arms ??= ModelExport.Export(src, ViewModel.ArmsModel, tmp, withSkeleton: true, ctx.Log, ctx.Ct);
-            var (glb, events, clipProblems) = ViewModel.Build(src, _arms, weaponSkinned, chosen, SoundExport.ShortName, ctx.Log);
+            var (glb, events, clipProblems) = ViewModel.Build(src, _arms, weaponSkinned, attachBone, chosen, SoundExport.ShortName, ctx.Log);
+            hasView = true;
             problems.AddRange(clipProblems);
             File.WriteAllBytes(Path.Combine(dir, "view.glb"), glb);
             Atomic.WriteJson(Path.Combine(dir, "anim_events.json"), events);
             clipSounds.AddRange(chosen.SelectMany(c => c.Clip.Events.OfType<ValveResourceFormat.ResourceTypes.ModelAnimation2.NmSoundEvent>().Select(e => e.Name)));
             ctx.Log.Info($"{row.Id}: view clips {string.Join(", ", chosen.Select(c => $"{c.Name}={Path.GetFileName(c.Path)}"))}");
         }
+
+        // content contract (meta.json): what the models hold; the sheet columns are compared against it
+        var meta = WeaponMeta.Build(src, row, string.IsNullOrEmpty(worldModel) ? null : worldModel, hasView, attachBone,
+            primarySkeleton, secondarySkeleton, problems);
+        Atomic.WriteJson(Path.Combine(dir, "meta.json"), meta);
 
         // icon
         using (var icon = src.Load(row.Icon))

@@ -14,13 +14,12 @@ internal sealed record ChosenClip(string Name, string Path, AnimationClip Clip);
 
 /// <summary>
 /// First-person viewmodel: CS2 arms (weapons/models/shared/arms/weapon_arms.vmdl, skeleton viewmodel.vnmskel)
-/// + the weapon model attached to the arms bone "wpn" (viewmodel.vnmskel m_secondarySkeletons attach bone),
+/// + the weapon model attached to the arms bone named by viewmodel.vnmskel m_secondarySkeletons (attach bone),
 /// animated with the real AnimGraph2 clips of the weapon's graph.
 /// </summary>
 internal static class ViewModel
 {
     public const string ArmsModel = "weapons/models/shared/arms/weapon_arms.vmdl";
-    private const string AttachBone = "wpn";
     private const float Scale = 0.0254f; // CS2 inch -> m
 
     // VRF's glTF conversion (Z-up -> Y-up), applied on skeleton roots; see GltfModelExporter.Conversion.
@@ -86,13 +85,13 @@ internal static class ViewModel
     /// and write one glTF animation per chosen clip. Returns the GLB bytes and the anim events per clip.
     /// </summary>
     public static (byte[] Glb, JsonObject Events, List<string> Problems) Build(Cs2Source src, byte[] armsGlb, byte[] weaponGlb,
-        IReadOnlyList<ChosenClip> clips, Func<string, string> eventName, Log log)
+        string attachBone, IReadOnlyList<ChosenClip> clips, Func<string, string> eventName, Log log)
     {
         var problems = new List<string>();
         var arms = Glb.Parse(armsGlb);
         var weapon = Glb.Parse(weaponGlb);
-        var wpn = arms.FindNode(AttachBone);
-        if (wpn < 0) throw new InvalidDataException($"arms model has no '{AttachBone}' bone");
+        var wpn = arms.FindNode(attachBone);
+        if (wpn < 0) throw new InvalidDataException($"arms model has no '{attachBone}' bone");
         // weapon scene roots: the skeleton container (no mesh) goes under wpn, skinned mesh nodes stay roots
         arms.Append(weapon, n => n["mesh"] is null, wpn);
         // -Z forward (docs/ARCHITECTURE.md): VRF's export faces +Z, so turn 180 degrees about Y
@@ -100,7 +99,7 @@ internal static class ViewModel
 
         var model = ModelRoot.ParseGLB(arms.ToBytes(), new ReadSettings { Validation = SharpGLTF.Validation.ValidationMode.Skip });
         var allNodes = model.LogicalNodes.ToList();
-        var wpnNode = allNodes.First(n => n.Name == AttachBone);
+        var wpnNode = allNodes.First(n => n.Name == attachBone);
         // weapon bones live below wpn (after the merge); arms bones are everything else
         var weaponNodes = Descendants(wpnNode).Where(n => n != wpnNode).GroupBy(n => n.Name ?? "").ToDictionary(g => g.Key, g => g.First());
         var armsNodes = allNodes.Where(n => !weaponNodes.ContainsValue(n)).Where(n => n.Name is not null)

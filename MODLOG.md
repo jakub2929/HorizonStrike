@@ -130,3 +130,4 @@ Full per-site table: `docs/notes/svet.md`. No placement references `ai/groups`, 
 - 2026-10-09 cs2 merged (C1-C5 accepted): 14 items, 27 glb, cache/cs2 115 MiB, ~60 s full conversion; second run
   `cs2 up to date (25815307)`; Build-Converter publish verified by the orchestrator (96.3 MB, hzsconv --help ok).
 - 2026-10-09 svet merged (S1-S8 accepted; Watcher bind-pose height 1.45 m is real data, below the planned 1.5-4 m guess).
+- 2026-10-09 cs2 content contract merged (b9b827c): weapons content_model/bone_roles/points, meta.json for 14 items, 0 mismatches; attach bone read from viewmodel skeleton (no hard-coded wpn).
