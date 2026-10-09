@@ -178,7 +178,23 @@ func _on_converter_event(e: Dictionary) -> void:
 			Log.info("bootstrap done (%d bytes) after %.1f s" % [int(e.get("bytes", 0)), Time.get_ticks_msec() / 1000.0 - _t_start])
 			_on_bootstrapped()
 		"error":
-			show_error("Converting failed: %s" % e.get("message", "unknown error"))
+			if _cache_playable():
+				Log.warn("bootstrap failed (%s); the cache already holds weapons, the world index and the start cell -> continuing with the cached content" % e.get("message", ""))
+				_on_bootstrapped()
+			else:
+				show_error("Converting failed: %s" % e.get("message", "unknown error"))
+
+
+## Everything needed to play is already converted (a converter failure then only costs new cells).
+func _cache_playable() -> bool:
+	var root := Game.cache_root
+	if not FileAccess.file_exists(root.path_join("cs2/weapons.json")) or not FileAccess.file_exists(root.path_join("hzd/index.json")):
+		return false
+	var idx = FsUtil.read_json(root.path_join("hzd/index.json"))
+	if typeof(idx) != TYPE_DICTIONARY or not idx.has("start_cell"):
+		return false
+	var sc: Array = idx["start_cell"]
+	return FileAccess.file_exists(root.path_join("hzd/cells/%d_%d/cell.json" % [int(sc[0]), int(sc[1])]))
 
 
 func _on_bootstrapped() -> void:
