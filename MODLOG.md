@@ -49,6 +49,26 @@ Journal and decision log (orchestrator-owned). Newest entries at the bottom of e
   If a socket is ever added it binds 127.0.0.1 only. Autotest checks the converter process listens on no
   non-loopback address.
 - D13 "Horizon Strike" is a working title; final title, tagline and description are written from the finished build.
+- D14 Buy wheel (12): p250, deagle, mp9, ump45, galilar, ak47, m4a1_silencer, awp, nova, hegrenade, molotov, kevlar.
+  Start loadout knife + glock.
+- D15 M4A1-S is always silenced (CS2 mode 1); no Glock burst mode in v1.
+- D16 Kevlar only (no helmet); machines never deal headshots.
+- D17 CS armor rule applies to machines' body hits; weak spots ignore machine armor.
+- D18 Machine design values (health 140/400/300 Watcher/Strider/Grazer, kill multipliers 1/2/1.5, speeds, suspicion)
+  are design estimates on the CS2 damage scale; HZD bindings replace them where svet can read real values.
+- D19 Buying works anywhere except in combat.
+- D20 `systems` is one row per parameter; extra sheets `site_map` and `machine_attacks`; `{"cs2":"*"}` bind templates
+  (generator patch accepted).
+- D21 Cell = main-world HZD tile; start (4,-3) Mother's Heart; bootstrap converts the start cell first (playable),
+  ring cells next; DLC1 (Frozen Wilds) world out of v1.
+- D22 Cache cap default 4 GiB (min 1, max 64), 600 MiB disk reserve, farthest-first eviction.
+- D23 Vegetation is scattered by the game from HZD density maps.
+- D24 Machine sites refill after 300 s when the player is more than 200 m away.
+- D25 CS2 updated to 25815307 during planning; only the AUG reload changed; all sheet evidence re-checked.
+- D26 Policy: sheets may hold asset paths, binding key paths and single numbers as `_evidence` (identifiers and
+  facts needed to bind and verify); no bulk extracts, text dumps or files from the games in the repo.
+- D27 Assumptions: armor is lost on death; before any campfire is activated the respawn point is the start campfire
+  near Mother's Heart; the kill reward uses the weapon that dealt the killing damage; molotov (not incendiary).
 
 ## Site mapping (variant B)
 (to be filled when spawn sites are decoded)

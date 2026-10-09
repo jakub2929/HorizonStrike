@@ -11,7 +11,8 @@ everything on Melty. Report decisions you make in your final report so the orche
   anywhere: load it in place with `NativeLibrary.Load(<hzd>/oo2core_3_win64.dll)`.
 - **Nothing from either game enters the repo or the package**: no models, textures, sounds, extracted text, path
   lists, RTTI/type dumps, items_game excerpts. Converted output goes only to a cache dir (default
-  `%LOCALAPPDATA%\HorizonStrike\cache`; dev caches under `C:\meshy\_tools\cache-*`).
+  `%LOCALAPPDATA%\HorizonStrike\cache`; dev caches under `C:\meshy\_tools\cache-*`). Allowed in sheets: asset
+  paths, binding key paths and single numbers as `_evidence` (MODLOG D26).
 - **Licensing:** the project is MIT. Do not copy code from GPL or unlicensed projects (Decima Workshop, odradek,
   HZDCoreEditor, HZDMeshTool, ProjectDecima_python). Read them as format references only and write your own code.
   Do not ship their data files (e.g. `hzd_types.json.gz`, `hzd_paths.txt.gz`); type layouts you need are hand-written

@@ -1,0 +1,31 @@
+{
+  "sheet": "machine_attacks",
+  "version": 1,
+  "key": "id",
+  "desc": "Machine attacks referenced by machines.attacks. All numbers are design (HZD attack damage is on a different scale).",
+  "columns": {
+    "id": {"type": "string"},
+    "display_name": {"type": "string"},
+    "kind": {"type": "enum", "values": ["melee", "ranged", "charge"]},
+    "direction": {"type": "enum", "values": ["front", "rear", "any"]},
+    "range_min_m": {"type": "number"},
+    "range_max_m": {"type": "number"},
+    "damage": {"type": "number", "desc": "player HP (CS scale, 100 max)"},
+    "armor_ratio": {"type": "number", "desc": "CS armor rule vs player kevlar"},
+    "windup_s": {"type": "number", "desc": "telegraph before the hit"},
+    "active_s": {"type": "number"},
+    "cooldown_s": {"type": "number"},
+    "projectile_speed_mps": {"type": "number", "desc": "0 = hitscan/melee"},
+    "knockback_mps": {"type": "number"},
+    "pose": {"type": "string", "desc": "procedural animation pose id (hra)"}
+  },
+  "rows": [
+    {"id": "watcher_bite", "display_name": "Bite", "kind": "melee", "direction": "front", "range_min_m": 0, "range_max_m": 2.5, "damage": 20, "armor_ratio": 1.2, "windup_s": 0.4, "active_s": 0.2, "cooldown_s": 1.6, "projectile_speed_mps": 0, "knockback_mps": 2, "pose": "lunge_bite", "_verified": "*", "_evidence": {"kind": "design; Watcher melee seen in HZD", "numbers": "design estimates (CS player 100 HP); hra/test tune"}},
+    {"id": "watcher_tail_sweep", "display_name": "Tail sweep", "kind": "melee", "direction": "any", "range_min_m": 0, "range_max_m": 3.5, "damage": 15, "armor_ratio": 1.2, "windup_s": 0.5, "active_s": 0.3, "cooldown_s": 3.0, "projectile_speed_mps": 0, "knockback_mps": 4, "pose": "tail_sweep", "_verified": "*", "_evidence": {"kind": "design; scout_tail.soundbank.core exists", "numbers": "design estimates (CS player 100 HP); hra/test tune"}},
+    {"id": "watcher_eye_bolt", "display_name": "Eye bolt", "kind": "ranged", "direction": "front", "range_min_m": 6, "range_max_m": 30, "damage": 12, "armor_ratio": 1.0, "windup_s": 0.8, "active_s": 0.1, "cooldown_s": 2.5, "projectile_speed_mps": 40, "knockback_mps": 1, "pose": "eye_charge", "_verified": "*", "_evidence": {"kind": "vfx/particles/robots/scout/rangedattack/{charge,projectile,impact}/", "numbers": "design estimates (CS player 100 HP); hra/test tune"}},
+    {"id": "strider_rear_kick", "display_name": "Rear kick", "kind": "melee", "direction": "rear", "range_min_m": 0, "range_max_m": 3.0, "damage": 35, "armor_ratio": 1.2, "windup_s": 0.35, "active_s": 0.2, "cooldown_s": 2.0, "projectile_speed_mps": 0, "knockback_mps": 6, "pose": "rear_kick", "_verified": "*", "_evidence": {"kind": "vfx/particles/robots/horse/kickattacks/footdust/", "numbers": "design estimates (CS player 100 HP); hra/test tune"}},
+    {"id": "strider_charge", "display_name": "Charge", "kind": "charge", "direction": "front", "range_min_m": 6, "range_max_m": 25, "damage": 30, "armor_ratio": 1.2, "windup_s": 0.6, "active_s": 1.5, "cooldown_s": 6.0, "projectile_speed_mps": 0, "knockback_mps": 8, "pose": "charge", "_verified": "*", "_evidence": {"kind": "vfx/particles/robots/horse/charge/dusttrail/", "numbers": "design estimates (CS player 100 HP); hra/test tune"}},
+    {"id": "grazer_rotor_sweep", "display_name": "Rotor sweep", "kind": "melee", "direction": "front", "range_min_m": 0, "range_max_m": 3.5, "damage": 25, "armor_ratio": 1.2, "windup_s": 0.6, "active_s": 0.4, "cooldown_s": 3.0, "projectile_speed_mps": 0, "knockback_mps": 5, "pose": "rotor_sweep", "_verified": "*", "_evidence": {"kind": "catalogue grazer/ui_grazer_detail_rotorblades.core", "numbers": "design estimates (CS player 100 HP); hra/test tune"}},
+    {"id": "grazer_ram", "display_name": "Ram", "kind": "charge", "direction": "front", "range_min_m": 4, "range_max_m": 20, "damage": 20, "armor_ratio": 1.2, "windup_s": 0.5, "active_s": 1.2, "cooldown_s": 5.0, "projectile_speed_mps": 0, "knockback_mps": 6, "pose": "ram", "_verified": "*", "_evidence": {"kind": "design", "numbers": "design estimates (CS player 100 HP); hra/test tune"}}
+  ]
+}

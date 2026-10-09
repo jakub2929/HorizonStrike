@@ -141,3 +141,42 @@ Autoload `Game` (`res://core/game.gd`). The boot code instances `res://autotest/
   `screenshot(path: String)`.
 - Machine node: `machine_type: String`, `state: String` (idle, patrol, graze, suspicious, alert, attack, flee, dead),
   `health: float`, `suspicion: float`, `weak_spots() -> Array[String]`.
+
+## Sheet conventions (as implemented by tools/preflight.py and tools/gen_sheets.py)
+- Sheets: `weapons`, `machines`, `machine_attacks`, `systems` (one row per parameter), `site_map`, `hooks`, `autotest`.
+- Column types: `string|int|number|bool|enum|ref (list:true allowed)|list (of, len)|object|value`.
+- Unfilled = `null`, `"TODO..."`, `""`, `"?"`; not applicable = `-1`, `0`, `"none"` or `[]`. `_owner` names who fills a
+  cell, `_verified` is `"*"` or a list of verified columns, `_evidence` gives source + value per verified fact.
+- Bindings: `{"cs2": "<alias>:<key path>"}` with aliases from `hooks.json` (`vdata` = `scripts/weapons.vdata_c`,
+  `items` = `scripts/items/items_game.txt`, `cfg` = `game/csgo/cfg/gamemode_competitive.cfg`);
+  `{"hzd": "<core path or {a,b} brace list>[#Type.member.path]"}`. A column may define `"bind"` (a template such as
+  `vdata:{cs2_item}.m_nDamage`) and rows then hold `{"cs2": "*"}`; the generator expands it.
+- Optional `fallback` (cell) and `default` (column) are used by the game only when a bound value is missing.
+- Resolved values: converter writes `cache/cs2/weapons.json`, `cache/cs2/systems.json`, `cache/hzd/machines.json`,
+  `cache/hzd/systems.json` shaped `{"<row>": {"<col>": value|null}, "_errors": [...]}`. The game reads a value via
+  `game/core/sheets.gd`: resolved value -> cell `fallback` -> column `default`.
+
+## Contract revisions from planning (2026-10-09) – these override earlier sections
+- CS2 weapon stats live in `scripts/weapons.vdata_c` (KV3), many as `[mode0, mode1]` pairs (M4A1-S mode 1 =
+  silenced, AWP mode 1 = scoped); armor price in items_game; economy cvars in `game/csgo/cfg/gamemode_competitive.cfg`.
+  CS2 build id comes from `steamapps/appmanifest_730.acf` (`buildid`).
+- CS2 viewmodel animations are AnimGraph2 clips (`animation/anims/viewmodel/...`) with the arms model
+  `weapons/models/shared/arms/weapon_arms.vmdl_c`; `view.glb` clip names: draw, idle, fire, reload, inspect, plus
+  `cs2/weapons/<id>/anim_events.json` (sound events with frame times). Icons: `icon.svg` (from `.vsvg_c`).
+  Textures are downscaled to max 1024 px.
+- HZD archive set: `Initial, Remainder, DLC1, FGRWin32, Patch` (.bin; language bins not needed). Cell = main-world
+  streaming tile `levels/worlds/world/tiles/tile_x{XX}_y{YY}` (expected 512 m; svet confirms); cache id `<x>_<y>`;
+  340 terrain tiles, x -7..12, y -9..7; start tile (4,-3) Mother's Heart; DLC1 world out of v1.
+- `hzd/index.json` = `{cell_size, grid_min, grid_max, cells, start_cell, start_pos, start_campfire}`; campfires and
+  spawns live only in `cell.json`. `cell.json` vegetation = `{"density": "veg_density.png", "channels": [...],
+  "species": [...]}`; the game scatters vegetation from it.
+- Protocol: events also include `cancelled`, `status` (`bytes, pending, running, bootstrapped`), `bye`. The game
+  sends `bootstrap` with radius 0, then requests ring cells with `cell` ops, so play starts after the start cell.
+- Command line: `--mock-data` (dev/test only); args accepted before and after `--`; `--autotest t01,t03` ids
+  comma-separated; t08 and t09/t10 run as child processes of the runner (fresh `--hzd`/`--cache-dir`).
+- Game API additions: `player.ammo(id) -> Vector2i`, `player.invulnerable`, `machine.ai_enabled`,
+  `cells_on_disk() -> Array[Vector2i]`, signal `cell_evicted(cell)`, `converter_pid: int`, node `MissingHzdScreen`
+  (with a Label); `world_ready` means playable.
+- Autotest: the exported exe is a GUI app – get its exit code with `Start-Process -Wait -PassThru`; screenshots
+  need a real window (not `--headless`).
+- Dev-only tools (never packaged): `tools/glb_info.py`, `tools/cell_info.py`, `tools/proto_smoke.py`.

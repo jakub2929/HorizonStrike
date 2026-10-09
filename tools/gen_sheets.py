@@ -80,6 +80,15 @@ def cs_literal(v, spec):
     return json.dumps(v, ensure_ascii=False)
 
 
+def expand(v, spec, row):
+    """{"cs2": "*"} / {"hzd": "*"} -> exact key path from the column's "bind" template filled with the row's values."""
+    if isinstance(v, dict) and spec.get("bind"):
+        for src in ("cs2", "hzd"):
+            if v.get(src) == "*":
+                return {**v, src: spec["bind"].format(**{k: x for k, x in row.items() if isinstance(x, (str, int))})}
+    return v
+
+
 def gen_gd(sname, sheet):
     key = sheet.get("key", "id")
     cols = sheet.get("columns", {})
@@ -92,7 +101,7 @@ def gen_gd(sname, sheet):
     for row in sheet.get("rows", []):
         ident = gd_ident(row.get(key))
         names.append((row.get(key), ident))
-        body = {c: row.get(c) for c in cols}
+        body = {c: expand(row.get(c), cols[c], row) for c in cols}
         lines.append(f"const {ident} := {gd_value(body)}")
     lines.append("")
     lines.append("const ROWS := {" + ", ".join(f"{json.dumps(str(k))}: {i}" for k, i in names) + "}")
@@ -117,7 +126,7 @@ def gen_cs(sname, sheet):
     for row in sheet.get("rows", []):
         ident = pascal(row.get(key))
         names.append(ident)
-        args = ", ".join(cs_literal(row.get(c), spec) for c, spec in cols.items())
+        args = ", ".join(cs_literal(expand(row.get(c), spec, row), spec) for c, spec in cols.items())
         lines.append(f"    public static readonly {rec} {ident} = new({args});")
     lines.append(f"    public static readonly System.Collections.Generic.IReadOnlyList<{rec}> All = new[] {{ " + ", ".join(names) + " };")
     lines.append("}")
