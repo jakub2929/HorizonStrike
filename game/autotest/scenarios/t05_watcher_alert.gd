@@ -35,7 +35,7 @@ func _run(ctx):
 		return false
 	if not api_check(ctx.missing_api(w, ["state", "suspicion", "ai_enabled"])):
 		return false
-	w.set("ai_enabled", true)
+	ctx.set_ai(w, true)
 	p.set("invulnerable", true)
 	var placed: Dictionary = await Sites.place_player_facing(ctx, (w as Node3D).global_position, START_M, ctx.player_pos() - (w as Node3D).global_position)
 	data.placement = {"distance_m": START_M, "line_of_sight": placed.get("los"), "pos": str(placed.get("pos"))}
@@ -100,7 +100,6 @@ func _run(ctx):
 
 	if s02 != null and (s02_retake or not s02.finished):
 		await _s02_retake(ctx, g)
-	w.set("ai_enabled", false)
 	p.set("invulnerable", false)
 	return true
 

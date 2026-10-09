@@ -145,6 +145,21 @@ requirement: 10 of 10 views tried, FAIL). Real data, editor, main f82b0ef + this
 (`C:\meshy\_tools\autotest-dev\s03run{1,2,3}`): PASS, PASS, PASS – each "3 in frustum, 3 unoccluded", view 1 of 10
 (40 m from FE_Antelope_Scout); the retry path was not needed in these three runs.
 
+## Scenario isolation + t04 line of sight (after final3: t04 miss, s03/t06 herd of 1 at the machine cap)
+- The runner calls `ctx.begin_scenario()` before and `ctx.cleanup()` after every in-process scenario (also after a
+  timeout): machines the scenario spawned through `Game.spawn_machine` are freed (`queue_free`; the game unregisters
+  them in `_exit_tree`, so they stop holding `spawning.max_active_machines` slots), world machines whose AI a scenario
+  switched (`ctx.set_ai`) get their original flag back (an alerted/attacking one stays frozen and is listed), the
+  player's invulnerable/crouch flags are restored and the buy wheel is closed. `details.cleanup` records it.
+- t04: before each shot a ray from the camera (hitbox areas included) must reach the target point first; otherwise
+  the player moves around the machine at the same distance (8 x 45 deg) and the blockers are recorded
+  (`blocked_by_before_moving`); a miss records what the shot line meets (`miss_blocked_by`). Stub check with a Grazer
+  placed in A's line: `blocked_by_before_moving: ['body (hitbox of @Node3D@74)']`, then hit on body, PASS.
+- Real data, editor, main bb534ed + this change, `t02,t04,s03,t06` (`C:\meshy\_tools\autotest-dev\iso1`): ExitCode 0,
+  4/4 PASS. t02 cleanup removed 3, t04 removed 4; s03/t06 restored AI of 3 herd members; herd of 3 at
+  FE_Antelope_Scout both times; t04 exact distances from `fire().distance` (body 12.47 = 12.47, weak 107.79 vs
+  107.78, tolerance 0.05); t06 30.3 -> 80.7 m.
+
 ## Pre-merge integration runs (hra 4ea177b snapshot, dev editor build)
 | id | name | mock | real data | key details (real) |
 |---|---|---|---|---|

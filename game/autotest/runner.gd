@@ -171,6 +171,7 @@ func _run_here(id: String) -> void:
 		return
 	var scn = SCENARIOS[host_id].new()
 	ctx.extra_results = {}
+	ctx.begin_scenario()
 	ctx.errlog.take()
 	var box := {"done": false, "res": {}}
 	var t0 := Time.get_ticks_msec()
@@ -179,6 +180,7 @@ func _run_here(id: String) -> void:
 	while not box.done and Time.get_ticks_msec() - t0 < int(scn.timeout_s * 1000.0):
 		await get_tree().process_frame
 	ctx.disconnect_all()
+	var cleaned: Dictionary = await ctx.cleanup()
 	var res: Dictionary = box.res if box.done else scn.result()
 	var secs := (Time.get_ticks_msec() - t0) / 1000.0
 	var errors: Array = ctx.errlog.take()
@@ -186,6 +188,7 @@ func _run_here(id: String) -> void:
 		var r: Dictionary = res if rid == host_id else ctx.extra_results[rid]
 		if r.get("details") is Dictionary:
 			r.details["seconds"] = snappedf(secs, 0.1)
+			r.details["cleanup"] = cleaned
 			if not errors.is_empty():
 				r.details["engine_errors"] = errors
 			if not box.done:

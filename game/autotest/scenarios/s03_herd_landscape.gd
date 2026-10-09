@@ -41,8 +41,7 @@ func _run(ctx):
 		return false
 	# a screenshot, not an AI test: the herd holds still so the chosen view still shows it at capture time
 	for m in herd:
-		if "ai_enabled" in m:
-			m.set("ai_enabled", false)
+		ctx.set_ai(m, false)
 	var center := Vector3.ZERO
 	for m in herd:
 		center += (m as Node3D).global_position
@@ -84,9 +83,6 @@ func _run(ctx):
 	# the check is evaluated for the frame that was saved (camera and herd unchanged: herd AI is off)
 	var vis: Dictionary = _visibility(ctx)
 	marker.queue_free()
-	for m in herd:
-		if is_instance_valid(m) and "ai_enabled" in m:
-			m.set("ai_enabled", true)
 	data.screenshot = shot
 	check("file exists (fresh)", shot.get("exists", false) and shot.get("fresh", false), shot.get("path"))
 	check("not blank (luma stddev > 10)", float(shot.get("luma_stddev", 0.0)) > 10.0, str(shot.get("luma_stddev")))
