@@ -75,6 +75,28 @@ func make_noise(pos: Vector3, radius: float, gain_center: float, gain_edge: floa
 
 
 ## True when a machine in alert/attack targets the player within 60 m (economy.buy_allowed_rule, D19).
+## Every quit (buttons, error screens, window close, tests) goes through main.quit_game: converter stopped first.
+func quit(code: int = 0) -> void:
+	if main and main.has_method("quit_game"):
+		main.quit_game(code)
+	else:
+		get_tree().quit(code)
+
+
+## Gameplay keys and buttons (move, crouch, jump, fire, reload, weapon slots) count only while no UI layer is open
+## (buy wheel, Esc menu = paused tree) and the game window has focus. Not tied to mouse capture: after a menu the keys
+## work at once. Mouse-look alone needs the captured mouse. Automated runs drive input into a window that may not have
+## focus, so they skip the focus condition.
+func gameplay_input_allowed() -> bool:
+	if buy_wheel and buy_wheel.is_open():
+		return false
+	if get_tree().paused:
+		return false
+	if args and args.automated():
+		return true
+	return get_window().has_focus()
+
+
 func in_combat() -> bool:
 	if player == null:
 		return false

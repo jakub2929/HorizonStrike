@@ -160,7 +160,7 @@ func _process(delta: float) -> void:
 			_spray_index = 0
 	player.camera.rotation = Vector3(deg_to_rad(_punch.x), deg_to_rad(_punch.y), 0)
 	_update_reload()
-	if player.dead or Input.mouse_mode != Input.MOUSE_MODE_CAPTURED or Game.buy_wheel and Game.buy_wheel.is_open():
+	if player.dead or not Game.gameplay_input_allowed():
 		return
 	var auto := Sheets.weapon_bool(id, "full_auto")
 	if (Input.is_action_pressed("fire") if auto else Input.is_action_just_pressed("fire")):

@@ -19,6 +19,7 @@ var _mutex := Mutex.new()
 var _next_id := 1
 var _running := false
 var _exited := false
+var _stopped := false   # stop() ran: the process exit is expected, no "exit" event for listeners
 
 
 ## Starts `exe args`; returns "" on success or an error message.
@@ -90,6 +91,8 @@ func _read_stderr() -> void:
 
 
 func _process(_delta: float) -> void:
+	if _stopped:
+		return
 	# the reader thread appends under the mutex (an unlocked size check can read a buffer being reallocated)
 	_mutex.lock()
 	if _queue.is_empty():
@@ -110,26 +113,44 @@ func _process(_delta: float) -> void:
 		event_received.emit(e)
 
 
-## Asks the server to quit, then makes sure the process is gone (kill by exact PID) and joins the threads.
+## Asks the server to quit, then makes sure the process is gone (kill by exact PID) and joins the threads. Bounded:
+## returns within ~6 s whatever the converter does (every quit path calls this before the engine shuts down).
 func stop() -> void:
 	if pid == 0:
 		return
-	if not _exited and _io:
-		_io.store_line(JSON.stringify({"id": _next_id, "op": "quit"}))
-		_io.flush()
-		var t0 := Time.get_ticks_msec()
+	_stopped = true
+	var t0 := Time.get_ticks_msec()
+	if OS.is_process_running(pid):
+		if not _exited and _io:
+			_io.store_line(JSON.stringify({"id": _next_id, "op": "quit"}))
+			_io.flush()
 		while OS.is_process_running(pid) and Time.get_ticks_msec() - t0 < 3000:
 			OS.delay_msec(20)
 		if OS.is_process_running(pid):
-			Log.warn("converter did not quit, killing pid=%d" % pid)
+			Log.warn("converter did not quit within 3 s, killing pid=%d" % pid)
 			OS.kill(pid)
-	if _reader and _reader.is_started():
-		_reader.wait_to_finish()
-	if _err_reader and _err_reader.is_started():
-		_err_reader.wait_to_finish()
+			var t1 := Time.get_ticks_msec()
+			while OS.is_process_running(pid) and Time.get_ticks_msec() - t1 < 1000:
+				OS.delay_msec(20)
+	# the readers end at EOF once the process is gone; never block the quit on them
+	_join(_reader, 1000)
+	_join(_err_reader, 1000)
+	Log.info("converter stopped pid=%d (%d ms)" % [pid, Time.get_ticks_msec() - t0])
 	_running = false
 	_exited = true
 	pid = 0
+
+
+func _join(t: Thread, ms: int) -> void:
+	if t == null or not t.is_started():
+		return
+	var t0 := Time.get_ticks_msec()
+	while t.is_alive() and Time.get_ticks_msec() - t0 < ms:
+		OS.delay_msec(10)
+	if t.is_alive():
+		Log.warn("converter reader still blocked after %d ms, not waiting for it" % ms)
+		return
+	t.wait_to_finish()
 
 
 func _exit_tree() -> void:

@@ -39,6 +39,7 @@ var _phase := "boot"
 var _error_shown := false
 var _respawn_left := -1.0
 var _death_pos := Vector3.ZERO
+var _quitting := false
 
 
 func _ready() -> void:
@@ -172,6 +173,8 @@ func _on_converter_event(e: Dictionary) -> void:
 	var ev := str(e.get("event", ""))
 	var id := int(e.get("id", -1))
 	if ev == "exit":
+		if _quitting:
+			return
 		if _phase == "bootstrap" or _phase == "world":
 			show_error("The converter stopped unexpectedly.")
 		else:
@@ -354,6 +357,9 @@ func _notification(what: int) -> void:
 
 
 func quit_game(code: int) -> void:
+	if _quitting:
+		return
+	_quitting = true
 	Log.info("quitting (%d)" % code)
 	if converter and converter.has_method("stop"):
 		converter.stop()

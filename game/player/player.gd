@@ -295,7 +295,7 @@ func _physics_process(delta: float) -> void:
 			return
 	if frozen:
 		return
-	var input_enabled := not dead and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED
+	var input_enabled := not dead and Game.gameplay_input_allowed()   # mouse-look alone needs the captured mouse
 	var wish := Vector2.ZERO
 	var jump_pressed := false
 	if scripted and not dead:

@@ -6,7 +6,8 @@ extends Node
 ##            Start with --exit-after so the run counts as automated (the game never captures the user's mouse).
 ## Drives the wheel like a player: B key (InputEventKey), mouse motion onto the item (InputEventMouseMotion), left
 ## click (InputEventMouseButton), plus the hold-B / release-to-buy variant. Buys a pistol, a rifle, a grenade and
-## kevlar, then a denied buy without money. Prints "BUYINPUT OK" or "BUYINPUT FAIL ..." and quits.
+## kevlar, then a denied buy without money, then checks that W moves and the left button fires right after the
+## wheel. Prints "BUYINPUT OK" or "BUYINPUT FAIL ..." and quits.
 ## Money is set directly between steps (setup, printed) so the rifle and the denied buy are reachable.
 
 const Sheets := preload("res://core/sheets.gd")
@@ -148,6 +149,26 @@ func _run() -> void:
 	print("  setup: money set to $0")
 	await _buy_click("deagle")
 	_check(not p.inventory.has("deagle") and _game.money == 0, "deagle denied without money (money %d, inventory %s)" % [_game.money, p.inventory])
+
+	# 6. right after the wheel: keys move the player and the left button fires (no mouse capture needed)
+	await _ms(200)
+	var pos0: Vector3 = p.global_position
+	await _key(KEY_W, true)
+	await _ms(700)
+	await _key(KEY_W, false)
+	var moved: float = Vector2(p.global_position.x - pos0.x, p.global_position.z - pos0.z).length()
+	_check(moved > 1.0, "W moves the player right after the wheel (%.2f m)" % moved)
+	await _key(KEY_1, true)
+	await _key(KEY_1, false)
+	await _ms(800)   # deploy time
+	_check(p.current_weapon == "ak47", "key 1 selects the primary ak47 (current %s)" % p.current_weapon)
+	var wid: String = p.current_weapon
+	var ammo0: Vector2i = p.ammo(wid)
+	var centre := _to_window(get_tree().root.get_visible_rect().size * 0.5)
+	await _click(centre)
+	await _ms(300)
+	var ammo1: Vector2i = p.ammo(wid)
+	_check(ammo1.x < ammo0.x, "left click fires %s right after the wheel (clip %d -> %d)" % [wid, ammo0.x, ammo1.x])
 	_finish()
 
 
