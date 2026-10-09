@@ -621,6 +621,12 @@ func play_pose(pose: String, duration: float) -> void:
 		animator.play_pose(pose, duration)
 
 
+## Attack pose with the machine_attacks row timing (pose, windup_s, active_s).
+func play_attack(a: Dictionary) -> void:
+	if animator:
+		animator.play_attack(str(a.get("pose", "")), float(a.get("windup_s", 0.4)), float(a.get("active_s", 0.2)))
+
+
 func flinch(weak: bool) -> void:
 	if animator:
 		animator.flinch(1.0 if weak else 0.5)

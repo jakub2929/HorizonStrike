@@ -10,6 +10,7 @@ extends SceneTree
 ## Usage (real models need a cache with hzd/machines/<id>; --mock-data uses the placeholder rigs):
 ##   godot --headless --path game --script res://dev/machine_bench.gd -- --mock-data --machines watcher,strider,grazer
 ##   godot --headless --path game --script res://dev/machine_bench.gd -- --cache <dir> --machines watcher [--out f.json]
+##   windowed (no --headless) with --shots <dir>: side-view screenshots at key moments of every phase
 ## Exit code 0 when every machine passes (slide < 5 cm, penetration < 5 cm, all poses ok), else 1.
 
 const SLIDE_MAX_CM := 5.0
@@ -39,6 +40,9 @@ func _initialize() -> void:
 			"--only":
 				r.only = Array(nxt.split(",", false))
 				i += 1
+			"--shots":
+				r.shots = nxt
+				i += 1
 		i += 1
 	if r.types.is_empty():
 		r.types = ["watcher", "strider", "grazer"]
@@ -56,6 +60,9 @@ class Runner extends Node:
 	var out_path := ""
 	var types: Array = []
 	var only: Array = []          # optional phase filter (dev)
+	var shots := ""               # screenshot directory (windowed runs)
+	var _cam: Camera3D
+	var _shot_done := {}
 	var results: Array = []
 
 	var _game: Node
@@ -94,6 +101,8 @@ class Runner extends Node:
 			Sheets.load_resolved(cache)
 			Content.forget()
 		_build_terrain()
+		if shots != "":
+			_build_view()
 		_next_machine()
 
 	# ------------------------------------------------------------ terrain
@@ -121,6 +130,59 @@ class Runner extends Node:
 		cs.shape = hm
 		body.add_child(cs)
 		add_child(body)
+
+	func _build_view() -> void:
+		DirAccess.make_dir_recursive_absolute(shots)
+		var st := SurfaceTool.new()
+		st.begin(Mesh.PRIMITIVE_TRIANGLES)
+		for zi in range(-35, 55):
+			for xi in range(-25, 25):
+				var q := [Vector3(xi, 0, zi), Vector3(xi + 1, 0, zi), Vector3(xi + 1, 0, zi + 1), Vector3(xi, 0, zi + 1)]
+				for k in q.size():
+					q[k].y = height(q[k].x, q[k].z)
+				var c := 0.45 + 0.08 * float((xi + zi) & 1)
+				for idx in [0, 1, 2, 0, 2, 3]:
+					st.set_color(Color(c, c * 1.05, c * 0.9))
+					st.add_vertex(q[idx])
+		st.generate_normals()
+		var mi := MeshInstance3D.new()
+		mi.mesh = st.commit()
+		var mat := StandardMaterial3D.new()
+		mat.vertex_color_use_as_albedo = true
+		mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+		mi.material_override = mat
+		add_child(mi)
+		var sun := DirectionalLight3D.new()
+		sun.rotation = Vector3(deg_to_rad(-50), deg_to_rad(30), 0)
+		sun.shadow_enabled = true
+		add_child(sun)
+		var env := WorldEnvironment.new()
+		env.environment = Environment.new()
+		env.environment.background_mode = Environment.BG_COLOR
+		env.environment.background_color = Color(0.55, 0.65, 0.8)
+		env.environment.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
+		env.environment.ambient_light_color = Color(0.6, 0.6, 0.65)
+		add_child(env)
+		_cam = Camera3D.new()
+		_cam.current = true
+		add_child(_cam)
+
+	func _update_cam() -> void:
+		if _cam == null or _m == null:
+			return
+		var h: float = _m.rig.body_height
+		var c: Vector3 = _m.global_position + Vector3(0, h * 0.45, 0)
+		var side: Vector3 = _m.global_transform.basis.x
+		_cam.global_position = c + side * maxf(h * 2.4, 3.5) + Vector3(0, h * 0.25, 0) - _m.global_transform.basis.z * h * 0.4
+		_cam.look_at(c, Vector3.UP)
+
+	func _shot(tag: String) -> void:
+		if shots == "" or _shot_done.has(str(_rec["machine"]) + tag):
+			return
+		_shot_done[str(_rec["machine"]) + tag] = true
+		var img := get_viewport().get_texture().get_image()
+		if img:
+			img.save_png(shots.path_join("%s_%s.png" % [_rec["machine"], tag.replace(":", "_").replace("(", "_").replace(")", "")]))
 
 	func _ground(p: Vector3) -> float:
 		var q := PhysicsRayQueryParameters3D.create(p + Vector3(0, 4.0, 0), p - Vector3(0, 8.0, 0), 1)
@@ -167,14 +229,12 @@ class Runner extends Node:
 			_planted.append(false)
 			_start.append(Vector3.ZERO)
 		_bones.clear()
-		for b in _sk.get_bone_count():
-			if not m.rig.helper_bones.has(b):
-				_bones.append(b)
 		if not _ends.is_empty():
 			_probe = BoneAttachment3D.new()
 			_sk.add_child(_probe)
 			_probe.bone_idx = _ends[0]
 		_sk.skeleton_updated.connect(_on_skeleton_updated)
+		_an.set("debug_measure", true)
 		_fwd0 = -m.global_transform.basis.z
 		_build_phases()
 		_pi = -1
@@ -226,8 +286,7 @@ class Runner extends Node:
 				m.drive_speed = m.walk_speed
 			"stop", "stop2":
 				m.drive_speed = 0.0
-				if m.state != _calm_state():
-					m._set_state(_calm_state())
+				m._set_state("idle")
 			"turn":
 				m.drive_speed = 0.0
 				m.drive_face = m.global_transform.basis.z   # face backwards: 180 deg in place
@@ -237,7 +296,7 @@ class Runner extends Node:
 				m._set_state("flee" if m.archetype == "herd" else "attack")
 			"graze":
 				m.drive_speed = 0.0
-				m._set_state(_calm_state())
+				m._set_state("scavenge" if m.archetype == "scavenger" else _calm_state())
 			"hit":
 				m.rig.flinch(true)
 			"death":
@@ -253,14 +312,50 @@ class Runner extends Node:
 		if _done or _m == null or _pi < 0 or _pi >= _phases.size():
 			return
 		_pt += delta
+		if shots != "":
+			_update_cam()
+			var ph: Dictionary = _phases[_pi]
+			var nm := str(ph["name"])
+			if nm.begins_with("attack:"):
+				var a: Dictionary = ph["attack"]
+				if _pt >= float(a["windup_s"]) * 0.95:
+					_shot(nm + "_windup")
+				if _pt >= float(a["windup_s"]) + float(a["active_s"]) * 0.6:
+					_shot(nm + "_active")
+			elif nm in ["walk", "run", "turn"]:
+				if _pt >= float(ph["dur"]) * 0.6:
+					_shot(nm)
+				if _pt >= float(ph["dur"]) * 0.6 + 0.12:
+					_shot(nm + "_b")
+			elif nm == "hit" and _pt >= 0.12:
+				_shot(nm)
+			elif nm in ["graze", "death", "stop"] and _pt >= float(ph["dur"]) - 0.2:
+				_shot(nm)
 		if _pt >= float(_phases[_pi]["dur"]):
 			_enter_next_phase()
 
 	# ------------------------------------------------------------ measuring
 
+	## Bones that carry the machine: the non-helper bones under the animator's body bone. Reference bones outside it
+	## (root/ground at the machine origin, below the terrain by the collision capsule's offset; HZD IK target bones)
+	## carry no geometry.
+	func _collect_bones() -> void:
+		var body: int = _an.get("_body") if _an.get("_body") != null else -1
+		if body < 0:
+			return
+		var stack := [body]
+		while not stack.is_empty():
+			var b: int = stack.pop_back()
+			if not _m.rig.helper_bones.has(b):
+				_bones.append(b)
+			for c in _sk.get_bone_children(b):
+				stack.append(c)
+
 	func _on_skeleton_updated() -> void:
 		if _m == null or not is_instance_valid(_m) or _pi < 0 or _pi >= _phases.size():
 			return
+		if _bones.is_empty():
+			_collect_bones()
 		var name_ := str(_phases[_pi]["name"])
 		var st: Dictionary = _rec["phases"][name_]
 		st["frames"] = int(st["frames"]) + 1
@@ -280,6 +375,12 @@ class Runner extends Node:
 					_start[i] = p
 				else:
 					var s := Vector2(p.x - (_start[i] as Vector3).x, p.z - (_start[i] as Vector3).z).length()
+					if s > 0.03 and OS.get_environment("BENCH_TRACE") != "" and int(st.get("traced", 0)) < 6:
+						st["traced"] = int(st.get("traced", 0)) + 1
+						var al: Dictionary = _an.get("_legs")[i]
+						var dinfo: Dictionary = _an.get("debug_info")
+						print("TRACE %s leg %d slide %.3f p %s start %s anim_planted %s cur %s state %s age %.3f | anim end %s frame %s/%s mpos %s now %s over %.3f errmax %s" % [name_, i, s, p, _start[i], al["planted"], al["cur"], al["state"], float(al["age"]),
+							dinfo.get("feet", [])[i] if dinfo.has("feet") else "-", dinfo.get("frame", -1), Engine.get_process_frames(), dinfo.get("mpos"), _m.global_position, float(al["over"]), dinfo.get("ik_err_max")])
 					st["slide_max"] = maxf(float(st["slide_max"]), s)
 				if d > 0.0:
 					st["float_sum"] = float(st["float_sum"]) + d
@@ -315,8 +416,9 @@ class Runner extends Node:
 				st["disp_max"] = maxf(float(st["disp_max"]), lp.distance_to(_ref_pose[b]))
 				if name_ == "death":
 					var wp: Vector3 = skx * _sk.get_bone_global_pose(b).origin
-					if _pt > float(_phases[_pi]["dur"]) - 1.0:
-						st["clear_min"] = minf(float(st["clear_min"]), wp.y - _ground(wp))
+					if _pt > float(_phases[_pi]["dur"]) - 1.0 and wp.y - _ground(wp) < float(st["clear_min"]):
+						st["clear_min"] = wp.y - _ground(wp)
+						st["clear_bone"] = "%d %s" % [b, _sk.get_bone_name(b)]
 					if _pt > float(_phases[_pi]["dur"]) - 0.5 and st.has("prev_" + str(b)):
 						motion = maxf(motion, wp.distance_to(st["prev_" + str(b)]))
 					st["prev_" + str(b)] = wp
@@ -335,6 +437,10 @@ class Runner extends Node:
 		var name_ := str(ph["name"])
 		var st: Dictionary = _rec["phases"][name_]
 		st["end_pos"] = _m.global_position
+		var di: Variant = _an.get("debug_info")
+		if di is Dictionary and not (di as Dictionary).is_empty():
+			st["debug"] = (di as Dictionary).duplicate()
+			(di as Dictionary).clear()
 		st["yaw1"] = _m.rotation.y
 		for k in st.keys():
 			if str(k).begins_with("prev_"):
@@ -417,13 +523,15 @@ class Runner extends Node:
 				var clear := float(st["clear_min"])
 				if not is_instance_valid(_m) or not _m.is_inside_tree() or not _m.visible:
 					res = "fail: vanished"
+				elif _stand_body <= 0.0 or is_inf(clear):
+					res = "fail: no measurement"
 				elif drop2 < 0.25 * _stand_body:
 					res = "fail: body dropped only %.2f of %.2f m" % [drop2, _stand_body]
 				elif clear < -0.05:
 					res = "fail: bone %.0f cm below ground" % (-clear * 100.0)
 				elif float(st["motion_last"]) > 0.01:
 					res = "fail: not settled (%.3f m/frame)" % float(st["motion_last"])
-				poses[name_] = res + " (drop %.2f/%.2f m, lowest bone %.0f cm, settle %.4f m)" % [drop2, _stand_body, clear * 100.0, float(st["motion_last"])]
+				poses[name_] = res + " (drop %.2f/%.2f m, lowest bone %.0f cm [%s], settle %.4f m)" % [drop2, _stand_body, clear * 100.0, st.get("clear_bone", "-"), float(st["motion_last"])]
 				continue
 			else:
 				continue
@@ -444,6 +552,9 @@ class Runner extends Node:
 		print("  phases: " + "; ".join(per_phase.filter(func(s): return not s.contains("slide 0.0 pen 0.0"))))
 		for k in poses:
 			print("  pose %-22s %s" % [k, poses[k]])
+		for k in ph:
+			if (ph[k] as Dictionary).has("debug") and float(ph[k]["debug"].get("ik_err_max", 0.0)) > 0.01:
+				print("  debug %s: ik_err_max %.3f (%s)" % [k, float(ph[k]["debug"]["ik_err_max"]), ph[k]["debug"].get("ik_err_ctx", "")])
 		if _rec.has("probe_diff_cm"):
 			print("  probe (signal vs BoneAttachment3D) max diff %.2f cm" % float(_rec["probe_diff_cm"]))
 		var clean := _rec.duplicate(true)

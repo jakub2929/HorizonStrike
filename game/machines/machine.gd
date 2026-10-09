@@ -17,6 +17,11 @@ const LAYER_HITBOX := 8
 ## Peripheral vision (outside the sight cone, up to peripheral_range_m) builds suspicion at this fraction of the
 ## direct rate: machines notice movement behind them slowly instead of instantly (design, hra).
 const PERIPHERAL_GAIN := 0.3
+## Corpses lie where the machine fell; they are freed after CORPSE_MIN_S once the player is farther than
+## CORPSE_FREE_DISTANCE_M, and always after CORPSE_MAX_S (design, stroje).
+const CORPSE_MIN_S := 45.0
+const CORPSE_MAX_S := 240.0
+const CORPSE_FREE_DISTANCE_M := 80.0
 
 var machine_type := "watcher"
 var state := "idle"
@@ -84,6 +89,14 @@ var drive_dir := Vector3.ZERO
 var drive_speed := 0.0
 var drive_face := Vector3.ZERO
 
+## Motion facts for the animator (updated every physics tick): yaw rate (rad/s, + = turning left) and forward
+## acceleration (m/s^2).
+var yaw_rate := 0.0
+var accel_fwd := 0.0
+var turn_in_place_rate := deg_to_rad(180.0)
+var _last_yaw := 0.0
+var _last_hv := Vector3.ZERO
+
 
 func setup(type: String, machine_meta: Dictionary) -> void:
 	machine_type = type
@@ -97,6 +110,8 @@ func setup(type: String, machine_meta: Dictionary) -> void:
 	walk_speed = Sheets.machine_num(type, "walk_speed_mps", 1.6)
 	run_speed = Sheets.machine_num(type, "run_speed_mps", 7.0)
 	turn_rate = deg_to_rad(Sheets.machine_num(type, "turn_rate_dps", 180.0))
+	var anim: Variant = Sheets.machine(type, "anim")
+	turn_in_place_rate = deg_to_rad(float((anim as Dictionary).get("turn_in_place_dps", rad_to_deg(turn_rate)))) if anim is Dictionary else turn_rate
 	sight_range = Sheets.machine_num(type, "sight_range_m", 40.0)
 	sight_fov = deg_to_rad(Sheets.machine_num(type, "sight_fov_deg", 100.0))
 	# meta.json perception names the HZD value a half angle (DirectHeadingAngle); the sheet column is the full cone
@@ -290,6 +305,9 @@ func _die(weapon_id: String) -> void:
 	_set_state("dead")
 	velocity = Vector3.ZERO
 	collision_layer = 0
+	var tb := get_node_or_null("TrunkBody") as CollisionObject3D
+	if tb:
+		tb.collision_layer = 0
 	for h in rig.hitboxes:
 		(h as Area3D).collision_layer = 0
 	Game.award_kill(machine_type, weapon_id)
@@ -445,7 +463,7 @@ func _physics_process(delta: float) -> void:
 		velocity.x = 0
 		velocity.z = 0
 		move_and_slide()
-		if _dead_t > 30.0:
+		if _dead_t > CORPSE_MAX_S or (_dead_t > CORPSE_MIN_S and (Game.player == null or Game.player.global_position.distance_to(global_position) > CORPSE_FREE_DISTANCE_M)):
 			queue_free()
 		return
 	_state_time += delta
@@ -471,6 +489,15 @@ func _physics_process(delta: float) -> void:
 	move_and_slide()
 	_speed_now = Vector3(velocity.x, 0, velocity.z).length()
 	_check_stuck(delta, speed)
+	_track_motion(delta)
+
+
+func _track_motion(delta: float) -> void:
+	yaw_rate = wrapf(rotation.y - _last_yaw, -PI, PI) / maxf(delta, 0.0001)
+	_last_yaw = rotation.y
+	var hv := Vector3(velocity.x, 0, velocity.z)
+	accel_fwd = (hv - _last_hv).dot(forward()) / maxf(delta, 0.0001)
+	_last_hv = hv
 
 
 func _apply_gravity(delta: float) -> void:
@@ -580,7 +607,7 @@ func _start_attack(a: Dictionary) -> void:
 	_attack_t = 0.0
 	_attack_dealt = false
 	if rig:
-		rig.play_pose(str(a.get("pose", "")), float(a["windup_s"]) + float(a["active_s"]))
+		rig.play_attack(a)
 	Log.info("machine %s attack %s" % [name, a["id"]])
 
 
@@ -685,7 +712,8 @@ func _face(dir: Vector3, delta: float) -> void:
 	var target_yaw := atan2(-dir.x, -dir.z)
 	var yaw := rotation.y
 	var diff := wrapf(target_yaw - yaw, -PI, PI)
-	rotation.y = yaw + clampf(diff, -turn_rate * delta, turn_rate * delta)
+	var rate := turn_rate if _speed_now > 0.5 else minf(turn_rate, turn_in_place_rate)
+	rotation.y = yaw + clampf(diff, -rate * delta, rate * delta)
 
 
 ## Obstacle avoidance: feelers at body height; when the wanted direction is blocked, take the freest of a fan of
