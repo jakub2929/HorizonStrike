@@ -117,8 +117,10 @@ static func film_camera(ctx) -> Camera3D:
 	var hud: Variant = ctx.game.get("hud") if ctx.game != null and "hud" in ctx.game else null
 	if hud is CanvasItem:
 		(hud as CanvasItem).visible = false
-	elif hud is CanvasLayer:
-		(hud as CanvasLayer).visible = false
+	# every overlay layer too: the first-person weapon is drawn by its own SubViewport on a CanvasLayer and would
+	# otherwise sit in front of the side-on camera
+	for n in ctx.tree.root.find_children("*", "CanvasLayer", true, false):
+		(n as CanvasLayer).visible = false
 	return cam
 
 
@@ -130,7 +132,34 @@ static func side_on(cam: Camera3D, subject: Node3D, dist_m: float, look_at_pos: 
 	right.y = 0.0
 	if right.length() < 0.1:
 		right = Vector3.RIGHT
+	right = right.normalized()
 	var target: Vector3 = look_at_pos if look_at_pos is Vector3 else subject.global_position + Vector3(0, 1.0, 0)
-	cam.global_position = subject.global_position + right.normalized() * dist_m + Vector3(0, 2.0, 0)
+	var space := subject.get_world_3d().direct_space_state
+	# side (right / left / the two diagonals behind) re-chosen once a second: first one with a clear view
+	var f := Engine.get_frames_drawn()
+	if not cam.has_meta("side") or f >= int(cam.get_meta("next_check", 0)):
+		cam.set_meta("next_check", f + FPS)
+		var back := right.cross(Vector3.UP).normalized()
+		var sides := [right, -right, (right + back).normalized(), (-right + back).normalized()]
+		var keep: Vector3 = cam.get_meta("side") if cam.has_meta("side") else right
+		var chosen: Vector3 = keep
+		for s in [keep] + sides:
+			var pos := _cam_pos(space, subject.global_position + (s as Vector3) * dist_m)
+			var q := PhysicsRayQueryParameters3D.create(pos, target)
+			var hit := space.intersect_ray(q)
+			if hit.is_empty() or (hit.position as Vector3).distance_to(target) < 2.5:
+				chosen = s
+				break
+		cam.set_meta("side", chosen)
+	cam.global_position = _cam_pos(space, subject.global_position + (cam.get_meta("side") as Vector3) * dist_m)
 	if cam.global_position.distance_to(target) > 0.1:
 		cam.look_at(target, Vector3.UP)
+
+
+static func _cam_pos(space: PhysicsDirectSpaceState3D, p: Vector3) -> Vector3:
+	## 2 m above the subject's height, at least 1.6 m above the ground under the camera
+	var out := p + Vector3(0, 2.0, 0)
+	var hit := space.intersect_ray(PhysicsRayQueryParameters3D.create(p + Vector3(0, 300.0, 0), p - Vector3(0, 300.0, 0)))
+	if not hit.is_empty():
+		out.y = maxf(out.y, (hit.position as Vector3).y + 1.6)
+	return out
