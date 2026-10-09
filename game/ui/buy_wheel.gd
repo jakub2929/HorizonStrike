@@ -182,7 +182,7 @@ func _unhandled_input(event: InputEvent) -> void:
 	if event.is_action_pressed("buy"):
 		if _open:
 			close()
-		elif Game.player and Game.player.is_alive() and Game.is_world_ready:
+		elif Game.player and Game.player.is_alive() and Game.is_world_ready and not get_tree().paused:
 			open()
 			_b_held = true
 		else:

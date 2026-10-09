@@ -83,7 +83,7 @@ func _ready() -> void:
 	box.add_child(resume)
 	var quit := Button.new()
 	quit.text = "Quit"
-	quit.pressed.connect(func(): get_tree().quit(0))
+	quit.pressed.connect(func(): Game.quit(0))
 	box.add_child(quit)
 
 

@@ -53,7 +53,7 @@ static func make(node_name: String, title: String, text: String, detail: String)
 	var b := Button.new()
 	b.text = "Quit"
 	b.custom_minimum_size = Vector2(200, 44)
-	b.pressed.connect(func(): s.get_tree().quit(0))
+	b.pressed.connect(func(): Game.quit(0))
 	var hb := HBoxContainer.new()
 	hb.alignment = BoxContainer.ALIGNMENT_CENTER
 	hb.add_child(b)

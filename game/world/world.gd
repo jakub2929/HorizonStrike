@@ -380,15 +380,27 @@ func _unload(c: Vector2i) -> void:
 	Log.info("cell %s unloaded" % c)
 
 
-## Never leave worker tasks running into shutdown (they run GDScript lambdas).
+## Never leave worker tasks running into shutdown (they run GDScript lambdas). Any quit (also a bare SceneTree.quit)
+## passes here before the converter node exits: stop the converter first, then wait (bounded) for the workers.
 func _exit_tree() -> void:
+	if converter and converter.has_method("stop"):
+		converter.stop()
+	var t0 := Time.get_ticks_msec()
+	var tasks: Array = []
 	for c in building.keys():
 		if building[c]["stage"] == "prepare":
-			WorkerThreadPool.wait_for_task_completion(building[c]["task"])
-	building.clear()
+			tasks.append(building[c]["task"])
 	if _size_task >= 0:
-		WorkerThreadPool.wait_for_task_completion(_size_task)
-		_size_task = -1
+		tasks.append(_size_task)
+	for t in tasks:
+		while not WorkerThreadPool.is_task_completed(t) and Time.get_ticks_msec() - t0 < 10000:
+			OS.delay_msec(5)
+		if WorkerThreadPool.is_task_completed(t):
+			WorkerThreadPool.wait_for_task_completion(t)
+		else:
+			Log.warn("world exit: worker task %d still running after 10 s, not waiting for it" % t)
+	building.clear()
+	_size_task = -1
 
 
 # ------------------------------------------------------------------ machines

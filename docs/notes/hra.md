@@ -125,6 +125,17 @@ Rules I follow: no class_name lookups across files (everything via preload, so a
   Verified with dev/buy_input_driver.gd (real InputEvents) in the editor and in an exported release exe (release
   templates ignore --script: the driver is added as an autoload through override.cfg next to the exe) at 1600x900,
   1280x720, 1920x1080.
+- F8: gameplay input (move/crouch/jump, fire/reload/slots) is gated by Game.gameplay_input_allowed() = no buy
+  wheel, tree not paused (Esc menu), window focused (automated runs skip focus) - not by mouse capture; mouse-look
+  still needs capture; wheel/menu close re-captures in normal play. dev/buy_input_driver.gd checks W moves, key 1
+  selects, LMB fires right after the wheel.
+- F9: every quit path stops the converter first (world._exit_tree on a bare SceneTree.quit, Game.quit for the Quit
+  buttons / error screen, main.quit_game for WM close); converter_client.stop() is bounded (quit 3 s, kill, readers
+  joined at most 1 s each) and suppresses the expected "exit" event. Hang not reproduced (dev/quit_probe.gd, bare
+  quit after a t10-like walk: exit 1 s, converter gone); a hard-killed game's converter exits within ~1 s (EOF).
+- Found, not changed (scope): Grazer canisters are hit as body - the canister mesh is skinned to the PARENT of the
+  weak-spot bone (rbcannister vs rbcannisterHelper) so it became a body box around the weak sphere, and
+  Machine.aim_point(part) returns the first of four canisters even when it is on the far side.
 
 ## Notes for teammates (relay via main)
 - test (t10): real cells outside the start area are ~11 MB (meshes/textures shared), 5 steps east add ~164 MB, so
