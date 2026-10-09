@@ -26,7 +26,13 @@ const SCENARIOS := {
 	"s01": preload("res://autotest/scenarios/s01_buy_wheel.gd"),
 	"s03": preload("res://autotest/scenarios/s03_herd_landscape.gd"),
 	"t15": preload("res://autotest/scenarios/t15_perf.gd"),
+	"t12": preload("res://autotest/scenarios/t12_new_machines.gd"),
+	"t13": preload("res://autotest/scenarios/t13_weak_all.gd"),
 	"r01": preload("res://autotest/scenarios/r01_shots.gd"),
+	"t14": preload("res://autotest/scenarios/t14_normals.gd"),
+	"t16": preload("res://autotest/scenarios/t16_stress.gd"),
+	## no sheet row: the child part of t16 (started by t16 itself, one process per run)
+	"t16run": preload("res://autotest/scenarios/t16run.gd"),
 }
 ## rows produced inside another scenario's run (sheet: s02 "taken inside t05")
 const HOSTED := {"s02": "t05"}
@@ -104,7 +110,7 @@ func _main() -> void:
 		if _has_result(id):
 			continue
 		var row: Dictionary = AutotestSheet.row(id)
-		if row.is_empty():
+		if row.is_empty() and not SCENARIOS.has(id):
 			_put({"id": id, "name": "unknown scenario", "pass": false, "details": {"summary": "unknown scenario id"}})
 		elif row.get("process") == "child" and not is_child:
 			for r in await _run_child(id):
@@ -264,6 +270,7 @@ func _run_child(id: String) -> Array:
 	var timeout_s: float = _child_timeout(lead)
 	var t0 := Time.get_ticks_msec()
 	var last_note := t0
+	var quiet := Proc.quiet_parent(get_tree())
 	while OS.is_process_running(pid) and Time.get_ticks_msec() - t0 < int(timeout_s * 1000.0):
 		await get_tree().create_timer(0.5, true, false, true).timeout
 		if Time.get_ticks_msec() - last_note > 60000:
@@ -274,6 +281,7 @@ func _run_child(id: String) -> Array:
 		ctx.note("child %d timed out after %d s; killing that exact PID" % [pid, int(timeout_s)])
 		OS.kill(pid)
 		await get_tree().create_timer(1.0, true, false, true).timeout
+	Proc.restore_parent(get_tree(), quiet)
 	var code := OS.get_process_exit_code(pid)
 	var secs := snappedf((Time.get_ticks_msec() - t0) / 1000.0, 0.1)
 	var info := {"child_pid": pid, "child_exit_code": code, "child_seconds": secs, "child_out": child_out, "argv": " ".join(argv), "timed_out": timed_out}
