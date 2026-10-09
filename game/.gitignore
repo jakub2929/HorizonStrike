@@ -1,0 +1,3 @@
+# Godot editor/import artefacts (re-created by `godot --import`; the game references scripts by path only)
+*.uid
+*.import
