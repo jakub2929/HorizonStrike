@@ -378,14 +378,38 @@ func _trace(origin: Vector3, dir: Vector3, range_m: float) -> Dictionary:
 		return hit
 	var col: Object = hit["collider"]
 	if col is Area3D and col.has_meta("machine") and not col.get_meta("weak", false):
+		# a weak spot of the same machine wins when it lies just behind the body surface (WEAK_SLACK_M) or inside a
+		# body box of that machine (body boxes over-cover the mesh and can wrap a weak spot completely)
 		var d := origin.distance_to(hit["position"])
-		var qw := PhysicsRayQueryParameters3D.create(origin, origin + dir * (d + WEAK_SLACK_M), LAYER_WEAK)
+		var qw := PhysicsRayQueryParameters3D.create(origin, origin + dir * range_m, LAYER_WEAK)
 		qw.collide_with_areas = true
 		qw.collide_with_bodies = false
 		var hw := space.intersect_ray(qw)
 		if not hw.is_empty() and (hw["collider"] as Object).get_meta("machine", null) == col.get_meta("machine"):
-			return hw
+			var dw := origin.distance_to(hw["position"])
+			if dw <= d + WEAK_SLACK_M or _wrapped(col.get_meta("machine"), hw["position"]):
+				return hw
 	return hit
+
+
+## Point inside any body hitbox box of machine m.
+static func _wrapped(m: Node, p: Vector3) -> bool:
+	if not is_instance_valid(m) or m.get("rig") == null:
+		return false
+	for h in m.rig.hitboxes:
+		if not (h as Area3D).get_meta("weak", false) and _inside_box(h as Area3D, p):
+			return true
+	return false
+
+
+## Point inside the (first) box shape of a hitbox area.
+static func _inside_box(area: Area3D, p: Vector3) -> bool:
+	for c in area.get_children():
+		if c is CollisionShape3D and (c as CollisionShape3D).shape is BoxShape3D:
+			var lp: Vector3 = ((c as CollisionShape3D).global_transform.affine_inverse()) * p
+			var half: Vector3 = ((c as CollisionShape3D).shape as BoxShape3D).size * 0.5
+			return absf(lp.x) <= half.x and absf(lp.y) <= half.y and absf(lp.z) <= half.z
+	return false
 
 
 func _recoil(id: String) -> void:

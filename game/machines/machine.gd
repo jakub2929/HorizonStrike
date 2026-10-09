@@ -185,11 +185,16 @@ func weak_spots() -> Array[String]:
 
 
 ## Weak spot: its hitbox centre. "body": centre of mass = the largest body hitbox (the trunk).
-func aim_point(part: String) -> Vector3:
+## A part can have several hitboxes (Grazer: four canisters); with `from` (the shooter) the nearest one is used.
+## Game.aim_at picks among weak_points() the one a shot from the camera actually reaches.
+func aim_point(part: String, from: Variant = null) -> Vector3:
 	if part != "body":
-		for h in rig.hitboxes:
-			if str(h.get_meta("part", "")) == part:
-				return (h as Node3D).global_position
+		var pts := weak_points(part)
+		if not pts.is_empty():
+			if from is Vector3:
+				var eye: Vector3 = from
+				pts.sort_custom(func(a, b): return eye.distance_squared_to(a) < eye.distance_squared_to(b))
+			return pts[0]
 	var best: Node3D = null
 	var best_v := -1.0
 	for h in rig.hitboxes:
@@ -206,6 +211,33 @@ func aim_point(part: String) -> Vector3:
 	if best:
 		return best.global_position
 	return global_position + Vector3(0, rig.body_height * 0.6, 0)
+
+
+## Centres of every hitbox of a weak-spot part (spheres from the content points and the part's own geometry boxes).
+## With `samples`, also points inside each hitbox towards its surface (up, and both ways along its axes): a canister
+## whose centre is behind the body's back can still show its upper half.
+func weak_points(part: String, samples: bool = false) -> Array[Vector3]:
+	var out: Array[Vector3] = []
+	for h in rig.hitboxes:
+		if str(h.get_meta("part", "")) != part:
+			continue
+		var c: Vector3 = (h as Node3D).global_position
+		out.append(c)
+		if not samples:
+			continue
+		var cs := (h as Node).get_child(0) as CollisionShape3D
+		var ext := Vector3(0.1, 0.1, 0.1)
+		if cs and cs.shape is SphereShape3D:
+			var r: float = (cs.shape as SphereShape3D).radius * 0.5
+			ext = Vector3(r, r, r)
+		elif cs and cs.shape is BoxShape3D:
+			ext = (cs.shape as BoxShape3D).size * 0.25
+		var b: Basis = (h as Node3D).global_transform.basis.orthonormalized()
+		out.append(c + Vector3.UP * ext.y)
+		for ax in [b.x * ext.x, b.z * ext.z, b.y * ext.y]:
+			out.append(c + ax)
+			out.append(c - ax)
+	return out
 
 
 func targets_player() -> bool:
