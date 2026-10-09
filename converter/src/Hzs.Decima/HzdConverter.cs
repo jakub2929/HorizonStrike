@@ -12,6 +12,40 @@ namespace Hzs.Decima;
 /// <summary>HZD side of the converter (owner: "svet"). Reads the player's HZD install, writes cache/hzd/.</summary>
 public static class HzdConverter
 {
+    /// <summary>Bump when the HZD cache layout or conversion changes (forces re-conversion of hzd/ assets).</summary>
+    public const int HzdFormat = 1;
+
+    /// <summary>Steam build id of the HZD install (&lt;lib&gt;/steamapps/appmanifest_1151640.acf), or null.</summary>
+    public static string? HzdBuild(string hzdDir)
+    {
+        try
+        {
+            var acf = Path.GetFullPath(Path.Combine(hzdDir, "..", "..", "appmanifest_1151640.acf"));
+            if (!File.Exists(acf)) return null;
+            foreach (var line in File.ReadLines(acf))
+            {
+                var parts = line.Split('"', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Where(x => x.Length > 0).ToArray();
+                if (parts.Length >= 2 && parts[0] == "buildid") return parts[1];
+            }
+        }
+        catch (IOException) { }
+        return null;
+    }
+
+    /// <summary>True when the cache was converted from this HZD build with this converter format.</summary>
+    private static bool Stamped(ConvContext ctx)
+    {
+        var m = ManifestFile.Read(ctx.Cache);
+        return m["hzd_build"]?.ToString() == (HzdBuild(ctx.HzdDir!) ?? "unknown") && m["hzd_format"]?.ToString() == HzdFormat.ToString();
+    }
+
+    private static void Stamp(ConvContext ctx) => ManifestFile.Update(ctx.Cache, m =>
+    {
+        var b = HzdBuild(ctx.HzdDir!);
+        m["hzd_build"] = long.TryParse(b, out var n) ? n : b ?? "unknown";
+        m["hzd_format"] = HzdFormat;
+    });
+
     private static HzdArchive Archive(ConvContext ctx) =>
         HzdArchive.Open(ctx.HzdDir ?? throw new ArgumentException("--hzd <dir> is required"));
 
@@ -33,6 +67,14 @@ public static class HzdConverter
         long bytes = 0;
         var only = Only();
         var rows = MachinesSheet.All.Where(r => only is null || only.Contains(r.Id)).ToList();
+        var force = Environment.GetCommandLineArgs().Contains("--force");
+        if (!force && Stamped(ctx) && File.Exists(Path.Combine(ctx.Cache.Hzd, "machines.json"))
+            && rows.All(r => File.Exists(Path.Combine(ctx.Cache.Machine(r.Id), "model.glb")) && File.Exists(Path.Combine(ctx.Cache.Machine(r.Id), "meta.json"))))
+        {
+            ctx.Log.Info($"hzd machines up to date ({HzdBuild(ctx.HzdDir!)})");
+            progress.Report("machines", rows.Count, rows.Count);
+            return 0;
+        }
 
         // resolved sheet bindings (hzd/machines.json, hzd/systems.json)
         var resolved = HzdBindings.ResolveRows(res, MachinesSheet.All, r => r.Id, MachineListColumns);
@@ -76,6 +118,7 @@ public static class HzdConverter
             bytes += size;
             ctx.Log.Info($"machine {row.Id}: {result.Vertices} vertices, {result.Joints} joints, height {result.HeightM:F2} m, {size} bytes, {sw.ElapsedMilliseconds} ms");
         }
+        Stamp(ctx);
         progress.Report("machines", rows.Count, rows.Count);
         return bytes;
     }

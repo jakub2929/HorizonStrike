@@ -83,3 +83,33 @@ mole = Burrower were wrong. Grazer is `harvester`.
   `rbcannisterHelper` (mult 1.5, mesh canisters/.../harvester_canister_fuel), rotor blades `DestructablePart14_helper`,
   `DestructablePart15_helper`, eye `DestructablePart13_helper`.
 - AIVisualSensor angles are degrees and (from their sizes: direct 12-16, peripheral 78-90) half-angles of the cone.
+
+## S3 machines (2026-10-09)
+- Mesh part file: LodMeshResource -> Meshes[] (LOD by Distance; LOD0 = distance 0) -> RegularSkinnedMeshResource or
+  StaticMeshResource -> Primitives[] (RenderingPrimitiveResource) + RenderFxResources[]/RenderEffects[] (one effect
+  per primitive). DrawFlags bit 3 = shadow-only geometry (skipped).
+- VertexArrayResource (binary): u32 vertex count, u32 stream count, u8 streaming; per stream u32 flags, u32 stride,
+  u32 element count, elements (u8 offset, u8 EVertexElementStorageType, u8 slots, u8 EVertexElement), 16-byte hash,
+  then inline data or a data source (u32 length + "cache:<path>.core.stream", u64 offset, u64 length). All streams of
+  one array share the offset field; stream i starts at offset + sum(padded lengths of streams before it).
+- IndexArrayResource (binary): u32 count, u32 flags, u32 format (0 = u16, 1 = u32), u32 streaming, hash, data/source.
+  Primitive StartIndex..EndIndex select the range, IndexOffset is a base vertex.
+- Elements seen: positions Half x3 (stride 8) in model space meters; normals Float x3 or SNorm16 x3; UV0 Half x2 or
+  SNorm16 x2 (values outside 0..1, sampler wraps); BlendIndices UByte x4 = joint indices into the mesh skeleton (not
+  into JointIndexList); BlendWeights UNorm8 x4 = weights of influences 1..3, influence 0 gets 1 - sum ("3x8").
+- SkinnedMeshBoneBindings: JointIndexList + InverseBindMatrices (Mat44, Col3 = translation) -> bind-pose world of the
+  joints a mesh uses. Joints no mesh uses get world = parent world x local from the entity's
+  SkinnedModelResource.InitialPose (Pose binary: u8 present, u32 n, n x Mat34 local [quat xyzw | t xyz_ | s xyz_],
+  n x Mat44 model, u32 m, m x u32). InitialPose is an animated stance, not the bind pose (differs up to 0.67 m).
+- SkeletonHelpers (robot_modelhelpers, skeletons/*_helpers): OrientationHelper {Mat44 local to joint Index, Name}.
+  Rigid parts (plates, eye, canisters) are StaticMeshResources in helper space; DestructibilityPart.BoneName names
+  the helper. glb: helpers become extra joints; rigid parts are skinned 100% to their helper (one skin per machine).
+- Texture (binary): header u16 type, u16 w, u16 h, u16 depth, u8 mips, u8 EPixelFormat, ...; u32 remaining,
+  u32 internal size, u32 external size, u32 external mips, data source, inline data. Stream = largest mips,
+  inline = the rest, mip-major. TextureSetEntry.PackingInfo: one byte per output channel, low nibble = source
+  ETextureSetType (1 Color, 3 Normal, 6 Roughness), high nibble = source channel, 0x80 unused. Machine colour maps
+  are BC1, normal/roughness BC7. Decoded with TinyBCSharp 0.1.2 (MIT, already a ValveResourceFormat dependency).
+- Space: HZD characters face +Y, right +X, up +Z; godot = (x, z, -y) keeps handedness (det +1); machines face -Z.
+- Results (bind pose top): Watcher 1.45 m, Strider 1.99 m, Grazer 3.71 m (incl. rotor blades). Units are meters
+  (checked against an Aloy headdress top at 1.73 m). ~0.2-0.6 s per machine, 9-12 MB glb each.
+- Leg chains derived from the skeleton: grounded leaf joints walked up while the ancestor leads to one grounded leaf.
