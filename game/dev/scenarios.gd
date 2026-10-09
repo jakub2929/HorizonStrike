@@ -51,6 +51,7 @@ func _run() -> void:
 	await _wait(1.0)
 	# keep the spawner from adding site machines into the scenarios
 	_game.world.spawner.set_process(false)
+	print("sites: %s" % [_game.world.spawner.sites.keys()])
 	await _clear_machines()
 	if "t05" in only:
 		await _t05()
@@ -60,20 +61,48 @@ func _run() -> void:
 		await _t07()
 	if "t10" in only:
 		await _t10()
-	var fails := 0
+	var fails := maxi(only.size() - _results.size(), 0)   # a scenario that crashed reports nothing
 	for r in _results:
 		if not r[1]:
 			fails += 1
-	print("SCENARIOS %s (%d/%d)" % ["OK" if fails == 0 else "FAIL", _results.size() - fails, _results.size()])
+	print("SCENARIOS %s (%d/%d)" % ["OK" if fails == 0 else "FAIL", only.size() - fails, only.size()])
 	quit(0 if fails == 0 else 1)
+
+
+## A real spawn site of `type` with a spot `dist` m away that has ground and a clear line of sight to it.
+## Returns [site position, player position] or [] (then the scenario uses the player's current spot).
+func _open_spot(type: String, dist: float) -> Array:
+	var space: PhysicsDirectSpaceState3D = _game.player.get_world_3d().direct_space_state
+	for id in _game.world.spawner.sites:
+		var site: Dictionary = _game.world.spawner.sites[id]
+		if site["type"] != type or not _game.world.is_cell_loaded(site["cell"]):
+			continue
+		var sp: Vector3 = _ground(site["pos"])
+		for k in 12:
+			var a := TAU * k / 12.0
+			var pp: Vector3 = _ground(sp + Vector3(cos(a), 0, sin(a)) * dist)
+			if not _game.world.has_ground_at(pp):
+				continue
+			var q := PhysicsRayQueryParameters3D.create(pp + Vector3(0, 1.6, 0), sp + Vector3(0, 1.2, 0), 1)
+			if space.intersect_ray(q).is_empty():
+				return [sp, pp]
+	return []
 
 
 func _t05() -> void:
 	await _clear_machines()
 	var p: Node3D = _game.player
 	p.invulnerable = true
+	var spot := _open_spot("watcher", 35.0)
+	if not spot.is_empty():
+		_game.teleport(spot[1] + Vector3(0, 0.5, 0))
+		await _wait(1.0)
+		await _clear_machines()
+		p.look_at_point(spot[0] + Vector3(0, 1.0, 0))
 	var f: Vector3 = -p.global_transform.basis.z
-	var w: Node = _game.spawn_machine("watcher", _ground(p.global_position + f * 35.0) + Vector3(0, 1.0, 0))
+	f.y = 0
+	f = f.normalized()
+	var w: Node = _game.spawn_machine("watcher", (spot[0] if not spot.is_empty() else _ground(p.global_position + f * 35.0)) + Vector3(0, 1.0, 0))
 	var states: Array = []
 	var hits := [0]
 	var cb := func(m, _o, n): if m == w: states.append(n)
@@ -119,9 +148,17 @@ func _ordered(states: Array, steps: Array) -> bool:
 func _t06() -> void:
 	await _clear_machines()
 	var p: Node3D = _game.player
+	var spot := _open_spot("grazer", 30.0)
+	if not spot.is_empty():
+		_game.teleport(spot[1] + Vector3(0, 0.5, 0))
+		await _wait(1.0)
+		await _clear_machines()
+		p.look_at_point(spot[0] + Vector3(0, 1.0, 0))
 	p.set_crouch(true)
 	await _wait(0.3)
 	var f: Vector3 = -p.global_transform.basis.z
+	f.y = 0
+	f = f.normalized()
 	var r: Vector3 = p.global_transform.basis.x
 	var herd: Array = []
 	var n := int(Sheets.machine_num("grazer", "herd_size_min", 3))

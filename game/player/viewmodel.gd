@@ -97,6 +97,7 @@ func _get_model(id: String) -> Node3D:
 						if String(a).ends_with("idle"):
 							ap.get_animation(a).loop_mode = Animation.LOOP_LINEAR
 				root.set_meta("real", true)
+				root.set_meta("points", _attach_points(root, id))
 				Log.info("viewmodel %s: view.glb, clips %s" % [id, ap.get_animation_list() if ap else []])
 			elif scene:
 				scene.free()
@@ -107,6 +108,96 @@ func _get_model(id: String) -> Node3D:
 	add_child(root)
 	_cache[id] = root
 	return root
+
+
+## Named points of the weapon (content contract): a Node3D per point on its bone (bone name or bone role),
+## with the point's local offset and rotation. Returns name -> Node3D.
+func _attach_points(root: Node, id: String) -> Dictionary:
+	var out := {}
+	var sk := _find_skeleton(root)
+	if sk == null:
+		return out
+	var roles := Content.weapon_bone_roles(id)
+	var pts := Content.weapon_points(id)
+	for pn in pts:
+		var pt: Dictionary = pts[pn]
+		var bname := str(pt.get("bone", ""))
+		var b := sk.find_bone(bname)
+		if b < 0 and roles.has(bname):
+			b = sk.find_bone(str(roles[bname]))
+		if b < 0:
+			continue
+		var ba := BoneAttachment3D.new()
+		sk.add_child(ba)
+		ba.bone_idx = b
+		var n := Node3D.new()
+		n.name = "Point_" + str(pn).validate_node_name()
+		var off: Array = pt.get("offset", [0, 0, 0])
+		var rot: Array = pt.get("rotation", [0, 0, 0, 1])
+		n.transform = Transform3D(Basis(Quaternion(rot[0], rot[1], rot[2], rot[3])), Vector3(off[0], off[1], off[2]))
+		var fw: Array = pt.get("forward", [0, 0, -1])
+		n.set_meta("forward", Vector3(fw[0], fw[1], fw[2]))
+		ba.add_child(n)
+		out[str(pn)] = n
+	return out
+
+
+func _find_skeleton(n: Node) -> Skeleton3D:
+	if n is Skeleton3D:
+		return n
+	for c in n.get_children():
+		var s := _find_skeleton(c)
+		if s:
+			return s
+	return null
+
+
+## Muzzle flash at the "muzzle" point (or "flame") and a shell out of the "eject" point.
+func _fire_fx() -> void:
+	if _current == null or not _current.has_meta("points"):
+		return
+	var pts: Dictionary = _current.get_meta("points")
+	var muzzle: Node3D = pts.get("muzzle", pts.get("flame"))
+	if muzzle:
+		var fl := OmniLight3D.new()
+		fl.light_color = Color(1.0, 0.75, 0.4)
+		fl.omni_range = 2.5
+		fl.light_energy = 3.0
+		var spr := MeshInstance3D.new()
+		var q := QuadMesh.new()
+		q.size = Vector2(0.09, 0.09)
+		spr.mesh = q
+		var m := StandardMaterial3D.new()
+		m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		m.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
+		m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		m.albedo_color = Color(1.0, 0.8, 0.45, 0.9)
+		spr.material_override = m
+		muzzle.add_child(fl)
+		muzzle.add_child(spr)
+		get_tree().create_timer(0.05).timeout.connect(fl.queue_free)
+		get_tree().create_timer(0.04).timeout.connect(spr.queue_free)
+	var eject: Node3D = pts.get("eject")
+	if eject:
+		var shell := MeshInstance3D.new()
+		var c := CylinderMesh.new()
+		c.top_radius = 0.004
+		c.bottom_radius = 0.004
+		c.height = 0.02
+		shell.mesh = c
+		var sm := StandardMaterial3D.new()
+		sm.albedo_color = Color(0.8, 0.6, 0.25)
+		sm.metallic = 0.8
+		shell.material_override = sm
+		shell.top_level = true
+		add_child(shell)
+		shell.global_transform = eject.global_transform
+		var dir: Vector3 = (eject.global_transform.basis * (eject.get_meta("forward") as Vector3)).normalized()
+		var tw := shell.create_tween()
+		tw.set_parallel(true)
+		tw.tween_property(shell, "global_position", shell.global_position + dir * 0.35 + Vector3(0, -0.25, 0), 0.45)
+		tw.tween_property(shell, "rotation", shell.rotation + Vector3(6, 3, 0), 0.45)
+		tw.chain().tween_callback(shell.queue_free)
 
 
 func _find_anim(n: Node) -> AnimationPlayer:
@@ -151,6 +242,8 @@ func play(clip: String) -> void:
 	match clip:
 		"fire", "fire2":
 			_kick = 0.3 if played else 1.0
+			if clip == "fire" and str(Sheets.weapon_row(_weapon).get("category", "")) not in ["knife", "grenade", "equipment"]:
+				_fire_fx()
 		"reload":
 			if not played:
 				_dip = 1.0

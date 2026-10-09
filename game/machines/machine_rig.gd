@@ -92,7 +92,7 @@ func _build_from_glb(path: String, meta: Dictionary) -> bool:
 			roles[str(r)] = rb
 	for chain in Content.machine_leg_chains(machine_type):
 		var ids := PackedInt32Array()
-		var names: Array = chain if chain is Array else Array(str(chain).split(","))
+		var names: Array = chain if chain is Array else Array(str(chain).split(">" if str(chain).contains(">") else ","))
 		for n in names:
 			var key := str(n).strip_edges()
 			var b: int = roles.get(key, skeleton.find_bone(key))

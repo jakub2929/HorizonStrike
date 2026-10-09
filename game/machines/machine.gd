@@ -642,8 +642,50 @@ func _face(dir: Vector3, delta: float) -> void:
 	rotation.y = yaw + clampf(diff, -turn_rate * delta, turn_rate * delta)
 
 
+## Obstacle avoidance: feelers at body height; when the wanted direction is blocked, take the freest of a fan of
+## directions around it (keeps herds and guards from piling up against rocks, walls and fences).
+var _avoid_dir := Vector3.ZERO
+var _avoid_t := 0.0
+
+
+func _avoid(dir: Vector3, speed: float, delta: float) -> Vector3:
+	_avoid_t -= delta
+	if _avoid_t > 0.0 and _avoid_dir != Vector3.ZERO:
+		return _avoid_dir
+	_avoid_t = 0.15
+	var d := Vector3(dir.x, 0, dir.z).normalized()
+	var reach: float = clampf(speed * 0.9, 2.0, 9.0) + float(rig.body_radius)
+	if _clear(d, reach) >= reach:
+		_avoid_dir = Vector3.ZERO
+		return d
+	var best := d
+	var best_free := -1.0
+	for deg in [30.0, -30.0, 60.0, -60.0, 90.0, -90.0, 135.0, -135.0]:
+		var cand := d.rotated(Vector3.UP, deg_to_rad(deg))
+		var free := _clear(cand, reach) - absf(deg) * 0.01
+		if free > best_free:
+			best_free = free
+			best = cand
+	_avoid_dir = best
+	return best
+
+
+func _clear(d: Vector3, reach: float) -> float:
+	var from := global_position + Vector3(0, clampf(rig.body_height * 0.35, 0.5, 1.5), 0)
+	var q := PhysicsRayQueryParameters3D.create(from, from + d * reach, LAYER_WORLD)
+	q.exclude = [get_rid()]
+	var hit := get_world_3d().direct_space_state.intersect_ray(q)
+	if hit.is_empty():
+		return reach
+	var n: Vector3 = hit["normal"]
+	if n.y > 0.75:
+		return reach   # walkable slope, not an obstacle
+	return from.distance_to(hit["position"])
+
+
 func _steer(dir: Vector3, speed: float, delta: float) -> void:
 	if speed > 0.0 and dir.length() > 0.01:
+		dir = _avoid(dir, speed, delta)
 		_face(dir, delta)
 		var f := forward()
 		var align := clampf(f.dot(dir.normalized()), 0.0, 1.0)

@@ -55,7 +55,11 @@ static func machine_bone_roles(type: String) -> Dictionary:
 static func machine_points(type: String) -> Dictionary:
 	var m := machine_meta(type)
 	var legacy := {}
-	for ws in m.get("weak_spots", []):
+	var has_weak_points := false
+	for pt in (m.get("points", {}) as Dictionary).values():
+		if typeof(pt) == TYPE_DICTIONARY and str(pt.get("kind", "")) == "weak_spot":
+			has_weak_points = true
+	for ws in [] if has_weak_points else m.get("weak_spots", []):
 		if typeof(ws) == TYPE_DICTIONARY and ws.has("bone"):
 			var n := str(ws.get("part", "weak"))
 			var key := n
@@ -86,13 +90,30 @@ static func weapon_meta(id: String) -> Dictionary:
 	return meta(weapon_dir(id).path_join("meta.json"))
 
 
-## First-person model (arms + weapon with clips), or "".
+## First-person model (arms + weapon with clips; content_model.view), or "".
 static func weapon_view_model(id: String) -> String:
-	return _weapon_file(id, ["content_model", "view_model"], "view.glb")
+	return _weapon_model(id, "view", "view.glb")
 
 
+## Static world model (content_model.world), or "".
 static func weapon_world_model(id: String) -> String:
-	return _weapon_file(id, ["world_model_file"], "world.glb")
+	return _weapon_model(id, "world", "world.glb")
+
+
+static func weapon_bone_roles(id: String) -> Dictionary:
+	return _merged(Sheets.weapon(id, "bone_roles"), weapon_meta(id).get("bone_roles", {}))
+
+
+static func _weapon_model(id: String, part: String, layout_name: String) -> String:
+	var rel := ""
+	for cm in [Sheets.weapon(id, "content_model"), weapon_meta(id).get("content_model")]:
+		if typeof(cm) == TYPE_DICTIONARY and (cm as Dictionary).has(part):
+			rel = str(cm[part])
+			break
+	if rel == "":
+		rel = weapon_dir(id).path_join(layout_name)
+	var p := Game.cache_root.path_join(rel)
+	return p if FileAccess.file_exists(p) else ""
 
 
 static func weapon_icon(id: String) -> String:
