@@ -133,7 +133,7 @@ public static class HzdConverter
 
     /// <summary>One world cell: terrain, instances, vegetation, campfires, spawns (hzd/cells/X_Y/).</summary>
     public static long ConvertCell(ConvContext ctx, int x, int y, IProgressSink progress) =>
-        throw new NotImplementedException("svet: ConvertCell");
+        World.CellConverter.Convert(ctx, new Resolver(Archive(ctx)), x, y, progress);
 
     /// <summary>Horizon music and ambience used by the game.</summary>
     public static long ConvertAudio(ConvContext ctx, IProgressSink progress) =>

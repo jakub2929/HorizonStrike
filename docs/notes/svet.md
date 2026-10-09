@@ -113,3 +113,20 @@ mole = Burrower were wrong. Grazer is `harvester`.
 - Results (bind pose top): Watcher 1.45 m, Strider 1.99 m, Grazer 3.71 m (incl. rotor blades). Units are meters
   (checked against an Aloy headdress top at 1.73 m). ~0.2-0.6 s per machine, 9-12 MB glb each.
 - Leg chains derived from the skeleton: grounded leaf joints walked up while the ancestor leads to one grounded leaf.
+
+## S4 terrain (2026-10-09) - REAL terrain
+- First attempt `lods/combined_flattened_height`: one Texture 4096x4096 BC6U (13 mips) for the whole world = 4 m/px;
+  usable for distant terrain but too coarse for play. Per tile data is better and decodes cleanly:
+- `tiles/tile_xXX_yYY/worlddata/worlddata_height_terrain.core` = WorldDataTextureMap (+ entry + result Texture).
+  SurfaceCacheData = 1024 x 1024 R_UNORM_16 (2 MiB). Heights in meters = raw / 32: tile (4,-3) raw 5641..13684 ->
+  176.3..427.6 m, exactly its TerrainTileData.MappedHeightRange 176..428 (the global Terrain.TerrainHeightRange 0..644
+  does NOT fit: it would give 55..134 m). Neighbours share edge samples bit-exactly (seam delta 0.0 m) -> 1024 samples
+  span 512 m inclusive, spacing 512/1023 = 0.5005 m.
+- Orientation: row 0 = north edge (HZD Y max), rows go south; column 0 = west edge (X min). Tile (x,y) covers HZD
+  X 512x..512(x+1), Y 512y..512(y+1) (TerrainTileData.BoundingBox).
+- World axes (landmark check): Meridian tiles are at x = -1, y = -3..-2, Sunfall at x = -3, y = 0..-1, Mother's Heart
+  at (4,-3): Meridian lies west of the Embrace and Sunfall north-west of Meridian, as in the game -> HZD X = east,
+  Y = north, Z = up, right-handed (also machines: R_ legs at +X when facing +Y). Godot = (x, z, -y): east +X, north -Z.
+- `worlddata_flattened_albedo` (Texture 2048 px, streamed) is the terrain colour seen from above, same orientation as
+  the heights (ravine, river and plateau line up with the hillshade). Exported at <= 1024 px (0.5 m/px).
+- All 340 terrain tiles have both files. Cell terrain converts in ~0.1 s.
