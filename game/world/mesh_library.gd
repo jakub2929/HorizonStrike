@@ -178,7 +178,6 @@ func _material(m: Dictionary) -> Material:
 		else:
 			mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA_SCISSOR
 			mat.alpha_scissor_threshold = float(m["cutoff"])
-			mat.alpha_antialiasing_mode = BaseMaterial3D.ALPHA_ANTIALIASING_ALPHA_TO_COVERAGE
 	if m["double_sided"]:
 		mat.cull_mode = BaseMaterial3D.CULL_DISABLED
 	mat.roughness = float(m["roughness"])

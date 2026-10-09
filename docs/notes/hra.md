@@ -98,6 +98,12 @@ Rules I follow: no class_name lookups across files (everything via preload, so a
 - Runner from test, editor build, real data (run1: C:\meshy\_tools\autotest-hra\run1, run2: ...\run2): t10, s01,
   t05, s02, s03, t06 all PASS (exit 0); t10 Game.cache_bytes max 806 MB vs disk 810 MB, 6 evictions; t06 29.4 ->
   84.9 m.
+- Vegetation format 3: per species effect_range against veg_effect.png (L8 snow map; centre and every cluster
+  member checked), max_instances, cluster {count, radius_m}, wander_m, footprint_m spacing, max_slope_deg. Budget:
+  trees get streaming.vegetation_tree_cap (new row, 1800), the rest shares vegetation_cell_cap - tree budget.
+  Start fps 38 -> 71.9 via: small plants fade at 45 m, plants <12 m fade at 0.45x, shadow distance 100 m, LOD
+  threshold 6 px, no alpha-to-coverage. 4_-3: 6551 vegetation, 1377 draw calls, GPU 13.35 ms.
+  Runner run4 (realfresh3): t05, t06, s01, s02, s03 PASS. Export pack: autotest/ included, dev/ excluded.
 
 ## Notes for teammates (relay via main)
 - test (t10): real cells outside the start area are ~11 MB (meshes/textures shared), 5 steps east add ~164 MB, so

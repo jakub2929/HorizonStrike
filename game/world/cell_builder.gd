@@ -203,30 +203,25 @@ static func _collision_heights(heights: PackedFloat32Array, w: int, h: int) -> A
 	return [out, nw, nh]
 
 
-## Vegetation from cell.json `vegetation` {density, channels, species[], density_scale?}: per species `per_m2`
-## (max density where the channel is 1), `footprint_m` (minimum spacing between plants of that species), `scale`,
-## `scale_variance`, `max_slope_deg`, optional `density_scale`. Expected count = per_m2 x area x mean channel density
-## x scales; all species of a cell share streaming.vegetation_cell_cap by their expected counts.
+## Vegetation from cell.json `vegetation` (format 3): {density, effect?, channels, species[]}. Per species:
+## per_m2 (already includes the converter's density scale), expected, max_instances, cluster {count, radius_m},
+## footprint_m (minimum spacing of clusters/plants), wander_m (position jitter), scale, scale_variance,
+## max_slope_deg, effect_range [lo, hi] (only where the effect map - snow - is inside the range, so snow variants stay
+## on snow). Every species is capped by max_instances; all species of a cell share streaming.vegetation_cell_cap.
 static func _scatter(cell_dir: String, info: Dictionary, heights: PackedFloat32Array, w: int, h: int, origin: Vector3, size: float) -> Dictionary:
 	var out := {}
 	var veg = info.get("vegetation", {})
 	if typeof(veg) != TYPE_DICTIONARY:
 		return out
-	var dpath := cell_dir.path_join(str(veg.get("density", "")))
-	if not FileAccess.file_exists(dpath):
-		return out
-	var img := Image.load_from_file(dpath)
+	var img := _load_map(cell_dir, str(veg.get("density", "")), Image.FORMAT_RGBA8)
 	if img == null:
 		return out
-	if img.is_compressed():
-		img.decompress()
-	img.convert(Image.FORMAT_RGBA8)
 	out["_density"] = img
+	var eff := _load_map(cell_dir, str(veg.get("effect", "")), Image.FORMAT_L8)
 	var channels: Array = veg.get("channels", ["trees", "blockbush", "undergrowth", "stealthplants"])
 	out["_channels"] = channels
 	var iw := img.get_width()
 	var ih := img.get_height()
-	# mean density per channel (sampled)
 	var mean := [0.0, 0.0, 0.0, 0.0]
 	var n_s := 0
 	for py in range(0, ih, 4):
@@ -237,7 +232,7 @@ static func _scatter(cell_dir: String, info: Dictionary, heights: PackedFloat32A
 			n_s += 1
 	for k in 4:
 		mean[k] /= maxf(n_s, 1)
-	var global_scale := Sheets.sys_num("streaming.vegetation_density_scale", 1.0) * float(veg.get("density_scale", 1.0))
+	var game_scale := Sheets.sys_num("streaming.vegetation_density_scale", 1.0)
 	var cell_cap := int(Sheets.sys_num("streaming.vegetation_cell_cap", 14000))
 	var species: Array = []
 	var total := 0.0
@@ -248,19 +243,28 @@ static func _scatter(cell_dir: String, info: Dictionary, heights: PackedFloat32A
 		var per_m2 := float(sp.get("per_m2", 0.0))
 		if ci < 0 or ci > 3 or mid == "" or per_m2 <= 0.0:
 			continue
-		var expected := per_m2 * size * size * float(mean[ci]) * global_scale * float(sp.get("density_scale", 1.0))
+		var expected := float(sp.get("expected", per_m2 * size * size * float(mean[ci]))) * game_scale * float(sp.get("density_scale", 1.0))
+		if sp.has("max_instances"):
+			expected = minf(expected, float(sp["max_instances"]))
 		if expected < 1.0:
 			continue
 		species.append([sp, ci, expected])
 		total += expected
-	var share := minf(1.0, float(cell_cap) / maxf(total, 1.0))
+	# trees get their own budget; every other species shares what is left of the cell budget
+	var tree_total := 0.0
+	for entry in species:
+		if str(entry[0].get("channel", "")) == "trees":
+			tree_total += float(entry[2])
+	var tree_budget := minf(tree_total, Sheets.sys_num("streaming.vegetation_tree_cap", 1800.0))
+	var tree_share := tree_budget / maxf(tree_total, 1.0)
+	var share := minf(1.0, maxf(float(cell_cap) - tree_budget, 0.0) / maxf(total - tree_total, 1.0))
 	var cell: Array = info.get("cell", [0, 0])
 	var rng := RandomNumberGenerator.new()
 	var dx := size / float(w - 1)
 	for entry in species:
 		var sp: Dictionary = entry[0]
 		var ci: int = entry[1]
-		var target := int(float(entry[2]) * share)
+		var target := int(float(entry[2]) * (tree_share if str(sp.get("channel", "")) == "trees" else share))
 		if target <= 0:
 			continue
 		var ch := str(sp.get("channel", ""))
@@ -269,21 +273,28 @@ static func _scatter(cell_dir: String, info: Dictionary, heights: PackedFloat32A
 		var max_slope := deg_to_rad(float(sp.get("max_slope_deg", 90.0)))
 		var base_scale := float(sp.get("scale", 1.0))
 		var var_scale := float(sp.get("scale_variance", 0.15))
-		# footprint spacing grows when the budget thins a species out (keeps the look even instead of clumped)
-		var spacing := maxf(float(sp.get("footprint_m", 0.0)), sqrt(size * size / maxf(target, 1.0)) * 0.5)
+		var wander := float(sp.get("wander_m", 0.0))
+		var er: Array = sp.get("effect_range", [])
+		var cl: Dictionary = sp.get("cluster", {}) if typeof(sp.get("cluster")) == TYPE_DICTIONARY else {}
+		var per_cluster := maxi(int(cl.get("count", 1)), 1)
+		var radius := float(cl.get("radius_m", 0.0))
+		var centers := int(ceil(float(target) / per_cluster))
+		# spacing between plants (single) or clusters; thinned species spread out instead of clumping
+		var spacing := maxf(float(sp.get("footprint_m", 0.0)), maxf(radius * 2.0, sqrt(size * size / maxf(centers, 1.0)) * 0.5))
 		var grid := {}
 		var xfs: Array = []
-		var attempts := target * 6
+		var attempts := centers * 8
 		for i in attempts:
 			if xfs.size() >= target:
 				break
 			var u := rng.randf()
 			var v := rng.randf()
-			var dens: float = img.get_pixel(mini(int(u * iw), iw - 1), mini(int(v * ih), ih - 1))[ci]
-			if rng.randf() >= dens:
+			if rng.randf() >= img.get_pixel(mini(int(u * iw), iw - 1), mini(int(v * ih), ih - 1))[ci]:
 				continue
 			var x := origin.x + u * size
 			var z := origin.z + v * size
+			if not _in_effect(eff, er, x, z, origin, size):
+				continue
 			var key := Vector2i(floori(x / spacing), floori(z / spacing))
 			var close := false
 			for gy in range(-1, 2):
@@ -293,19 +304,60 @@ static func _scatter(cell_dir: String, info: Dictionary, heights: PackedFloat32A
 						close = true
 			if close:
 				continue
-			var y := sample_height(heights, w, h, origin, size, x, z)
-			if max_slope < PI * 0.49:
-				var gxs := sample_height(heights, w, h, origin, size, x + dx, z) - y
-				var gzs := sample_height(heights, w, h, origin, size, x, z + dx) - y
-				if atan(Vector2(gxs, gzs).length() / dx) > max_slope:
-					continue
 			grid[key] = Vector2(x, z)
-			var s := base_scale * (1.0 + rng.randf_range(-var_scale, var_scale))
-			var basis := Basis(Vector3.UP, rng.randf() * TAU).scaled(Vector3(s, s, s))
-			xfs.append(Transform3D(basis, Vector3(x, y - 0.05, z)))
+			for m in per_cluster:
+				if xfs.size() >= target:
+					break
+				var px := x
+				var pz := z
+				if m > 0 or per_cluster > 1:
+					var a := rng.randf() * TAU
+					var r := sqrt(rng.randf()) * radius
+					px += cos(a) * r
+					pz += sin(a) * r
+				if wander > 0.0:
+					px += rng.randf_range(-wander, wander)
+					pz += rng.randf_range(-wander, wander)
+				px = clampf(px, origin.x, origin.x + size)
+				pz = clampf(pz, origin.z, origin.z + size)
+				if m > 0 and not _in_effect(eff, er, px, pz, origin, size):
+					continue
+				var y := sample_height(heights, w, h, origin, size, px, pz)
+				if max_slope < PI * 0.49:
+					var gxs := sample_height(heights, w, h, origin, size, px + dx, pz) - y
+					var gzs := sample_height(heights, w, h, origin, size, px, pz + dx) - y
+					if atan(Vector2(gxs, gzs).length() / dx) > max_slope:
+						continue
+				var s := base_scale * (1.0 + rng.randf_range(-var_scale, var_scale))
+				var basis := Basis(Vector3.UP, rng.randf() * TAU).scaled(Vector3(s, s, s))
+				xfs.append(Transform3D(basis, Vector3(px, y - 0.05, pz)))
 		if not xfs.is_empty():
 			out[ch + ":" + mid] = {"channel": ch, "mesh": mid, "xfs": xfs}
 	return out
+
+
+static func _load_map(cell_dir: String, file: String, fmt: int) -> Image:
+	if file == "" or not FileAccess.file_exists(cell_dir.path_join(file)):
+		return null
+	var im := Image.load_from_file(cell_dir.path_join(file))
+	if im == null:
+		return null
+	if im.is_compressed():
+		im.decompress()
+	im.convert(fmt)
+	return im
+
+
+## Effect map (e.g. snow) value at a position inside [lo, hi]; no range or no map = everywhere.
+static func _in_effect(eff: Image, er: Array, x: float, z: float, origin: Vector3, size: float) -> bool:
+	if er.size() < 2 or eff == null:
+		return true
+	var ew := eff.get_width()
+	var eh := eff.get_height()
+	var u := clampf((x - origin.x) / size, 0.0, 0.9999)
+	var v := clampf((z - origin.z) / size, 0.0, 0.9999)
+	var e := eff.get_pixel(int(u * ew), int(v * eh)).r
+	return e >= float(er[0]) and e <= float(er[1])
 
 
 ## Main thread: builds the node tree for prepared data (meshes must already be loaded in `meshes`).
@@ -397,14 +449,14 @@ static func instantiate(data: Dictionary, meshes: RefCounted) -> Node3D:
 ## Size class of a mesh -> [chunk size m, visibility range m, casts shadow]. Plants (alpha-tested) fade sooner.
 static func _lod_class(aabb: AABB, scale: float, plant: bool) -> Array:
 	var s := maxf(aabb.size.x, maxf(aabb.size.y, aabb.size.z)) * scale
-	var k := 0.7 if plant else 1.0
+	var k := 0.45 if plant else 1.0
 	if s < 1.5:
-		return [128.0, 55.0 * k, false]
+		return [128.0, 45.0 if plant else 55.0, false]
 	if s < 4.0:
 		return [128.0, 130.0 * k, false]
 	if s < 12.0:
-		return [256.0, 380.0 * k, false]
-	return [512.0, 0.0, true]
+		return [256.0, 300.0 * k, false]
+	return [512.0, 600.0 if plant else 0.0, true]
 
 
 static func _add_chunked(parent: Node3D, id: String, e: Dictionary, xfs: Array, origin: Vector3, tints: Array = []) -> void:

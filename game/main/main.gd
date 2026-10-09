@@ -377,6 +377,6 @@ func _make_environment() -> void:
 	sun.rotation = Vector3(deg_to_rad(-48.0), deg_to_rad(-35.0), 0)
 	sun.light_energy = 1.25
 	sun.shadow_enabled = true
-	sun.directional_shadow_max_distance = 150.0
+	sun.directional_shadow_max_distance = 100.0
 	sun.directional_shadow_mode = DirectionalLight3D.SHADOW_PARALLEL_2_SPLITS
 	add_child(sun)
