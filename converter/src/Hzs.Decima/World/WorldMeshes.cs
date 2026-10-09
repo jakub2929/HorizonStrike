@@ -15,7 +15,8 @@ public sealed record MeshRef(string Id, string[] Textures, bool Colorized);
 /// Shared static meshes of the world: hzd/meshes/&lt;meshid&gt;.glb (Godot space, mesh-local, no transform) and their
 /// colour textures shared by many meshes in hzd/textures/&lt;texid&gt;.png (glb image uri "../textures/&lt;texid&gt;.png").
 /// meshid = 16 hex digits of the archive path hash of the mesh's core file + "_" + object index in that file.
-/// The LOD is the finest one within the vertex budget. Thread-safe; each mesh/texture is written once (atomic).
+/// The LOD is the finest one within the vertex budget. Thread-safe; each mesh/texture is written once (atomic) and
+/// written again when its file was deleted meanwhile (cache GC).
 /// </summary>
 public sealed class WorldMeshes(Resolver res, CachePaths cache, Log log, int texPx = 512, int maxVertices = 12000)
 {
@@ -51,13 +52,39 @@ public sealed class WorldMeshes(Resolver res, CachePaths cache, Log log, int tex
         var obj = core?.Find(uuid);
         if (core is null || obj is null) return null;
         var id = MeshId(file, obj.Index);
-        var ok = _meshes.GetOrAdd(id, _ => new Lazy<bool>(() => Export(core, obj, id, written), LazyThreadSafetyMode.ExecutionAndPublication)).Value;
+        var ok = Fresh(_meshes, id, () => new Lazy<bool>(() => Export(core, obj, id, written), LazyThreadSafetyMode.ExecutionAndPublication),
+            v => !v || MeshFilesPresent(id));
         if (!ok) return null;
         // texture ids (and the #colorized flag) are recorded next to the mesh (small sidecar) so cells can list them
         // without re-reading the glb
         var side = Path.Combine(MeshDir, id + ".tex");
         var lines = File.Exists(side) ? File.ReadAllLines(side).Where(l => l.Length > 0).ToArray() : [];
         return new MeshRef(id, lines.Where(l => !l.StartsWith('#')).ToArray(), lines.Contains(ColorizedFlag));
+    }
+
+    /// <summary>
+    /// The cached result for <paramref name="key"/>, exported again when <paramref name="valid"/> says its files are gone
+    /// (the game's cache GC deletes shared files of evicted cells while this process keeps running). The swap is atomic:
+    /// with several workers exactly one re-exports, the others wait on the same Lazy.
+    /// </summary>
+    private static T Fresh<T>(ConcurrentDictionary<string, Lazy<T>> map, string key, Func<Lazy<T>> make, Func<T, bool> valid)
+    {
+        var lz = map.GetOrAdd(key, _ => make());
+        var v = lz.Value;
+        if (valid(v)) return v;
+        var fresh = make();
+        return (map.TryUpdate(key, fresh, lz) ? fresh : map[key]).Value;
+    }
+
+    private string TexPath(string texId) => Path.Combine(TextureDir, texId + ".png");
+
+    /// <summary>glb, sidecar and every texture the sidecar lists exist on disk.</summary>
+    private bool MeshFilesPresent(string id)
+    {
+        var side = Path.Combine(MeshDir, id + ".tex");
+        if (!File.Exists(Path.Combine(MeshDir, id + ".glb")) || !File.Exists(side)) return false;
+        try { return File.ReadAllLines(side).Where(l => l.Length > 0 && !l.StartsWith('#')).All(t => File.Exists(TexPath(t))); }
+        catch (IOException) { return false; }
     }
 
     private bool Export(CoreFile core, CoreObject obj, string id, StrongBox<long> written)
@@ -82,7 +109,7 @@ public sealed class WorldMeshes(Resolver res, CachePaths cache, Log log, int tex
             foreach (var prim in md.Prims)
             {
                 if (prim.Idx.Length == 0) continue;
-                var choice = _mats.ForEffect(prim.Effect, known: k => _textures.TryGetValue(k, out var lz) && lz.IsValueCreated && lz.Value is not null);
+                var choice = _mats.ForEffect(prim.Effect, known: k => _textures.TryGetValue(k, out var lz) && lz.IsValueCreated && lz.Value is { } kt && File.Exists(TexPath(kt.Id)));
                 var key = choice?.Key ?? "";
                 if (!matCache.TryGetValue(key, out var mat))
                 {
@@ -128,14 +155,13 @@ public sealed class WorldMeshes(Resolver res, CachePaths cache, Log log, int tex
     }
 
     private (string Id, bool Alpha)? Texture(string key, Image img, StrongBox<long> written) =>
-        _textures.GetOrAdd(key, k => new Lazy<(string, bool)?>(() =>
+        Fresh(_textures, key, () => new Lazy<(string Id, bool Alpha)?>(() =>
         {
-            var tid = $"{Murmur3.PathHash(k):x16}";
-            var path = Path.Combine(TextureDir, tid + ".png");
+            var tid = $"{Murmur3.PathHash(key):x16}";
             var alpha = img.Channels == 4 && HasCutout(img);
-            WriteShared(path, img.ToPng(), written); // once per process: a texture is decoded only for a mesh being exported
+            WriteShared(TexPath(tid), img.ToPng(), written); // a texture is decoded only for a mesh being exported
             return (tid, alpha);
-        }, LazyThreadSafetyMode.ExecutionAndPublication)).Value;
+        }, LazyThreadSafetyMode.ExecutionAndPublication), v => v is null || File.Exists(TexPath(v.Value.Id)));
 
     /// <summary>asset.extras.format of a glb file (0 when missing or unreadable).</summary>
     private static int GlbFormat(string path)

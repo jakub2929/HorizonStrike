@@ -280,3 +280,14 @@ mole = Burrower were wrong. Grazer is `harvester`.
 - 4_-3 picks: trees Colorado pinyon x2, quaking aspen (snow / no snow), lodgepole pine (snow / no snow); blockbush beaked
   willow; undergrowth fourwing saltbush, Payson's sedge (snow / no snow), carex, common weeds, white aster; stealth
   cover grass (snow / no snow).
+
+## Shared files deleted by the game's cache GC (2026-10-09)
+- WorldMeshes kept a per-process Lazy per mesh/texture and never wrote it again, so a cell converted again after the
+  game's GC deleted its meshes referenced missing files. Now Ensure checks at use time that the glb, its sidecar and
+  every texture the sidecar lists exist; if not, the cached Lazy is swapped atomically (TryUpdate) and exported
+  again (one worker exports, others wait on the same Lazy; bytes count for the job that writes). Textures likewise,
+  and the material `known` shortcut requires the PNG on disk.
+- HzdConverter.CellUpToDate also requires every mesh/texture listed in cell.json to exist, so a cell whose shared
+  files were collected is not answered `cached` but converted again.
+- Check (scratch gc_regen.py, one serve session): 5,-3 converted, its 1194 glb + 223 png (+ half the sidecars)
+  deleted, re-requested -> cached false, missing 0/0; 4,-3 same with the cell dir deleted too -> missing 0/0.
