@@ -24,7 +24,7 @@ def load(path, phase):
             t.append(ts)
             ms.append(v)
             if "cell_loaded" in (row.get("event") or "") or "cell_insert_started" in (row.get("event") or ""):
-                loads.append(ts)
+                loads.append(ts - v / 1000.0)  # the event happened during this frame (rows are stamped at frame end)
     if t:
         t0 = t[0]
         t = [x - t0 for x in t]
@@ -40,8 +40,9 @@ def stats(t, ms, loads, before=1.0, after=0.25):
     worst_load = 0.0
     j = 0
     for ts, v in zip(t, ms):
+        start = ts - v / 1000.0  # rows are stamped at frame end: the frame covers [start, ts]
         for lt in loads:
-            if lt - before <= ts <= lt + after:
+            if ts >= lt - before and start <= lt + after:
                 worst_load = max(worst_load, v)
                 break
     total = sum(ms) / 1000.0

@@ -74,8 +74,12 @@ func stats(phase_name: String, load_window_before_s: float = 1.0, load_window_af
 		ms.append(r[1])
 		total += r[1]
 		worst_any = maxf(worst_any, r[1])
+		# a row is stamped at the END of its frame: the frame covers [t - ms, t]; it is a load frame when that interval
+		# overlaps [load - before, load + after] (the frame that contains the load event counts)
+		var f_end: float = r[0]
+		var f_start: float = r[0] - r[1] / 1000.0
 		for l in loads:
-			if r[0] >= l[0] - load_window_before_s and r[0] <= l[0] + load_window_after_s:
+			if f_end >= l[0] - load_window_before_s and f_start <= l[0] + load_window_after_s:
 				worst_load = maxf(worst_load, r[1])
 				break
 	if ms.is_empty():
