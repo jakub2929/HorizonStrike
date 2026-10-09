@@ -83,7 +83,12 @@ static func dir_bytes(path: String) -> int:
 			if not da.is_link(full):
 				total += dir_bytes(full)
 		else:
-			total += maxi(0, FileAccess.get_size(full))
+			# files can vanish or be half-written while the game's mesh GC / converter run; never ask the engine
+			# for the size of a path that may be gone (it logs an engine error), and skip *.tmp
+			if not n.ends_with(".tmp") and FileAccess.file_exists(full):
+				var f := FileAccess.open(full, FileAccess.READ)
+				if f != null:
+					total += f.get_length()
 		n = da.get_next()
 	da.list_dir_end()
 	return total
