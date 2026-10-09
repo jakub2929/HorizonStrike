@@ -12,6 +12,7 @@ const Log := preload("res://core/log.gd")
 const FsUtil := preload("res://core/fsutil.gd")
 const Campfire := preload("res://world/campfire.gd")
 const TerrainMaterial := preload("res://world/terrain_material.gd")
+const MeshLib := preload("res://world/mesh_library.gd")
 
 const MAX_VISUAL_VERTS := 257
 const MAX_COLLISION_VERTS := 257      # = the visual terrain grid (2 m): feet stand on the surface that is drawn
@@ -72,13 +73,20 @@ static func prepare(cell_dir: String, meshes: RefCounted) -> Dictionary:
 	for key in ["albedo", "normal"]:
 		var f := str(terr.get(key, ""))
 		if f != "" and FileAccess.file_exists(cell_dir.path_join(f)):
-			var img := Image.load_from_file(cell_dir.path_join(f))
+			var img: Image = null
+			if f.get_extension().to_lower() == "dds":
+				img = MeshLib.load_dds(cell_dir.path_join(f))   # BC1/BC5 with mips from the converter
+			else:
+				img = Image.load_from_file(cell_dir.path_join(f))
+				if img:
+					img.generate_mipmaps()
+					# runtime BC compression exists only in editor builds (release templates log an error)
+					if key == "albedo" and not img.is_compressed() and OS.has_feature("editor"):
+						img.compress(Image.COMPRESS_S3TC, Image.COMPRESS_SOURCE_SRGB)
 			if img:
-				img.generate_mipmaps()
-				# runtime BC compression exists only in editor builds (release templates log an error)
-				if key == "albedo" and not img.is_compressed() and OS.has_feature("editor"):
-					img.compress(Image.COMPRESS_S3TC, Image.COMPRESS_SOURCE_SRGB)
 				out[key + "_img"] = img
+	# terrain normal maps: "world_xz" = R world X, G world Z (Y rebuilt), else tangent space
+	out["normal_world"] = str(terr.get("normal_space", "")) == "world_xz"
 	tp["terrain_tex"] = (Time.get_ticks_usec() - tw) / 1000.0
 	tw = Time.get_ticks_usec()
 	# ---- instances grouped by mesh
@@ -363,7 +371,7 @@ static func _scatter(cell_dir: String, info: Dictionary, heights: PackedFloat32A
 static func _load_map(cell_dir: String, file: String, fmt: int) -> Image:
 	if file == "" or not FileAccess.file_exists(cell_dir.path_join(file)):
 		return null
-	var im := Image.load_from_file(cell_dir.path_join(file))
+	var im: Image = MeshLib.load_dds(cell_dir.path_join(file)) if file.get_extension().to_lower() == "dds" else Image.load_from_file(cell_dir.path_join(file))
 	if im == null:
 		return null
 	if im.is_compressed():
@@ -585,7 +593,7 @@ static func make_terrain(data: Dictionary) -> MeshInstance3D:
 	tm.mesh = tmesh
 	var alb: Texture2D = ImageTexture.create_from_image(data["albedo_img"]) if data.has("albedo_img") else null
 	var nrm: Texture2D = ImageTexture.create_from_image(data["normal_img"]) if data.has("normal_img") else null
-	tm.material_override = TerrainMaterial.make(alb, nrm)
+	tm.material_override = TerrainMaterial.make(alb, nrm, bool(data.get("normal_world", false)))
 	return tm
 
 

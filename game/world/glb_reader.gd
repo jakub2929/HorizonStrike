@@ -131,23 +131,34 @@ static func _materials(j: Dictionary) -> Array:
 	var out: Array = []
 	for m in j.get("materials", []):
 		var pbr: Dictionary = m.get("pbrMetallicRoughness", {})
-		var img_name := ""
-		if pbr.has("baseColorTexture"):
-			var ti := int(pbr["baseColorTexture"].get("index", -1))
-			if ti >= 0 and ti < textures.size() and textures[ti].has("source"):
-				var im: Dictionary = images[int(textures[ti]["source"])]
-				img_name = str(im.get("name", ""))
-				if img_name == "" and im.has("uri"):
-					img_name = str(im["uri"]).get_file().get_basename()
-				if im.has("uri"):
-					img_name = str(im["uri"]).get_file().get_basename()
+		var img_name := _image_name(pbr.get("baseColorTexture", {}), images, textures)
 		var f: Array = pbr.get("baseColorFactor", [1, 1, 1, 1])
 		var mode := str(m.get("alphaMode", "OPAQUE"))
 		out.append({"name": str(m.get("name", "")), "image": img_name, "color": Color(f[0], f[1], f[2], f[3]),
 			"alpha": mode != "OPAQUE", "blend": mode == "BLEND", "cutoff": float(m.get("alphaCutoff", 0.5)),
 			"double_sided": bool(m.get("doubleSided", false)), "roughness": float(pbr.get("roughnessFactor", 1.0)),
-			"metallic": float(pbr.get("metallicFactor", 1.0))})
+			"metallic": float(pbr.get("metallicFactor", 1.0)),
+			# normal map (tangent space, RG = XY) and packed occlusion (R) / roughness (G) / metallic (B)
+			"normal": _image_name(m.get("normalTexture", {}), images, textures),
+			"orm": _image_name(pbr.get("metallicRoughnessTexture", {}), images, textures),
+			"occlusion": _image_name(m.get("occlusionTexture", {}), images, textures)})
 	return out
+
+
+## Cache texture name (file name without extension, hzd/textures/<name>.dds|png) of a glTF textureInfo.
+static func _image_name(info: Variant, images: Array, textures: Array) -> String:
+	if typeof(info) != TYPE_DICTIONARY or not (info as Dictionary).has("index"):
+		return ""
+	var ti := int(info["index"])
+	if ti < 0 or ti >= textures.size() or not textures[ti].has("source"):
+		return ""
+	var si := int(textures[ti]["source"])
+	if si < 0 or si >= images.size():
+		return ""
+	var im: Dictionary = images[si]
+	if im.has("uri"):
+		return str(im["uri"]).get_file().get_basename()
+	return str(im.get("name", ""))
 
 
 ## Raw bytes + layout of an accessor: [data, count, comps, comp_type, stride, normalized].

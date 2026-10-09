@@ -55,6 +55,7 @@ func prepare(ids: Array) -> Dictionary:
 		var p := GlbReader.read(dir.path_join(id + ".glb"), false)
 		var t1 := Time.get_ticks_usec()
 		if not p.is_empty():
+			_add_tangents(p)
 			_generate_lods(p)
 			if _wants_trimesh(p):
 				p["faces"] = _faces(p)
@@ -69,8 +70,8 @@ func prepare(ids: Array) -> Dictionary:
 			continue
 		var t2 := Time.get_ticks_usec()
 		for m in p["materials"]:
-			if str(m["image"]) != "":
-				_decode(str(m["image"]))
+			for n in _map_names(m):
+				_decode(n)
 		st["tex_ms"] += (Time.get_ticks_usec() - t2) / 1000.0
 	return st
 
@@ -105,6 +106,26 @@ static func _faces(p: Dictionary) -> PackedVector3Array:
 	return faces
 
 
+## Normal maps need tangents; the converter's glb has POSITION/NORMAL/TEXCOORD_0 only, so surfaces whose material
+## has a normal map get MikkTSpace tangents here (SurfaceTool, CPU only, worker thread).
+static func _add_tangents(p: Dictionary) -> void:
+	var mats: Array = p["materials"]
+	for s in p["surfaces"]:
+		var mi := int(s["material"])
+		if mi < 0 or mi >= mats.size() or str(mats[mi].get("normal", "")) == "":
+			continue
+		var arrays: Array = s["arrays"]
+		if arrays[Mesh.ARRAY_NORMAL] == null or arrays[Mesh.ARRAY_TEX_UV] == null:
+			continue
+		var st := SurfaceTool.new()
+		st.create_from_arrays(arrays, Mesh.PRIMITIVE_TRIANGLES)
+		st.generate_tangents()
+		st.index()
+		var out := st.commit_to_arrays()
+		if out.size() == Mesh.ARRAY_MAX and out[Mesh.ARRAY_TANGENT] != null:
+			s["arrays"] = out
+
+
 ## Automatic LODs (meshoptimizer through ImporterMesh, CPU only) -> per surface {screen size: indices}.
 func _generate_lods(p: Dictionary) -> void:
 	if int(p["tris"]) < LOD_MIN_TRIS:
@@ -134,7 +155,21 @@ func _decode(tex_name: String) -> void:
 	_mutex.unlock()
 
 
+## Texture names a material uses (colour, normal, ORM, occlusion), without duplicates.
+static func _map_names(m: Dictionary) -> Array:
+	var out: Array = []
+	for k in ["image", "normal", "orm", "occlusion"]:
+		var n := str(m.get(k, ""))
+		if n != "" and not out.has(n):
+			out.append(n)
+	return out
+
+
+## Cache texture: <name>.dds (converter BC1/BC5/BC7 with mips, used as is) or <name>.png (older caches).
 func _load_image(tex_name: String) -> Image:
+	var dds := tex_dir.path_join(tex_name + ".dds")
+	if FileAccess.file_exists(dds):
+		return load_dds(dds)
 	var path := tex_dir.path_join(tex_name + ".png")
 	if not FileAccess.file_exists(path):
 		return null
@@ -146,6 +181,15 @@ func _load_image(tex_name: String) -> Image:
 		# runtime BC compression exists only in editor builds (release templates log an error)
 		if OS.has_feature("editor"):
 			img.compress(Image.COMPRESS_S3TC, Image.COMPRESS_SOURCE_SRGB)
+	return img
+
+
+## DDS file -> Image (block-compressed formats stay compressed; the full mip chain comes from the file). null on error.
+static func load_dds(path: String) -> Image:
+	var img := Image.new()
+	if img.load_dds_from_buffer(FileAccess.get_file_as_bytes(path)) != OK or img.is_empty():
+		Log.warn("texture not loadable: %s" % path)
+		return null
 	return img
 
 
@@ -235,7 +279,8 @@ func _build(p: Dictionary, id: String) -> Dictionary:
 
 
 func _material(m: Dictionary) -> Material:
-	var key := "%s|%s|%s|%s|%s" % [m["image"], m["color"], m["alpha"], m["double_sided"], m["cutoff"]]
+	var key := "%s|%s|%s|%s|%s|%s|%s|%s|%s|%s" % [m["image"], m["color"], m["alpha"], m["double_sided"], m["cutoff"],
+		m.get("normal", ""), m.get("orm", ""), m.get("occlusion", ""), m["roughness"], m["metallic"]]
 	if _materials.has(key):
 		return _materials[key]
 	var mat := StandardMaterial3D.new()
@@ -256,6 +301,28 @@ func _material(m: Dictionary) -> Material:
 		mat.cull_mode = BaseMaterial3D.CULL_DISABLED
 	mat.roughness = float(m["roughness"])
 	mat.metallic = float(m["metallic"])
+	var nrm := str(m.get("normal", ""))
+	if nrm != "":
+		var nt := _texture(nrm)
+		if nt:
+			mat.normal_enabled = true
+			mat.normal_texture = nt
+	var orm := str(m.get("orm", ""))
+	if orm != "":
+		var ot := _texture(orm)
+		if ot:
+			# glTF metallicRoughness: G = roughness, B = metallic (factors multiply)
+			mat.roughness_texture = ot
+			mat.roughness_texture_channel = BaseMaterial3D.TEXTURE_CHANNEL_GREEN
+			mat.metallic_texture = ot
+			mat.metallic_texture_channel = BaseMaterial3D.TEXTURE_CHANNEL_BLUE
+	var occ := str(m.get("occlusion", ""))
+	if occ != "":
+		var at := _texture(occ)
+		if at:
+			mat.ao_enabled = true
+			mat.ao_texture = at
+			mat.ao_texture_channel = BaseMaterial3D.TEXTURE_CHANNEL_RED
 	_materials[key] = mat
 	return mat
 
@@ -303,9 +370,9 @@ func pending_textures(id: String) -> Array:
 	if typeof(p) != TYPE_DICTIONARY or (p as Dictionary).is_empty():
 		return out
 	for m in p["materials"]:
-		var n := str(m["image"])
-		if n != "" and not _textures.has(n) and not out.has(n):
-			out.append(n)
+		for n in _map_names(m):
+			if not _textures.has(n) and not out.has(n):
+				out.append(n)
 	return out
 
 

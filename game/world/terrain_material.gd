@@ -11,6 +11,7 @@ uniform bool has_albedo = false;
 uniform vec4 base_color : source_color = vec4(0.36, 0.45, 0.28, 1.0);
 uniform sampler2D normal_tex : hint_normal, filter_linear_mipmap_anisotropic, repeat_disable;
 uniform bool has_normal = false;
+uniform bool normal_world = false;   // normal_tex RG = world X/Z (converter "world_xz"), Y rebuilt
 uniform sampler2D detail_tex : filter_linear_mipmap, repeat_enable;
 uniform sampler2D detail_normal : hint_normal, filter_linear_mipmap, repeat_enable;
 uniform float detail_scale = 0.22;
@@ -37,7 +38,13 @@ void fragment() {
 	ALBEDO = col;
 	ROUGHNESS = 0.92;
 	SPECULAR = 0.2;
-	if (has_normal) {
+	if (has_normal && normal_world) {
+		vec2 nxz = texture(normal_tex, UV).rg * 2.0 - 1.0;
+		vec3 nw = normalize(vec3(nxz.x, sqrt(max(0.0, 1.0 - dot(nxz, nxz))), nxz.y));
+		NORMAL = normalize((VIEW_MATRIX * vec4(nw, 0.0)).xyz);
+		NORMAL_MAP = mix(vec3(0.5, 0.5, 1.0), texture(detail_normal, world_pos.xz * detail_scale).rgb, near_k);
+		NORMAL_MAP_DEPTH = 0.6;
+	} else if (has_normal) {
 		NORMAL_MAP = texture(normal_tex, UV).rgb;
 	} else {
 		NORMAL_MAP = mix(vec3(0.5, 0.5, 1.0), texture(detail_normal, world_pos.xz * detail_scale).rgb, near_k);
@@ -51,7 +58,7 @@ static var _detail: NoiseTexture2D
 static var _detail_n: NoiseTexture2D
 
 
-static func make(albedo: Texture2D, normal: Texture2D) -> ShaderMaterial:
+static func make(albedo: Texture2D, normal: Texture2D, normal_world: bool = false) -> ShaderMaterial:
 	if _shader == null:
 		_shader = Shader.new()
 		_shader.code = SHADER
@@ -79,6 +86,7 @@ static func make(albedo: Texture2D, normal: Texture2D) -> ShaderMaterial:
 	if albedo:
 		m.set_shader_parameter("albedo_tex", albedo)
 	m.set_shader_parameter("has_normal", normal != null)
+	m.set_shader_parameter("normal_world", normal_world)
 	if normal:
 		m.set_shader_parameter("normal_tex", normal)
 	m.set_shader_parameter("detail_tex", _detail)
