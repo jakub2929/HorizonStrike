@@ -58,6 +58,9 @@ var _col := {}                     # Vector2i -> {buckets, origin, bodies: key -
 var _col_ops: Array = []           # [cell, bucket key, "add"|"remove", distance]
 var _col_timer := 0.0
 var _graveyard: Array = []         # nodes of unloaded cells, freed a few per frame (leaves first)
+var far := {}                     # Vector2i -> Node3D far version of a cell (coarse terrain + HLOD proxy)
+var _far_jobs := {}                # Vector2i -> {task, out: [Dictionary]}
+var _far_none := {}                # cells without an HLOD (not asked again)
 var last_work := ""                # --profile-cells: what the streaming main-thread work did last frame (steps > 1 ms)
 var _finish_detail := ""
 var _free_tasks: Array = []        # worker tasks dropping finished cells' prepared data
@@ -205,11 +208,12 @@ func _update_streaming() -> void:
 		if on_disk.has(c) and not loaded.has(c) and not building.has(c):
 			_start_build(c)
 	# request conversions: prio 0 inside load ring of the player or the lead point, else ring distance.
-	# The wider request_ring is only used while the player moves (a player standing at the start needs just the
-	# bootstrap ring, so the first launch converts 3x3 cells, BRIEF/t09).
+	# The wider request_ring (prio = ring, after the near cells) is used while the player moves and, since 0.2, also
+	# standing when far cells show HLOD proxies from that ring (render.hlod_from_ring <= request_ring): the horizon
+	# is converted cells, not void. Before world_ready only the start cell (t09).
 	var want := {}
 	var moving := Vector2(player_vel().x, player_vel().z).length() > 1.0
-	if moving:
+	if moving or int(Sheets.sys_num("render.hlod_from_ring", 2)) <= req_r:
 		for c in ring(pc, req_r):
 			want[c] = cheb(c, pc)
 	for c in ring(lead, load_r):
@@ -239,6 +243,7 @@ func _update_streaming() -> void:
 	for c in loaded.keys():
 		if cheb(c, pc) > unload_r:
 			_unload(c)
+	_update_far(pc, unload_r)
 	if pc != _last_player_cell:
 		_last_player_cell = pc
 		Log.info("player cell %s (loaded %d, on disk %d, requested %d)" % [pc, loaded.size(), on_disk.size(), requested.size()])
@@ -364,6 +369,24 @@ func _main_thread_work(delta: float) -> void:
 			var tf := Time.get_ticks_usec()
 			_finish_insert(ins)
 			last_work += "finish %.1f (%s) | " % [(Time.get_ticks_usec() - tf) / 1000.0, _finish_detail]
+	# one finished far cell per frame (when time is left)
+	if Time.get_ticks_usec() < deadline:
+		for c in _far_jobs.keys():
+			var fj: Dictionary = _far_jobs[c]
+			if not WorkerThreadPool.is_task_completed(fj["task"]):
+				continue
+			WorkerThreadPool.wait_for_task_completion(fj["task"])
+			_far_jobs.erase(c)
+			var fd: Dictionary = fj["out"][0]
+			if fd.is_empty():
+				_far_none[c] = true
+			elif not loaded.has(c):
+				var fn := CellBuilder.make_far(fd)
+				fn.name = "Far_%d_%d" % [c.x, c.y]
+				add_child(fn)
+				far[c] = fn
+				Log.info("far cell %s shown (HLOD %s)" % [c, fd.has("hlod_surfaces")])
+			break
 	var tc := Time.get_ticks_usec()
 	_collision_ring(delta, deadline)
 	last_work += "collision %.1f | " % ((Time.get_ticks_usec() - tc) / 1000.0)
@@ -549,6 +572,27 @@ func _plan_collision_ops() -> void:
 	_col_ops = keep + adds + _col_ops
 
 
+## Far cells (render.hlod_from_ring .. unload ring) show a coarse terrain + the converter's HLOD proxy instead of
+## nothing; a far cell stays until its full version is in, and goes when it leaves the ring.
+func _update_far(pc: Vector2i, unload_r: int) -> void:
+	var r_min := int(Sheets.sys_num("render.hlod_from_ring", 2))
+	for c in far.keys():
+		var d := cheb(c, pc)
+		if d > unload_r or loaded.has(c):
+			_bury(far[c])
+			far.erase(c)
+	for c in ring(pc, unload_r):
+		if cheb(c, pc) < r_min and not loaded.has(c) and not far.has(c):
+			continue
+		if loaded.has(c) or far.has(c) or _far_jobs.has(c) or _far_none.has(c) or not on_disk.has(c):
+			continue
+		if _far_jobs.size() >= 2:
+			break
+		var out: Array = [{}]
+		var dir := cell_dir(c)
+		_far_jobs[c] = {"out": out, "task": WorkerThreadPool.add_task(func(): out[0] = CellBuilder.prepare_far(dir), false, "far cell %s" % c)}
+
+
 ## Frees a node tree a few nodes per frame (leaves first) instead of all at once. disable_collision: every
 ## collision object in the (small) tree stops colliding at once (machines: body and hitboxes).
 func bury(node: Node, disable_collision: bool = false) -> void:
@@ -618,6 +662,8 @@ func _exit_tree() -> void:
 	if _size_task >= 0:
 		tasks.append(_size_task)
 	tasks.append_array(_free_tasks)
+	for c in _far_jobs:
+		tasks.append(_far_jobs[c]["task"])
 	for t in tasks:
 		while not WorkerThreadPool.is_task_completed(t) and Time.get_ticks_msec() - t0 < 10000:
 			OS.delay_msec(5)

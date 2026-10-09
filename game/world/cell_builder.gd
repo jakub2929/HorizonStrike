@@ -11,6 +11,7 @@ extends RefCounted
 const Log := preload("res://core/log.gd")
 const FsUtil := preload("res://core/fsutil.gd")
 const Campfire := preload("res://world/campfire.gd")
+const GlbReader := preload("res://world/glb_reader.gd")
 const TerrainMaterial := preload("res://world/terrain_material.gd")
 const MeshLib := preload("res://world/mesh_library.gd")
 const WaterMaterial := preload("res://world/water_material.gd")
@@ -236,6 +237,82 @@ static func _plan_occluders(info: Dictionary, origin: Vector3) -> Array:
 	return out
 
 
+# ------------------------------------------------------------------ far cells (HLOD)
+
+const FAR_TERRAIN_VERTS := 65
+
+## Worker: what a far cell (Chebyshev ring >= render.hlod_from_ring) shows instead of its instances - a coarse terrain
+## (65 x 65, 8 m) with the cell albedo and the converter's hlod.glb proxy (<= 20k triangles, vertex colours).
+## {} when the cell has no HLOD.
+static func prepare_far(cell_dir: String) -> Dictionary:
+	var info = FsUtil.read_json(cell_dir.path_join("cell.json"))
+	if typeof(info) != TYPE_DICTIONARY:
+		return {}
+	var hl = info.get("hlod")
+	if typeof(hl) != TYPE_DICTIONARY or not FileAccess.file_exists(cell_dir.path_join(str(hl.get("file", "hlod.glb")))):
+		return {}
+	var size := float(info.get("size", 512.0))
+	var org: Array = info.get("origin", [0, 0, 0])
+	var origin := Vector3(float(org[0]), float(org[1]), float(org[2]))
+	var terr: Dictionary = info.get("terrain", {}) if typeof(info.get("terrain")) == TYPE_DICTIONARY else {}
+	var res: Array = terr.get("res", [0, 0])
+	var w := int(res[0])
+	var h := int(res[1])
+	var hpath := cell_dir.path_join(str(terr.get("file", "height.r32")))
+	if w < 2 or h < 2 or not FileAccess.file_exists(hpath):
+		return {}
+	var bytes := FileAccess.get_file_as_bytes(hpath)
+	if bytes.size() < w * h * 4:
+		return {}
+	var heights := bytes.slice(0, w * h * 4).to_float32_array()
+	for i in heights.size():
+		if is_nan(heights[i]) or is_inf(heights[i]):
+			heights[i] = 0.0
+	var out := {"origin": origin, "size": size, "terrain_arrays": _terrain_arrays(heights, w, h, origin, size, FAR_TERRAIN_VERTS)}
+	var af := str(terr.get("albedo", ""))
+	if af != "" and FileAccess.file_exists(cell_dir.path_join(af)):
+		var img: Image = MeshLib.load_dds(cell_dir.path_join(af)) if af.get_extension().to_lower() == "dds" else Image.load_from_file(cell_dir.path_join(af))
+		if img:
+			if not img.is_compressed() and not img.has_mipmaps():
+				img.generate_mipmaps()
+			out["albedo_img"] = img
+	var p := GlbReader.read(cell_dir.path_join(str(hl.get("file", "hlod.glb"))), false)
+	if not p.is_empty():
+		out["hlod_surfaces"] = p["surfaces"]
+	return out
+
+
+static var _hlod_mat: StandardMaterial3D
+
+
+## Main thread: the far cell node (terrain + HLOD proxy), no collision, no shadows.
+static func make_far(d: Dictionary) -> Node3D:
+	var root := Node3D.new()
+	var tm := MeshInstance3D.new()
+	var tmesh := ArrayMesh.new()
+	tmesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, d["terrain_arrays"])
+	tm.mesh = tmesh
+	var alb: Texture2D = ImageTexture.create_from_image(d["albedo_img"]) if d.has("albedo_img") else null
+	tm.material_override = TerrainMaterial.make(alb, null, false)
+	tm.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	root.add_child(tm)
+	if d.has("hlod_surfaces"):
+		if _hlod_mat == null:
+			_hlod_mat = StandardMaterial3D.new()
+			_hlod_mat.vertex_color_use_as_albedo = true
+			_hlod_mat.vertex_color_is_srgb = false
+			_hlod_mat.roughness = 0.9
+		var hm := ArrayMesh.new()
+		for s in d["hlod_surfaces"]:
+			hm.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, s["arrays"])
+			hm.surface_set_material(hm.get_surface_count() - 1, _hlod_mat)
+		var hi := MeshInstance3D.new()
+		hi.mesh = hm
+		hi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		root.add_child(hi)
+	return root
+
+
 static func make_occluder(o: Dictionary, origin: Vector3) -> OccluderInstance3D:
 	var ao := ArrayOccluder3D.new()
 	ao.set_arrays(o["vertices"], o["indices"])
@@ -265,8 +342,8 @@ static func sample_height(heights: PackedFloat32Array, w: int, h: int, origin: V
 
 
 ## Terrain surface arrays (pure data, safe on a worker thread).
-static func _terrain_arrays(heights: PackedFloat32Array, w: int, h: int, origin: Vector3, size: float) -> Array:
-	var step := maxi(1, int(ceil(float(maxi(w, h) - 1) / float(MAX_VISUAL_VERTS - 1))))
+static func _terrain_arrays(heights: PackedFloat32Array, w: int, h: int, origin: Vector3, size: float, max_verts: int = MAX_VISUAL_VERTS) -> Array:
+	var step := maxi(1, int(ceil(float(maxi(w, h) - 1) / float(max_verts - 1))))
 	var cols := PackedInt32Array()
 	var c := 0
 	while c < w - 1:
