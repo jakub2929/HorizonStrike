@@ -79,6 +79,10 @@ func _run(ctx):
 	var step: float = o.f(o.system("combat.range_step_u"))
 	var u2m: float = o.f(o.system("combat.units_to_m"))
 	data.naive = {"weak": dmg * hs, "body": dmg * ar * ars, "note": "sheet numbers without range falloff (0 m)"}
+	for e in [["A body", shot_a], ["B " + weak, shot_b], ["Grazer " + c_weak, shot_c]]:
+		var sh: Dictionary = e[1]
+		if not sh.is_empty():
+			check("line of sight %s: the first hit along the shot is that hitbox (after %d moves)" % [e[0], sh.blocked_by_before_moving.size()], sh.line_of_sight == true, "first hit: %s; earlier blockers: %s" % [sh.first_hit, str(sh.blocked_by_before_moving)])
 	var ok_a := check("fire button: body shot hits A", shot_a.hit == true, str(shot_a))
 	var ok_b := check("fire button: weak shot (%s) hits B" % weak, shot_b.hit == true, str(shot_b))
 	if not (ok_a and ok_b):
@@ -123,7 +127,7 @@ func _shot(ctx, m: Node, part: String) -> Dictionary:
 	for attempt in 9:
 		await _aim(ctx, m, part)
 		await ctx.physics_frames(2)
-		los = _los(ctx, m, _target_point(m, part))
+		los = _los(ctx, m, _target_point(m, part), part)
 		if los.clear:
 			break
 		moves.append(los.by)
@@ -142,7 +146,7 @@ func _shot(ctx, m: Node, part: String) -> Dictionary:
 	var miss_by := ""
 	if not d.hit:
 		# report what the shot line meets now (the bullet itself has CS inaccuracy)
-		miss_by = str(_los(ctx, m, _target_point(m, part)).by)
+		miss_by = str(_los(ctx, m, _target_point(m, part), part).by)
 	var after := float(m.get("health")) if is_instance_valid(m) else 0.0
 	var dist: float = cam_pos.distance_to(_target_point(m, part)) if is_instance_valid(m) else -1.0
 	var how := "camera to the aimed point"
@@ -157,7 +161,7 @@ func _shot(ctx, m: Node, part: String) -> Dictionary:
 	return {"hit": d.hit, "fired": d.fired, "ammo": d.ammo, "damage": before - after,
 		"health_before": before, "health_lost": before - after, "distance_m": snappedf(dist, 0.01), "distance_from": how,
 		"aabb_distance_m": [snappedf(dmin, 0.01), snappedf(dmax, 0.01)],
-		"line_of_sight": los.clear, "blocked_by_before_moving": moves, "miss_blocked_by": miss_by}
+		"line_of_sight": los.clear, "first_hit": los.by, "blocked_by_before_moving": moves, "miss_blocked_by": miss_by}
 
 
 func _expect(base: float, rm: float, step: float, u2m: float, shot: Dictionary) -> Dictionary:
@@ -195,22 +199,31 @@ func _aim(ctx, m: Node, part: String) -> void:
 		await ctx.call_api(ctx.game, "aim_at", [m, part])
 
 
-static func _los(ctx, m: Node, to: Vector3) -> Dictionary:
-	## ray camera -> to (areas included: hitboxes); clear when the first thing hit belongs to m
+static func _los(ctx, m: Node, to: Vector3, part: String = "body") -> Dictionary:
+	## ray camera -> to, as a bullet travels (hitbox areas and world bodies; the target's own movement body is not a
+	## bullet target). Clear only when the FIRST thing hit is the wanted hitbox of m: for a weak spot the hitbox of that
+	## part, for "body" any non-weak hitbox of m. `by` names the first hit either way.
 	var cam: Camera3D = ctx.camera()
 	if cam == null:
 		return {"clear": false, "by": "no camera"}
-	var q := PhysicsRayQueryParameters3D.create(cam.global_position, to)
-	q.exclude = ctx.player_rids()
+	var q := PhysicsRayQueryParameters3D.create(cam.global_position, to + (to - cam.global_position).normalized() * 0.5)
+	var ex: Array[RID] = ctx.player_rids()
+	if m is CollisionObject3D:
+		ex.append((m as CollisionObject3D).get_rid())
+	q.exclude = ex
 	q.collide_with_areas = true
 	var hit: Dictionary = ctx.runner.get_viewport().get_world_3d().direct_space_state.intersect_ray(q)
 	if hit.is_empty():
-		return {"clear": true, "by": ""}
+		return {"clear": false, "by": "nothing (no hitbox up to 0.5 m behind the aim point)"}
 	var col: Variant = hit.get("collider")
-	if col is Node and (col == m or m.is_ancestor_of(col) or (col as Node).get_meta("machine", null) == m):
-		return {"clear": true, "by": str((col as Node).name)}
-	var owner_m: Variant = (col as Node).get_meta("machine", null) if col is Node else null
-	var label := str((col as Node).name) if col is Node else str(col)
-	if owner_m is Node:
-		label = "%s (hitbox of %s)" % [label, (owner_m as Node).name]
-	return {"clear": false, "by": label}
+	if not (col is Node):
+		return {"clear": false, "by": str(col)}
+	var n := col as Node
+	var owner_m: Variant = n.get_meta("machine", null)
+	var mine: bool = owner_m == m or n == m or m.is_ancestor_of(n)
+	var hit_part := str(n.get_meta("part", ""))
+	var hit_weak: bool = bool(n.get_meta("weak", false))
+	var who: String = (owner_m as Node).name if owner_m is Node else ("target" if mine else "other")
+	var label := "%s (part '%s'%s of %s)" % [n.name, hit_part, ", weak" if hit_weak else "", who]
+	var ok: bool = mine and (hit_part == part if part != "body" else (hit_part != "" and not hit_weak))
+	return {"clear": ok, "by": label}
