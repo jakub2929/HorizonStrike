@@ -412,6 +412,9 @@ func cleanup() -> Dictionary:
 				p.call("set_crouch", was)
 		if _player_state.has("invulnerable"):
 			p.set("invulnerable", _player_state.invulnerable)
+	# never leave the user's mouse captured (t03 captures it for a moment, as during play)
+	if Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
+		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 	# keys a scenario may still hold (an aborted scenario never released them)
 	for action in ["crouch", "buy", "fire", "walk", "alt_fire"]:
 		if InputMap.has_action(action) and Input.is_action_pressed(action):

@@ -3,7 +3,9 @@ extends "res://autotest/lib/scenario.gd"
 ## process, Input.parse_input_event): the buy key opens the wheel, the mouse moves onto the item's slot as it is
 ## drawn on screen (found by the item's displayed name and price, not by internal ids) and clicks it; one item is
 ## bought the other way a player does it, by releasing the buy key over the slot. Cases: a pistol, a rifle, a grenade
-## and Kevlar each subtract the resolved price and give the item; then a buy with too little money is refused.
+## and Kevlar each subtract the resolved price and give the item; one more pistol starts with the mouse captured as
+## during play (the wheel must make the cursor visible; the game warps it to the window centre once); then a buy with
+## too little money is refused.
 ## Game.money is set as setup; Game.buy() is never called.
 
 const InputSim := preload("res://autotest/lib/inputsim.gd")
@@ -13,6 +15,7 @@ const CASES := [
 	{"id": "ak47", "kind": "rifle", "how": "click"},
 	{"id": "hegrenade", "kind": "grenade", "how": "release buy key over the slot"},
 	{"id": "kevlar", "kind": "armor", "how": "click"},
+	{"id": "deagle", "kind": "pistol", "how": "click, mouse captured as during play", "captured": true},
 ]
 const REFUSED := "awp"
 
@@ -73,7 +76,18 @@ func _buy_case(ctx, inp, g: Node, p: Node, o, c: Dictionary) -> Dictionary:
 	var armor0 := float(p.get("armor"))
 	var label := "%s %s (%s)" % [c.kind, name, c.how]
 	var slot: Dictionary
-	if c.how == "click":
+	if c.get("captured", false):
+		# as during play: the mouse is captured when the buy key is pressed (brief: the wheel frees it again)
+		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+		await ctx.frames(2)
+		info.mouse_mode_before = Input.mouse_mode
+		slot = await _open_and_find(ctx, inp, name, false)
+		info.mouse_mode_after_buy_key = Input.mouse_mode
+		check("%s: the buy key makes the mouse visible (mode %d -> %d)" % [label, info.mouse_mode_before, info.mouse_mode_after_buy_key], Input.mouse_mode == Input.MOUSE_MODE_VISIBLE, "captured before: %s" % str(info.mouse_mode_before == Input.MOUSE_MODE_CAPTURED))
+		if not slot.is_empty():
+			await inp.click(slot.center)
+			await ctx.wait(0.4)
+	elif c.how == "click":
 		slot = await _open_and_find(ctx, inp, name, false)
 		if not slot.is_empty():
 			await inp.click(slot.center)
