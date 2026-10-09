@@ -193,17 +193,24 @@ func run_cmd(path: String, cmd_args: PackedStringArray) -> Dictionary:
 
 func need_world(timeout_s: float) -> bool:
 	## waits for Game.world_ready (playable); remembered once seen
-	if not world_ready_seen and game != null:
-		for p in ["world_is_ready", "is_world_ready"]:
-			if p in game and game.get(p) == true:
-				_mark_world_ready("property " + p)
+	if not world_ready_seen and _ready_property() != "":
+		_mark_world_ready("property " + _ready_property())
 	if world_ready_seen:
 		return true
 	note("waiting for world_ready (up to %d s)" % int(timeout_s))
-	var ok := await wait_until(func(): return world_ready_seen or (game != null and "world_is_ready" in game and game.get("world_is_ready") == true), timeout_s)
+	var ok := await wait_until(func(): return world_ready_seen or _ready_property() != "", timeout_s)
 	if ok and not world_ready_seen:
-		_mark_world_ready("property world_is_ready")
+		_mark_world_ready("property " + _ready_property())
 	return ok
+
+
+func _ready_property() -> String:
+	var g := game
+	if g != null:
+		for p in ["world_is_ready", "is_world_ready"]:
+			if p in g and g.get(p) == true:
+				return p
+	return ""
 
 
 func _mark_world_ready(how: String) -> void:
@@ -219,6 +226,66 @@ func on_world_ready(_a: Variant = null) -> void:
 
 
 # --- geometry / placement ---------------------------------------------------------------------------------------
+
+func cell_of(pos: Vector3) -> Variant:
+	## cell id of a world position from the game (Game.cell_of or Game.world.cell_of); null when not exposed
+	var g := game
+	if g == null:
+		return null
+	if g.has_method("cell_of"):
+		return v2i(g.call("cell_of", pos))
+	var w: Variant = g.get("world") if "world" in g else null
+	if w is Object and w.has_method("cell_of"):
+		return v2i(w.call("cell_of", pos))
+	return null
+
+
+func set_cache_cap(bytes: int) -> void:
+	## runtime cap without persisting it to settings.json when the game offers that
+	var g := game
+	if g.has_method("set_cache_cap"):
+		g.call("set_cache_cap", bytes, false)
+	else:
+		g.set("cache_cap_bytes", bytes)
+
+
+func read_wheel() -> Dictionary:
+	## buy wheel as displayed: {source, items: [{id, price}]}. Game.buy_wheel_items() if it exists, else the wheel's
+	## visible UI nodes "BuyItem_<id>" with a "Price" label, else Game.buy_wheel_item_ids() (ids only, price -1)
+	var g := game
+	var items := []
+	if g != null and g.has_method("buy_wheel_items"):
+		for it in await call_api(g, "buy_wheel_items"):
+			if it is Dictionary:
+				items.append({"id": str(it.get("id")), "price": int(it.get("price", -1))})
+		return {"source": "Game.buy_wheel_items()", "items": items}
+	for n in tree.root.find_children("BuyItem_*", "", true, false):
+		if n is CanvasItem and (n as CanvasItem).is_visible_in_tree():
+			var price := -1
+			var pl := n.get_node_or_null("Price")
+			if pl != null:
+				var t := str(pl.get("text")).strip_edges().trim_prefix("$").replace(",", "")
+				price = int(t) if t.is_valid_int() else -1
+			items.append({"id": str(n.name).trim_prefix("BuyItem_"), "price": price})
+	if not items.is_empty():
+		return {"source": "wheel UI nodes BuyItem_<id>/Price", "items": items}
+	if g != null and g.has_method("buy_wheel_item_ids"):
+		for id in await call_api(g, "buy_wheel_item_ids"):
+			items.append({"id": str(id), "price": -1})
+		return {"source": "Game.buy_wheel_item_ids() (no prices)", "items": items}
+	return {"source": "none", "items": items}
+
+
+func hit_evidence(dmg_rec: Rec, hud_rec: Rec) -> Array:
+	## player hits seen during a scenario: the player_damaged signal, or the game's "Hit: ..." HUD message that it
+	## emits for an invulnerable player
+	var out := []
+	for e in dmg_rec.events:
+		out.append("player_damaged %s" % str(e.args[0]))
+	for e in hud_rec.events:
+		if str(e.args[0]).begins_with("Hit"):
+			out.append(str(e.args[0]))
+	return out
 
 func forward() -> Vector3:
 	## horizontal view direction of the player camera

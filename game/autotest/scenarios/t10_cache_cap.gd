@@ -29,7 +29,7 @@ func _run(ctx):
 	var cap0 := int(g.get("cache_cap_bytes"))
 	var bytes0 := int(await ctx.call_api(g, "cache_bytes"))
 	var cap: int = bytes0 + int(o.f(o.system("cache.reserve_mib")) * ctx.MIB) + EXTRA_MIB * ctx.MIB
-	g.set("cache_cap_bytes", cap)
+	ctx.set_cache_cap(cap)
 	data.cap = {"previous": cap0, "bytes_at_start": bytes0, "cap": cap, "cap_mib": snappedf(cap / 1048576.0, 0.1)}
 
 	# samplers: Game.cache_bytes() every 0.5 s, the folder on disk on a worker thread
@@ -53,7 +53,8 @@ func _run(ctx):
 	var evictions := []
 	var on_evict := func(c: Variant) -> void:
 		var cell: Vector2i = ctx.v2i(c)
-		var pc: Vector2i = ctx.v2i(g.call("cell_of", ctx.player_pos())) if g.has_method("cell_of") else cur.cell
+		var pcv: Variant = ctx.cell_of(ctx.player_pos())
+		var pc: Vector2i = pcv if pcv != null else cur.cell
 		evictions.append({"cell": "%d_%d" % [cell.x, cell.y], "player_cell": "%d_%d" % [pc.x, pc.y], "ring": ctx.chebyshev(cell, pc), "t": Time.get_ticks_msec()})
 	g.connect("cell_evicted", on_evict)
 	var loaded_rec = ctx.record(g, "cell_loaded")
@@ -88,7 +89,7 @@ func _run(ctx):
 	timer.queue_free()
 	var disk: Array = disk_thread.wait_to_finish()
 	g.disconnect("cell_evicted", on_evict)
-	g.set("cache_cap_bytes", cap0)
+	ctx.set_cache_cap(cap0)
 	p.set("invulnerable", false)
 
 	var max_game: int = samples.game.max() if not samples.game.is_empty() else -1
@@ -105,6 +106,6 @@ func _run(ctx):
 	var prot := evictions.filter(func(e): return e.ring <= load_ring)
 	check("no evicted cell was protected (within load_ring %d of the player)" % load_ring, prot.is_empty(), str(prot.slice(0, 5)))
 	check("evicted cells near the start came back when revisited", back, "%d to revisit" % revisit.size())
-	if not g.has_method("cell_of"):
-		note("Game.cell_of(pos) missing: player cell at eviction time taken from the teleport target")
+	if ctx.cell_of(ctx.player_pos()) == null:
+		note("Game.cell_of / Game.world.cell_of missing: player cell at eviction time taken from the teleport target")
 	return true

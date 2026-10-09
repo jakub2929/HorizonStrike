@@ -42,6 +42,7 @@ func _run(ctx):
 
 	var rec = ctx.record(g, "machine_state_changed")
 	var dmg_rec = ctx.record(g, "player_damaged")
+	var hud_rec = ctx.record(g, "hud_message")
 	var health0 := float(p.get("health"))
 	var initial := str(w.get("state"))
 	var polled: Array = [initial]
@@ -64,7 +65,7 @@ func _run(ctx):
 		if st == "attack" and attack_t < 0.0:
 			attack_t = t
 		proj_max = maxi(proj_max, _projectiles(ctx))
-		if float(p.get("health")) < health0 or not dmg_rec.events.is_empty():
+		if float(p.get("health")) < health0 or not ctx.hit_evidence(dmg_rec, hud_rec).is_empty():
 			hit_seen = true
 		if not walked and t >= WALK_AFTER_S and attack_t < 0.0:
 			walked = true
@@ -87,7 +88,7 @@ func _run(ctx):
 	data.walked_to_10m = walked
 	data.attack_after_s = attack_t
 	data.projectiles_seen = proj_max
-	data.player_damage_events = dmg_rec.events.map(func(e): return e.args[0])
+	data.player_hits = ctx.hit_evidence(dmg_rec, hud_rec)
 	data.player_health = [health0, float(p.get("health"))]
 	data.suspicion_threshold = ctx.oracle.machine("watcher", "suspicious_threshold")
 	check("ordered states contain (idle|patrol) -> suspicious -> alert -> attack", _ordered(states), str(states))

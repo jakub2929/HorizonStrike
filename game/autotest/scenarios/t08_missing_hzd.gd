@@ -39,6 +39,11 @@ func _run(ctx):
 	# log evidence (hra H2 acceptance): latest.log mentions the screen
 	var log_path := _game_log(ctx)
 	var log_text := FileAccess.get_file_as_string(log_path) if FileAccess.file_exists(log_path) else ""
+	# the log is shared with the parent game; when lines carry the process id ("[<pid>]") keep only this process
+	var tag := "[%d]" % OS.get_process_id()
+	if log_text.contains(tag):
+		log_text = "\n".join(PackedStringArray(Array(log_text.split("\n")).filter(func(l): return l.contains(tag))))
+		data.game_log_filter = tag
 	data.game_log = log_path
 	check("game log says MissingHzdScreen shown", log_text.contains("MissingHzdScreen shown"), "%s (%d bytes)" % [log_path, log_text.length()])
 

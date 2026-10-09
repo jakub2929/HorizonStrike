@@ -70,19 +70,12 @@ func _run(ctx):
 
 
 func _check_wheel(ctx, g: Node, o) -> void:
-	## wheel items as shown: Game.buy_wheel_items() -> [{id, price, ...}]
+	## wheel items as shown (ctx.read_wheel: API, else the wheel's UI nodes)
 	var want: Array = o.wheel_items()
 	data.wheel_expected = want
-	if not g.has_method("buy_wheel_items"):
-		check("wheel lists exactly the buy_wheel_index >= 0 rows (%d) with resolved prices" % want.size(), false, "Game.buy_wheel_items() missing - cannot read the wheel")
-		return
-	var shown: Variant = await ctx.call_api(g, "buy_wheel_items")
-	var got := []
-	if shown is Array:
-		for it in shown:
-			if it is Dictionary:
-				got.append({"id": str(it.get("id")), "price": int(it.get("price", -1))})
-	data.wheel_shown = got
+	var wheel: Dictionary = await ctx.read_wheel()
+	var got: Array = wheel.items
+	data.wheel_shown = wheel
 	var ok: bool = got.size() == want.size() and want.size() <= o.i(o.system("economy.buy_wheel_max_items"))
 	var diffs := []
 	for w in want:

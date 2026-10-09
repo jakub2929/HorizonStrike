@@ -74,7 +74,8 @@ func _run(ctx):
 	var visible := seen.filter(func(s): return s.clear).size()
 	check(">= %d grazers inside the frustum and not occluded" % NEED, visible >= NEED, "%d in frustum, %d unoccluded" % [seen.size(), visible])
 
-	var pc: Vector2i = ctx.v2i(g.call("cell_of", ctx.player_pos())) if g.has_method("cell_of") else cell
+	var pcv: Variant = ctx.cell_of(ctx.player_pos())
+	var pc: Vector2i = pcv if pcv != null else cell
 	var cj: Dictionary = ctx.oracle.cell_json(pc)
 	data.player_cell = "%d_%d" % [pc.x, pc.y]
 	data.terrain = cj.get("terrain", {})

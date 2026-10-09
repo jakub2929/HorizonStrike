@@ -114,8 +114,9 @@ func _main() -> void:
 
 
 func _cache_dir(g: Node) -> String:
-	if g != null and "cache_dir" in g and str(g.get("cache_dir")) != "":
-		return str(g.get("cache_dir")).replace("\\", "/")
+	for p in ["cache_dir", "cache_root"]:
+		if g != null and p in g and str(g.get(p)) != "":
+			return str(g.get(p)).replace("\\", "/")
 	var a: String = args.value("--cache-dir")
 	if a != "":
 		return a.replace("\\", "/")

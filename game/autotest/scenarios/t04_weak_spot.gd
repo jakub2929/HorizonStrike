@@ -97,25 +97,30 @@ func _shot(ctx, m: Node, part: String) -> Dictionary:
 	var d: Dictionary = r if r is Dictionary else {}
 	var after := float(m.get("health")) if is_instance_valid(m) else 0.0
 	var dist := -1.0
-	var exact := false
+	var how := "machine origin"
 	if d.get("distance") != null:
 		dist = float(d.distance)
-		exact = true
+		how = "fire().distance"
 	elif d.get("point") is Vector3:
 		dist = cam_pos.distance_to(d.point)
-		exact = true
+		how = "fire().point"
+	elif is_instance_valid(m) and m.has_method("aim_point"):
+		dist = cam_pos.distance_to(m.call("aim_point", part))
+		how = "machine.aim_point(part)"
 	else:
 		dist = cam_pos.distance_to((m as Node3D).global_position)
 	return {"hit": d.get("hit"), "part": d.get("part"), "damage": d.get("damage"), "target_ok": d.get("target") == m,
-		"health_before": before, "health_lost": before - after, "distance_m": snappedf(dist, 0.01), "distance_exact": exact}
+		"health_before": before, "health_lost": before - after, "distance_m": snappedf(dist, 0.01), "distance_from": how}
 
 
 func _expect(base: float, rm: float, step: float, u2m: float, shot: Dictionary) -> Dictionary:
-	## expected damage at the shot distance; without an exact hit distance allow +-1.5 m around the estimate
+	## expected damage at the shot distance; without the exact hit distance allow a band around the estimate
+	## (+-0.75 m around the aimed hitbox centre, +-1.5 m around the machine origin)
 	var d: float = shot.distance_m
 	var f := func(m: float) -> float: return base * pow(rm, (m / u2m) / step)
 	var v: float = f.call(d)
 	var tol := 0.05
-	if not shot.distance_exact:
-		tol = maxf(absf(f.call(maxf(0.0, d - 1.5)) - v), absf(f.call(d + 1.5) - v)) + 0.05
+	var band: float = {"fire().distance": 0.0, "fire().point": 0.0, "machine.aim_point(part)": 0.75}.get(shot.distance_from, 1.5)
+	if band > 0.0:
+		tol = maxf(absf(f.call(maxf(0.0, d - band)) - v), absf(f.call(d + band) - v)) + 0.05
 	return {"value": snappedf(v, 0.01), "tol": snappedf(tol, 0.01), "distance_m": d}

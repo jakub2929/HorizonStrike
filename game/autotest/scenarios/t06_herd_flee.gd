@@ -46,6 +46,7 @@ func _run(ctx):
 	var d0 := _mean_dist(ctx, herd)
 	var health0 := float(p.get("health"))
 	var dmg_rec = ctx.record(g, "player_damaged")
+	var hud_rec = ctx.record(g, "hud_message")
 
 	# expected suspicion from the shot at the herd distance (systems suspicion.shot_gain_*), for the details
 	var radius: float = o.f(o.weapon("glock", "suspicion_radius_m"))
@@ -78,7 +79,8 @@ func _run(ctx):
 	var all_fast := fled_at.size() == herd.size() and fled_at.values().all(func(t): return t <= FLEE_WITHIN_S)
 	check("within %d s every herd member state == flee" % int(FLEE_WITHIN_S), all_fast, "%d/%d fled, times %s" % [fled_at.size(), herd.size(), str(fled_at.values())])
 	check("after %d s the mean distance grew by >= %d m" % [int(WAIT_S), int(GROW_M)], d1 - d0 >= GROW_M, "%.1f -> %.1f m" % [d0, d1])
-	check("no grazer damaged the player", float(p.get("health")) >= health0 and dmg_rec.events.is_empty(), "health %s -> %s" % [str(health0), str(p.get("health"))])
+	var hits: Array = ctx.hit_evidence(dmg_rec, hud_rec)
+	check("no grazer damaged the player", float(p.get("health")) >= health0 and hits.is_empty(), "health %s -> %s, hits %s" % [str(health0), str(p.get("health")), str(hits)])
 	await _crouch(ctx, p, false)
 	return true
 
@@ -101,21 +103,30 @@ func _find_herd(ctx, need: int) -> Array:
 
 
 func _crouch(ctx, p: Node, on: bool) -> void:
-	## crouch through the game's input action when it exists, else the player's property
-	if InputMap.has_action("crouch"):
+	## crouch through the player's own method/property (automated runs have no captured mouse, so the game ignores
+	## input actions), else the input action
+	if p.has_method("set_crouch"):
+		p.call("set_crouch", on)
+		data.crouch = "player.set_crouch()"
+	elif "crouching" in p:
+		p.set("crouching", on)
+		data.crouch = "player.crouching"
+	elif InputMap.has_action("crouch"):
 		if on:
 			Input.action_press("crouch")
 		else:
 			Input.action_release("crouch")
 		data.crouch = "input action crouch"
-	elif "crouching" in p:
-		p.set("crouching", on)
-		data.crouch = "player.crouching"
 	else:
 		data.crouch = "unavailable"
 		if on:
 			note("no crouch action or player.crouching - stood instead")
 	await ctx.physics_frames(3)
+	if on:
+		for k in ["crouched", "crouching"]:
+			if k in p:
+				check("setup: player crouched (%s)" % data.crouch, p.get(k) == true, "player.%s = %s" % [k, str(p.get(k))])
+				break
 
 
 static func _centroid(ms: Array) -> Vector3:

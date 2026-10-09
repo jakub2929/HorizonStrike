@@ -60,25 +60,27 @@ hra's game was not on main yet, so the runner was exercised against a fake `Game
 - t02, t04 with the real resolved CS2 values (copy of cache-dev/cs2 JSON in C:\meshy\_tools\cache-test-oracle):
   PASS (1100 / 3050 / 16000; weak 104.82 vs body 12.56 at ~10 m).
 
-## API needs / questions for hra (not in the documented Game API yet)
-1. `Game.world_is_ready: bool` – the runner may be added after `world_ready` was emitted (seen on the stub when the
-   cache was warm); it polls this property as a fallback.
-2. `Game.buy_wheel_items() -> Array[Dictionary]` `{id, price, index}` as shown – t03 and s01 check the wheel content.
-3. `Game.cache_dir: String` – the oracle reads the resolved tables from the cache the game uses (fallback:
-   `--cache-dir`, then `%LOCALAPPDATA%\HorizonStrike\cache`).
-4. `Game.log_path: String` – t08 reads its own log (child and parent share `%LOCALAPPDATA%\HorizonStrike\logs`).
-5. signal `player_damaged(amount: float, source: Node)`, emitted also while `player.invulnerable` – t05 "attack hits
-   the player", t06 "no grazer damaged the player".
-6. `Game.cell_of(pos: Vector3) -> Vector2i` – t10 protected-eviction check, s03 player's cell.
-7. `aim_at(target, "body")` must accept any Node3D (t06 aims at a marker in the sky, s03 at the herd centre).
-8. `fire()` result: add `point: Vector3` (or `distance: float`) for an exact falloff check in t04.
-9. Machine projectiles in group `machine_projectiles` (t05).
-10. Crouch: InputMap action `crouch` or `player.crouching: bool` (t06).
-11. `teleport(pos)` into a cell that is still converting: please hold/snap the player to the ground once collision
-    exists (t05/t06/t07/t10/s03 teleport far).
-12. Boot must instance the runner also when HZD is missing (t08) and before `world_ready`.
-13. `Game.cache_cap_bytes = x` must act immediately (t10 restores the previous value at the end).
-14. t02 case 3 (cap): `kill_reward.amount` must equal the money actually added (100), per the sheet.
+## What the runner relies on beyond the documented Game API
+Aligned with hra's in-progress code (read-only look at the hra worktree, not merged; re-check after the merge):
+- world ready: signal + polling `Game.is_world_ready` (or `world_is_ready`) – the runner is added deferred.
+- cache: `Game.cache_root` (or `cache_dir`), else `--cache-dir`, else `%LOCALAPPDATA%\HorizonStrike\cache`.
+- buy wheel content: `Game.buy_wheel_items()` if it exists, else the visible wheel nodes `BuyItem_<id>` with their
+  `Price` label (what the player sees), else `Game.buy_wheel_item_ids()` (ids only -> price check fails).
+- cells: `Game.cell_of(pos)` or `Game.world.cell_of(pos)`; cache cap: `Game.set_cache_cap(bytes, false)` (no
+  persisting), else `Game.cache_cap_bytes`.
+- hits on the invulnerable player: signal `player_damaged` if it exists, else the `hud_message` "Hit: ..." the game
+  emits; projectiles: group `machine_projectiles`.
+- crouch: `player.set_crouch(true)`, else `player.crouching`, else the `crouch` input action (ignored by the game
+  while the mouse is not captured, i.e. in automated runs).
+- t04 distance: `fire().distance` / `fire().point` if present, else `machine.aim_point(part)` (+-0.75 m band).
+- t08 log: `Game.log_path` if present, else `%LOCALAPPDATA%\HorizonStrike\logs\latest.log`, filtered to this
+  process's `[pid]` lines.
+
+## Open requests for hra
+1. `fire()` result: add `point: Vector3` (or `distance: float`) so t04 checks the falloff exactly.
+2. With `--mock-data` the converter is the in-process mock (`converter_pid` = 0): t11 can only pass on real data.
+3. t02 case 3 (cap): `kill_reward.amount` must equal the money actually added (100) – hra's `award_kill` already
+   emits the delta.
 
 ## Findings for owners
 - F1 (cs2 / Hzs.Common, hra): two converters with the same log dir – the second one crashes at start:
@@ -86,8 +88,8 @@ hra's game was not on main yet, so the runner was exercised against a fake `Game
   process` (`Log` opens it with FileMode.Create + FileShare.Read; still so on main 73099fb). Hits the t08 child
   (same cache dir as the parent -> same `<cache>/../logs`) and any second game instance. Fix: FileShare.ReadWrite or a
   per-process `--log-dir` from the game. Reproduced with two `hzsconv serve` processes (scratch build of the skeleton).
-- F2 (hra): parent and child game share `%LOCALAPPDATA%\HorizonStrike\logs\latest.log`; the child (t08/t09) must not
-  truncate the parent's log – use `log_path` per process or append.
+- F2 (hra): parent and child game share `%LOCALAPPDATA%\HorizonStrike\logs\latest.log` – hra's log.gd already
+  opens it shared, appends within 120 s and tags lines with the pid; t08 filters by pid. Closed unless it regresses.
 
 ## Log
 - 2026-10-09 runner, libs and all 13 scenario scripts written against the documented API; stub verification above.

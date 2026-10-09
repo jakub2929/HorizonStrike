@@ -138,8 +138,8 @@ func _norm(ctx, raw: Variant) -> Array:
 			cell = c.get("cell") if "cell" in c else null
 		if id == "" or pos == Vector3.INF:
 			continue
-		if cell == null and ctx.game.has_method("cell_of"):
-			cell = ctx.game.call("cell_of", pos)
+		if cell == null:
+			cell = ctx.cell_of(pos)
 		out.append({"id": id, "pos": pos, "cell": ctx.v2i(cell) if cell != null else Vector2i(int(floor(pos.x / 512.0)), int(floor(-pos.z / 512.0)))})
 	out.sort_custom(func(x, y): return (x.pos as Vector3).distance_to(ctx.player_pos()) < (y.pos as Vector3).distance_to(ctx.player_pos()))
 	return out
