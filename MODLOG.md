@@ -189,3 +189,4 @@ Full per-site table: `docs/notes/svet.md`. No placement references `ai/groups`, 
 - D45 A site activates only when its whole herd fits under spawning.max_active_machines; nearest sites first, far
   idle sites yield.
 - 2026-10-09 svet 6074fe1 merged: WorldMeshes.Ensure re-exports missing glb/.tex/textures; CellUpToDate requires all referenced files (GC regen verified in one serve session).
+- 2026-10-09 hra 634a156 merged: three data races fixed (mesh_library dicts read by workers, job dict written during task, converter queues unguarded). Segfault not reproduced in 122 runs before/after (original 1/4). D46 worker code never reads dictionaries the main thread writes; shared state only via mutex-guarded sets or pre-allocated slots.
