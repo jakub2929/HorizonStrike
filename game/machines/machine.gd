@@ -85,6 +85,10 @@ func setup(type: String, machine_meta: Dictionary) -> void:
 	turn_rate = deg_to_rad(Sheets.machine_num(type, "turn_rate_dps", 180.0))
 	sight_range = Sheets.machine_num(type, "sight_range_m", 40.0)
 	sight_fov = deg_to_rad(Sheets.machine_num(type, "sight_fov_deg", 100.0))
+	# meta.json perception names the HZD value a half angle (DirectHeadingAngle); the sheet column is the full cone
+	var perc: Dictionary = machine_meta.get("perception", {})
+	if perc.has("sight_half_angle_deg"):
+		sight_fov = deg_to_rad(2.0 * float(perc["sight_half_angle_deg"]))
 	peripheral_range = Sheets.machine_num(type, "peripheral_range_m", 15.0)
 	hearing_range = Sheets.machine_num(type, "hearing_range_m", 25.0)
 	imm_susp = Sheets.machine_num(type, "immediate_suspicion_m", 8.0)
@@ -209,7 +213,7 @@ func _die(weapon_id: String) -> void:
 
 # ------------------------------------------------------------------ perception
 
-func hear_noise(pos: Vector3, radius: float, gain_center: float, gain_edge: float) -> void:
+func hear_noise(pos: Vector3, radius: float, gain_center: float, gain_edge: float, loud: bool = false) -> void:
 	if state == "dead" or not ai_enabled:
 		return
 	var d := global_position.distance_to(pos)
@@ -218,6 +222,11 @@ func hear_noise(pos: Vector3, radius: float, gain_center: float, gain_edge: floa
 	var g := lerpf(gain_center, gain_edge, clampf(d / maxf(radius, 0.01), 0.0, 1.0))
 	suspicion = minf(suspicion + g, alert_threshold * 1.5)
 	_stimulus = pos
+	# herd rule: grazing herds bolt from a gunshot or blast they hear (they flee instead of investigating)
+	if loud and flee_on_alert and archetype == "herd" and suspicion >= susp_threshold and state in ["idle", "graze", "suspicious"]:
+		suspicion = maxf(suspicion, alert_threshold)
+		_last_seen = pos
+		_last_seen_time = _now()
 	_after_suspicion_change()
 
 

@@ -125,6 +125,8 @@ func _process(_delta: float) -> void:
 
 
 func _unhandled_input(event: InputEvent) -> void:
+	if Game.args and Game.args.automated():
+		return
 	if event.is_action_pressed("menu"):
 		if Game.buy_wheel and Game.buy_wheel.is_open():
 			return

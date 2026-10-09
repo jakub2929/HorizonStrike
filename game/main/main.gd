@@ -305,8 +305,9 @@ func _check_campfires() -> void:
 
 # ------------------------------------------------------------------ misc
 
+## Automated runs (autotest, dev --script tools, --exit-after) never grab the user's mouse.
 func capture_mouse() -> void:
-	if args.autotest or DisplayServer.get_name() == "headless":
+	if args.automated() or DisplayServer.get_name() == "headless":
 		return
 	if player and player.is_alive() and Game.is_world_ready:
 		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED

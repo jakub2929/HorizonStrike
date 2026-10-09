@@ -13,6 +13,10 @@ const WeaponAudio := preload("res://audio/weapon_audio.gd")
 
 const LAYER_WORLD := 1
 const LAYER_HITBOX := 8
+const LAYER_WEAK := 16
+## Weak spots win when they lie this close behind a body hitbox along the same ray (our per-bone boxes are coarser
+## than the real armour shells around an eye or canister).
+const WEAK_SLACK_M := 0.15
 
 var player: CharacterBody3D
 var viewmodel: Node3D
@@ -361,11 +365,24 @@ func fire(api: bool, secondary: bool = false) -> Dictionary:
 
 
 func _trace(origin: Vector3, dir: Vector3, range_m: float) -> Dictionary:
-	var q := PhysicsRayQueryParameters3D.create(origin, origin + dir * range_m, LAYER_WORLD | LAYER_HITBOX)
+	var space := player.get_world_3d().direct_space_state
+	var q := PhysicsRayQueryParameters3D.create(origin, origin + dir * range_m, LAYER_WORLD | LAYER_HITBOX | LAYER_WEAK)
 	q.collide_with_areas = true
 	q.collide_with_bodies = true
 	q.exclude = [player.get_rid()]
-	return player.get_world_3d().direct_space_state.intersect_ray(q)
+	var hit := space.intersect_ray(q)
+	if hit.is_empty():
+		return hit
+	var col: Object = hit["collider"]
+	if col is Area3D and col.has_meta("machine") and not col.get_meta("weak", false):
+		var d := origin.distance_to(hit["position"])
+		var qw := PhysicsRayQueryParameters3D.create(origin, origin + dir * (d + WEAK_SLACK_M), LAYER_WEAK)
+		qw.collide_with_areas = true
+		qw.collide_with_bodies = false
+		var hw := space.intersect_ray(qw)
+		if not hw.is_empty() and (hw["collider"] as Object).get_meta("machine", null) == col.get_meta("machine"):
+			return hw
+	return hit
 
 
 func _recoil(id: String) -> void:
@@ -383,7 +400,7 @@ func _shot_noise(id: String) -> void:
 	var r := float(Sheets.weapon_row(id).get("suspicion_radius_m", 30.0))
 	if r <= 0.0:
 		return
-	Game.make_noise(player.global_position, r, Sheets.sys_num("suspicion.shot_gain_center", 1.0), Sheets.sys_num("suspicion.shot_gain_edge", 0.4))
+	Game.make_noise(player.global_position, r, Sheets.sys_num("suspicion.shot_gain_center", 1.0), Sheets.sys_num("suspicion.shot_gain_edge", 0.4), true)
 
 
 func _impact_noise(pos: Vector3) -> void:

@@ -58,8 +58,8 @@ func _init_legs(sk: Skeleton3D) -> void:
 		if n == 4:
 			off = [0.25, 0.75, 0.0, 0.5][i]
 		var foot_world := _rest_foot_world(sk, chain)
-		_legs.append({"chain": chain, "offset": fmod(off, 1.0), "planted": foot_world, "from": foot_world,
-			"to": foot_world, "swing": false, "swing_t": 0.0})
+		_legs.append({"chain": chain, "knee": _pick_knee(sk, chain), "offset": fmod(off, 1.0), "planted": foot_world,
+			"from": foot_world, "to": foot_world, "swing": false, "swing_t": 0.0})
 	# body bone = common parent of the leg roots
 	if n > 0:
 		var roots := []
@@ -68,7 +68,10 @@ func _init_legs(sk: Skeleton3D) -> void:
 		_body_bone = roots[0]
 		while _body_bone >= 0 and not _is_ancestor_of_all(sk, _body_bone, roots):
 			_body_bone = sk.get_bone_parent(_body_bone)
+	var helpers: Dictionary = rig.helper_bones if "helper_bones" in rig else {}
 	for i in sk.get_bone_count():
+		if helpers.has(i):
+			continue
 		var nm := sk.get_bone_name(i).to_lower()
 		if nm.contains("tail"):
 			_tail_bones.append(i)
@@ -76,6 +79,36 @@ func _init_legs(sk: Skeleton3D) -> void:
 			_neck_bones.append(i)
 		elif nm.contains("spine") or nm.contains("chest"):
 			_spine_bones.append(i)
+
+
+## The knee of a leg chain: the joint that bends furthest off the hip->foot line, among the joints between 25% and
+## 75% of the chain length (so hooves/toes and scapulae are not chosen). Joints between hip, knee and foot move
+## rigidly with their parent, which keeps the real leg shape of digitigrade/multi-joint legs.
+func _pick_knee(sk: Skeleton3D, chain: PackedInt32Array) -> int:
+	if chain.size() == 3:
+		return 1
+	var pts: Array = []
+	for b in chain:
+		pts.append(sk.get_bone_global_rest(b).origin)
+	var total := 0.0
+	var cum: Array = [0.0]
+	for i in range(1, pts.size()):
+		total += (pts[i] as Vector3).distance_to(pts[i - 1])
+		cum.append(total)
+	var a: Vector3 = pts[0]
+	var line := ((pts[pts.size() - 1] as Vector3) - a).normalized()
+	var best := 1
+	var best_d := -1.0
+	for i in range(1, pts.size() - 1):
+		var f: float = cum[i] / maxf(total, 0.0001)
+		if f < 0.25 or f > 0.75:
+			continue
+		var v: Vector3 = (pts[i] as Vector3) - a
+		var d := (v - line * v.dot(line)).length()
+		if d > best_d:
+			best_d = d
+			best = i
+	return best
 
 
 func _is_ancestor_of_all(sk: Skeleton3D, b: int, bones: Array) -> bool:
@@ -215,7 +248,7 @@ func _process_modification_with_delta(delta: float) -> void:
 					leg["planted"] = leg["to"]
 			else:
 				leg["planted_now"] = leg["planted"]
-		_solve_leg(sk, chain, inv * (leg["planted_now"] as Vector3))
+		_solve_leg(sk, chain, int(leg["knee"]), inv * (leg["planted_now"] as Vector3))
 	# ---- spine lean, grazing, attack poses, flinch
 	if lean > 0.0 and _body_bone >= 0:
 		_rotate_global(sk, _body_bone, Quaternion((xf.basis.inverse() * m.global_transform.basis.x).normalized(), lean * 0.5))
@@ -275,22 +308,18 @@ func _process_modification_with_delta(delta: float) -> void:
 				_rotate_global(sk, b, Quaternion(axis, lim * 0.3 / maxf(_neck_bones.size(), 1)))
 
 
-## Analytic two-bone IK in skeleton space. chain = [hip, knee, ankle(, toe...)]; target is where the last joint goes.
-func _solve_leg(sk: Skeleton3D, chain: PackedInt32Array, target_last: Vector3) -> void:
+## Analytic two-bone IK in skeleton space: hip = chain[0], knee = chain[knee_i], end = last joint (the foot contact).
+## Rotates only the hip and the knee bone; everything between moves rigidly.
+func _solve_leg(sk: Skeleton3D, chain: PackedInt32Array, knee_i: int, target: Vector3) -> void:
 	var hip := chain[0]
-	var knee := chain[1]
-	var ankle := chain[2]
-	var target := target_last
-	if chain.size() > 3:
-		# keep the ankle->toe offset of the current pose: ankle target = toe target - offset
-		var last := chain[chain.size() - 1]
-		target = target_last - (_global(sk, last).origin - _global(sk, ankle).origin)
+	var knee := chain[knee_i]
+	var end := chain[chain.size() - 1]
 	var gh := _global(sk, hip)
 	var gk := _global(sk, knee)
-	var ga := _global(sk, ankle)
+	var ge := _global(sk, end)
 	var A := gh.origin
 	var B := gk.origin
-	var C := ga.origin
+	var C := ge.origin
 	var a := A.distance_to(B)
 	var b := B.distance_to(C)
 	if a < 0.001 or b < 0.001:
@@ -308,10 +337,9 @@ func _solve_leg(sk: Skeleton3D, chain: PackedInt32Array, target_last: Vector3) -
 	var q1 := _rot_between(B - A, B2 - A)
 	_set_global_basis(sk, hip, Basis(q1) * gh.basis.orthonormalized())
 	var gk2 := _global(sk, knee)
-	var ga2 := _global(sk, ankle)
-	var C2 := ga2.origin
+	var ge2 := _global(sk, end)
 	var T2 := A + dir * dist
-	var q2 := _rot_between(C2 - gk2.origin, T2 - gk2.origin)
+	var q2 := _rot_between(ge2.origin - gk2.origin, T2 - gk2.origin)
 	_set_global_basis(sk, knee, Basis(q2) * gk2.basis.orthonormalized())
 
 

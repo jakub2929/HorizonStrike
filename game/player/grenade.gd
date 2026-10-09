@@ -80,7 +80,7 @@ func _explode() -> void:
 	var radius := Sheets.u2m(Sheets.weapon_num(weapon_id, "range", 350.0))
 	var dmg := Sheets.weapon_num(weapon_id, "damage", 99.0)
 	Log.info("%s exploded at %s (radius %.1f m, damage %.0f)" % [weapon_id, c, radius, dmg])
-	Game.make_noise(c, float(Sheets.weapon_row(weapon_id).get("suspicion_radius_m", 80.0)), Sheets.sys_num("suspicion.shot_gain_center", 1.0), Sheets.sys_num("suspicion.shot_gain_edge", 0.4))
+	Game.make_noise(c, float(Sheets.weapon_row(weapon_id).get("suspicion_radius_m", 80.0)), Sheets.sys_num("suspicion.shot_gain_center", 1.0), Sheets.sys_num("suspicion.shot_gain_edge", 0.4), true)
 	for m in Game.machines.duplicate():
 		if not is_instance_valid(m) or m.is_dead():
 			continue

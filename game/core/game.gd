@@ -66,10 +66,10 @@ func unregister_machine(m: Node) -> void:
 
 
 ## Noise heard by machines within `radius` (shots D5, footsteps, landings, explosions).
-func make_noise(pos: Vector3, radius: float, gain_center: float, gain_edge: float) -> void:
+func make_noise(pos: Vector3, radius: float, gain_center: float, gain_edge: float, loud: bool = false) -> void:
 	for m in machines:
 		if is_instance_valid(m):
-			m.hear_noise(pos, radius, gain_center, gain_edge)
+			m.hear_noise(pos, radius, gain_center, gain_edge, loud)
 
 
 ## True when a machine in alert/attack targets the player within 60 m (economy.buy_allowed_rule, D19).

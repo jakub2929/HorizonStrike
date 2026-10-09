@@ -8,6 +8,7 @@ const Sheets := preload("res://core/sheets.gd")
 const Animator := preload("res://machines/machine_animator.gd")
 
 const LAYER_HITBOX := 8
+const LAYER_WEAK := 16
 const EYE_COLORS := {"calm": Color(0.25, 0.65, 1.0), "suspicious": Color(1.0, 0.8, 0.15), "alert": Color(1.0, 0.15, 0.1)}
 
 var machine: Node3D
@@ -22,7 +23,7 @@ var head_bone := -1
 var leg_chains: Array = []      # Array of PackedInt32Array (hip..foot)
 var is_placeholder := true
 var _eye_mats: Array = []
-var _flash := 0.0
+var _eye_light: OmniLight3D
 
 
 func build(m: Node3D, type: String, meta: Dictionary) -> void:
@@ -43,15 +44,30 @@ func build(m: Node3D, type: String, meta: Dictionary) -> void:
 
 # ------------------------------------------------------------------ real model
 
+## Per machine type: the glb scene packed once, and per-bone hitbox boxes from the skinned vertices.
+static var _scene_cache := {}     # type -> PackedScene
+static var _box_cache := {}       # type -> Array of [bone_name, AABB in bone rest space, vertex count]
+
+var helper_bones := {}            # bone index -> true (meta helper bones: never animated)
+
+
 func _build_from_glb(path: String, meta: Dictionary) -> bool:
-	var doc := GLTFDocument.new()
-	var state := GLTFState.new()
-	if doc.append_from_file(path, state) != OK:
-		Log.warn("machine model failed to load: %s" % path)
-		return false
-	var scene := doc.generate_scene(state)
-	if scene == null:
-		return false
+	var scene: Node = null
+	if _scene_cache.has(machine_type):
+		scene = (_scene_cache[machine_type] as PackedScene).instantiate()
+	else:
+		var doc := GLTFDocument.new()
+		var state := GLTFState.new()
+		if doc.append_from_file(path, state) != OK:
+			Log.warn("machine model failed to load: %s" % path)
+			return false
+		scene = doc.generate_scene(state)
+		if scene == null:
+			return false
+		_own_all(scene, scene)
+		var ps := PackedScene.new()
+		if ps.pack(scene) == OK:
+			_scene_cache[machine_type] = ps
 	var sk := _find_skeleton(scene)
 	if sk == null:
 		Log.warn("machine model has no skeleton: %s" % path)
@@ -59,34 +75,175 @@ func _build_from_glb(path: String, meta: Dictionary) -> bool:
 		return false
 	add_child(scene)
 	skeleton = sk
+	for b in meta.get("bones", []):
+		if b.get("helper", false):
+			var bi := skeleton.find_bone(str(b.get("name", "")))
+			if bi >= 0:
+				helper_bones[bi] = true
 	# leg chains from meta (names) -> bone indices
 	for chain in meta.get("leg_chains", []):
 		var ids := PackedInt32Array()
-		var names: Array = chain if chain is Array else str(chain).split(",")
+		var names: Array = chain if chain is Array else Array(str(chain).split(","))
 		for n in names:
 			var b := skeleton.find_bone(str(n).strip_edges())
 			if b >= 0:
 				ids.append(b)
 		if ids.size() >= 3:
 			leg_chains.append(ids)
-	head_bone = _find_bone_like(["head"])
-	eye_bone = _find_bone_like(["eye"])
+	var weak_bones := {}
+	for ws in meta.get("weak_spots", []):
+		var wb := skeleton.find_bone(str(ws.get("bone", "")))
+		if wb >= 0:
+			weak_bones[wb] = str(ws.get("part", "weak"))
+	# head: an exact head joint, else the parent of the eye, else a non-helper bone named like a head
+	for cand in ["headJoint", "Head", "head", "Head_Bone", "Cam_Bone"]:
+		if head_bone < 0:
+			head_bone = skeleton.find_bone(cand)
+	for wb in weak_bones:
+		if eye_bone < 0 and str(weak_bones[wb]) == "eye":
+			eye_bone = wb
+	if eye_bone < 0:
+		for cand2 in ["eye_helper", "Eye_helper", "Eye_Lx_helper", "eyeJoint"]:
+			if eye_bone < 0:
+				eye_bone = skeleton.find_bone(cand2)
+	if head_bone < 0 and eye_bone >= 0:
+		head_bone = skeleton.get_bone_parent(eye_bone)
+	if head_bone < 0:
+		for i in skeleton.get_bone_count():
+			if head_bone < 0 and not helper_bones.has(i) and skeleton.get_bone_name(i).to_lower().contains("head"):
+				head_bone = i
 	var aabb := _skeleton_aabb()
-	body_radius = maxf(aabb.size.x, aabb.size.z) * 0.25
+	body_radius = clampf(aabb.size.x * 0.6, 0.35, 0.9)
 	if body_height <= 0.1:
 		body_height = aabb.size.y
-	# hitboxes: torso box from the skeleton bounds, weak spots at their bones
-	var torso := BoxShape3D.new()
-	torso.size = Vector3(maxf(aabb.size.x * 0.5, 0.5), maxf(body_height * 0.35, 0.5), maxf(aabb.size.z * 0.5, 0.6))
-	_add_hitbox_static("body", false, torso, Vector3(0, body_height * 0.6, 0))
-	for ws in meta.get("weak_spots", []):
-		var bone := skeleton.find_bone(str(ws.get("bone", "")))
-		var sph := SphereShape3D.new()
-		sph.radius = float(ws.get("radius", 0.25))
-		if bone >= 0:
-			_add_hitbox_bone(str(ws.get("part", "weak")), true, sph, bone, Vector3.ZERO)
-	Log.info("machine %s: real model, %d bones, %d leg chains, height %.2f m" % [machine_type, skeleton.get_bone_count(), leg_chains.size(), body_height])
+	_build_hitboxes(scene, weak_bones)
+	_add_eye_glow()
+	Log.info("machine %s: real model, %d bones, %d leg chains, head %s, eye %s, %d hitboxes, height %.2f m" % [machine_type,
+		skeleton.get_bone_count(), leg_chains.size(), skeleton.get_bone_name(head_bone) if head_bone >= 0 else "-",
+		skeleton.get_bone_name(eye_bone) if eye_bone >= 0 else "-", hitboxes.size(), body_height])
 	return true
+
+
+func _own_all(n: Node, owner_node: Node) -> void:
+	for c in n.get_children():
+		c.owner = owner_node
+		_own_all(c, owner_node)
+
+
+## Hitboxes: one box per bone that dominates enough skinned vertices (tight fit in the bone's rest space); weak-spot
+## bones get spheres on the weak layer (their own vertex box when they have one, else a sphere sized to the machine).
+func _build_hitboxes(scene: Node, weak_bones: Dictionary) -> void:
+	if not _box_cache.has(machine_type):
+		_box_cache[machine_type] = _compute_bone_boxes(scene)
+	var boxes: Array = _box_cache[machine_type]
+	var weak_done := {}
+	for e in boxes:
+		var b := skeleton.find_bone(str(e[0]))
+		if b < 0:
+			continue
+		var bb: AABB = e[1]
+		if weak_bones.has(b):
+			var sph := SphereShape3D.new()
+			sph.radius = maxf(bb.size[bb.get_longest_axis_index()] * 0.5, 0.12)
+			_add_hitbox_bone(str(weak_bones[b]), true, sph, b, bb.get_center())
+			weak_done[b] = true
+			continue
+		if int(e[2]) < 24 or bb.size.length() < 0.08:
+			continue
+		var box := BoxShape3D.new()
+		box.size = (bb.size * 0.92).max(Vector3(0.05, 0.05, 0.05))
+		_add_hitbox_bone("body", false, box, b, bb.get_center())
+	var h := maxf(body_height, 1.0)
+	for b in weak_bones:
+		if weak_done.has(b):
+			continue
+		var sph2 := SphereShape3D.new()
+		sph2.radius = clampf(h * 0.08, 0.15, 0.35)
+		_add_hitbox_bone(str(weak_bones[b]), true, sph2, b, Vector3.ZERO)
+
+
+func _compute_bone_boxes(scene: Node) -> Array:
+	var per_bone := {}    # bone index -> [AABB, count]
+	var t0 := Time.get_ticks_msec()
+	var sk_inv := skeleton.global_transform.affine_inverse()
+	var rest_inv := {}
+	for mi in _mesh_instances(scene):
+		var mesh_i: MeshInstance3D = mi
+		if mesh_i.skin == null or mesh_i.mesh == null:
+			continue
+		var skin := mesh_i.skin
+		var bind_to_bone := PackedInt32Array()
+		for i in skin.get_bind_count():
+			var bb := skin.get_bind_bone(i)
+			if bb < 0:
+				bb = skeleton.find_bone(String(skin.get_bind_name(i)))
+			bind_to_bone.append(bb)
+		var to_sk := sk_inv * mesh_i.global_transform
+		for s in mesh_i.mesh.get_surface_count():
+			var arr := mesh_i.mesh.surface_get_arrays(s)
+			if arr[Mesh.ARRAY_BONES] == null or arr[Mesh.ARRAY_WEIGHTS] == null:
+				continue
+			var verts: PackedVector3Array = arr[Mesh.ARRAY_VERTEX]
+			var bones: PackedInt32Array = arr[Mesh.ARRAY_BONES]
+			var weights: PackedFloat32Array = arr[Mesh.ARRAY_WEIGHTS]
+			var per := weights.size() / maxi(verts.size(), 1)
+			for v in verts.size():
+				var best := 0
+				var bw := -1.0
+				for k in per:
+					var w := weights[v * per + k]
+					if w > bw:
+						bw = w
+						best = bones[v * per + k]
+				if best < 0 or best >= bind_to_bone.size():
+					continue
+				var bone := bind_to_bone[best]
+				if bone < 0:
+					continue
+				if not rest_inv.has(bone):
+					rest_inv[bone] = skeleton.get_bone_global_rest(bone).affine_inverse()
+				var lp: Vector3 = (rest_inv[bone] as Transform3D) * (to_sk * verts[v])
+				if per_bone.has(bone):
+					var e: Array = per_bone[bone]
+					e[0] = (e[0] as AABB).expand(lp)
+					e[1] = int(e[1]) + 1
+				else:
+					per_bone[bone] = [AABB(lp, Vector3.ZERO), 1]
+	var out: Array = []
+	for b in per_bone:
+		out.append([skeleton.get_bone_name(b), per_bone[b][0], per_bone[b][1]])
+	Log.info("machine %s: hitbox boxes for %d bones in %d ms" % [machine_type, out.size(), Time.get_ticks_msec() - t0])
+	return out
+
+
+func _mesh_instances(n: Node) -> Array:
+	var out: Array = []
+	if n is MeshInstance3D:
+		out.append(n)
+	for c in n.get_children():
+		out.append_array(_mesh_instances(c))
+	return out
+
+
+func _add_eye_glow() -> void:
+	if eye_bone < 0:
+		return
+	var ba := _attach(eye_bone)
+	var mi := MeshInstance3D.new()
+	var sm := SphereMesh.new()
+	sm.radius = clampf(body_height * 0.025, 0.03, 0.08)
+	sm.height = sm.radius * 2.0
+	mi.mesh = sm
+	var m := StandardMaterial3D.new()
+	m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	m.emission_enabled = true
+	mi.material_override = m
+	_eye_mats.append(m)
+	ba.add_child(mi)
+	_eye_light = OmniLight3D.new()
+	_eye_light.omni_range = 3.0
+	_eye_light.light_energy = 1.5
+	ba.add_child(_eye_light)
 
 
 func _find_skeleton(n: Node) -> Skeleton3D:
@@ -99,20 +256,15 @@ func _find_skeleton(n: Node) -> Skeleton3D:
 	return null
 
 
-func _find_bone_like(keys: Array) -> int:
-	for i in skeleton.get_bone_count():
-		var n := skeleton.get_bone_name(i).to_lower()
-		for k in keys:
-			if n.contains(k):
-				return i
-	return -1
-
-
 func _skeleton_aabb() -> AABB:
 	var aabb := AABB()
+	var first := true
 	for i in skeleton.get_bone_count():
+		if helper_bones.has(i):
+			continue
 		var p := skeleton.get_bone_global_rest(i).origin
-		aabb = AABB(p, Vector3.ZERO) if i == 0 else aabb.expand(p)
+		aabb = AABB(p, Vector3.ZERO) if first else aabb.expand(p)
+		first = false
 	return aabb
 
 
@@ -280,7 +432,7 @@ func _box(size: Vector3) -> BoxShape3D:
 func _make_hitbox(part: String, weak: bool, shape: Shape3D) -> Area3D:
 	var a := Area3D.new()
 	a.name = "Hit_" + part
-	a.collision_layer = LAYER_HITBOX
+	a.collision_layer = LAYER_WEAK if weak else LAYER_HITBOX
 	a.collision_mask = 0
 	a.monitoring = false
 	a.monitorable = true
@@ -318,6 +470,8 @@ func eye_global() -> Vector3:
 
 func set_eye_mood(mood: String) -> void:
 	var c: Color = EYE_COLORS.get(mood, EYE_COLORS["calm"])
+	if _eye_light:
+		_eye_light.light_color = c
 	for m in _eye_mats:
 		(m as StandardMaterial3D).albedo_color = c
 		(m as StandardMaterial3D).emission = c

@@ -164,6 +164,8 @@ func _layout() -> void:
 
 
 func _unhandled_input(event: InputEvent) -> void:
+	if Game.args and Game.args.automated():
+		return
 	if event.is_action_pressed("buy"):
 		if _open:
 			close()

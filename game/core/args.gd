@@ -79,6 +79,11 @@ static func parse(list: PackedStringArray) -> RefCounted:
 	return a
 
 
+## True for runs driven by a program (autotest, dev --script tools, timed dev runs): no mouse capture.
+func automated() -> bool:
+	return autotest or all.has("--script") or exit_after > 0.0 or screenshot_at > 0.0
+
+
 func describe() -> String:
 	return "game=%s hzd=%s cache=%s autotest=%s%s out=%s mock=%s converter=%s" % [
 		game_dir, hzd_dir if hzd_given else "(auto)", cache_dir if cache_dir != "" else "(default)",
