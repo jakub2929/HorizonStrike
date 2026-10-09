@@ -165,18 +165,31 @@ public static class HzdConverter
         long bytes = 0;
         progress.Report("audio", 0, 3);
 
-        // music: Nora exploration themes, the open-world robot fight cue, the sneak cue
+        // music cues from sheet hzd_content audio.music_cues (exact names, ends_with, family ordered by suffix/name, max)
         var music = new Audio.Music(res);
-        Audio.Music.Track? T(string name) => music.Tracks.FirstOrDefault(t => t.Name.Equals(name, StringComparison.OrdinalIgnoreCase));
-        var cues = new (string File, Audio.Music.Track[] Tracks)[]
+        var cues = new List<(string File, Audio.Music.Track[] Tracks)>();
+        foreach (var (cue, spec) in HzdNames.Json("audio.music_cues").AsObject())
         {
-            ("explore_nora", new[] { T(SystemsSheet.AudioMusicExploreTrack.Value.Trim('"')) }.OfType<Audio.Music.Track>().ToArray()), // sheet systems audio.music_explore_track
-            ("explore_nora_2", new[] { T("exploration_nora_03_full_pt01"), T("exploration_nora_03_full_pt02") }.OfType<Audio.Music.Track>().ToArray()),
-            ("combat", new[] { music.Tracks.FirstOrDefault(t => t.Name.EndsWith("robot_fight_v4-intro", StringComparison.OrdinalIgnoreCase)) }.OfType<Audio.Music.Track>()
-                .Concat(music.Tracks.Where(t => t.Name.Contains("robot_fight_v4-high-", StringComparison.OrdinalIgnoreCase))
-                    .OrderBy(t => t.Name[(t.Name.LastIndexOf('-') + 1)..], StringComparer.Ordinal).Take(12)).ToArray()),
-            ("sneak", music.Tracks.Where(t => t.Name.Contains("robot_fight_v4-sneak", StringComparison.OrdinalIgnoreCase)).OrderBy(t => t.Name, StringComparer.Ordinal).ToArray()),
-        };
+            var list = new List<Audio.Music.Track>();
+            foreach (var n in spec?["exact"]?.AsArray() ?? [])
+            {
+                var name = n!.GetValue<string>();
+                if (name.StartsWith('@')) name = SystemsSheet.All.First(r => r.Id == name[1..]).Value.Trim('"'); // @systems row
+                if (music.Tracks.FirstOrDefault(t => t.Name.Equals(name, StringComparison.OrdinalIgnoreCase)) is { } tr) list.Add(tr);
+            }
+            foreach (var n in spec?["ends_with"]?.AsArray() ?? [])
+                if (music.Tracks.FirstOrDefault(t => t.Name.EndsWith(n!.GetValue<string>(), StringComparison.OrdinalIgnoreCase)) is { } tr) list.Add(tr);
+            if (spec?["family"]?.GetValue<string>() is { } fam)
+            {
+                var famTracks = music.Tracks.Where(t => t.Name.Contains(fam, StringComparison.OrdinalIgnoreCase));
+                famTracks = spec["order"]?.GetValue<string>() == "suffix"
+                    ? famTracks.OrderBy(t => t.Name[(t.Name.LastIndexOf('-') + 1)..], StringComparer.Ordinal)
+                    : famTracks.OrderBy(t => t.Name, StringComparer.Ordinal);
+                if (spec["max"]?.GetValue<int>() is { } max) famTracks = famTracks.Take(max);
+                list.AddRange(famTracks);
+            }
+            cues.Add((cue, list.ToArray()));
+        }
         var mj = new JsonObject();
         Directory.CreateDirectory(Path.Combine(tmp, "music"));
         foreach (var (file, tracks) in cues)
@@ -188,14 +201,16 @@ public static class HzdConverter
             mj[file] = new JsonObject { ["file"] = $"music/{file}.mp3", ["tracks"] = new JsonArray(tracks.Select(t => (JsonNode)t.Name).ToArray()) };
         }
         index["music"] = mj;
-        index["music_explore"] = "explore_nora";
-        index["music_combat"] = "combat";
+        index["music_explore"] = HzdNames.Str("audio.cue_explore");
+        index["music_combat"] = HzdNames.Str("audio.cue_combat");
         progress.Report("audio", 1, 3);
 
         // ambience: the conifer-forest environment's bird calls (the wind/rain beds are 6-channel ATRAC9) + campfire loop
         var amb = new JsonArray();
         Directory.CreateDirectory(Path.Combine(tmp, "ambience"));
         var counters = new Dictionary<string, int>();
+        var minSeconds = HzdNames.Num("audio.ambience_min_seconds");
+        var perBank = HzdNames.Int("audio.ambience_per_bank");
         void ExportFolder(string folder, string prefix, int max)
         {
             var n = 0;
@@ -208,7 +223,7 @@ public static class HzdConverter
                 {
                     if (n >= max) break;
                     var e = Audio.Waves.Export(arc, w);
-                    if (e is null || e.Seconds < 0.5) continue;
+                    if (e is null || e.Seconds < minSeconds) continue;
                     n++;
                     var k = counters.GetValueOrDefault(prefix);
                     counters[prefix] = k + 1;
@@ -222,14 +237,15 @@ public static class HzdConverter
         var envPath = SystemsSheet.AudioAmbienceTrack.Value.Trim('"'); // sheet systems audio.ambience_track
         var env = res.TryFile(envPath);
         if (env is not null)
-            foreach (var es in env.All("EnvironmentSound").Take(10))
+            foreach (var es in env.All("EnvironmentSound").Take(HzdNames.Int("audio.ambience_banks_max")))
             {
                 var bank = es.Ref("Sound").Path;
                 if (bank is null) continue;
                 var folder = bank[..(bank.LastIndexOf('/') + 1)];
-                ExportFolder(folder, "birds", 2);
+                ExportFolder(folder, HzdNames.Str("audio.ambience_kind"), perBank);
             }
-        ExportFolder("sounds/effects/world/global/fire/fire_festivalcampfires/", "campfire", 2);
+        foreach (var extra in HzdNames.Json("audio.ambience_extra").AsArray())
+            ExportFolder(extra!["folder"]!.GetValue<string>(), extra["kind"]!.GetValue<string>(), perBank);
         index["ambience"] = amb;
         index["ambience_source"] = envPath;
         progress.Report("audio", 2, 3);

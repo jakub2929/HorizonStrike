@@ -1,6 +1,8 @@
 using System.Numerics;
 using Hzs.Decima.Core;
 
+using Hzs.Decima.Sheets;
+
 namespace Hzs.Decima.World;
 
 public sealed record Campfire(string Id, Vector3 HzdPos, Vector3 GodotPos, float YawDeg);
@@ -12,7 +14,7 @@ public sealed record Campfire(string Id, Vector3 HzdPos, Vector3 GodotPos, float
 /// </summary>
 public static class Campfires
 {
-    public static string PathOf(int x, int y) => $"{WorldTiles.TileDir(x, y)}/layers/gameplay/campfires";
+    public static string PathOf(int x, int y) => $"{WorldTiles.TileDir(x, y)}/{HzdNames.Str("campfires.layer")}";
 
     public static List<Campfire> Read(Resolver res, int x, int y)
     {
@@ -23,10 +25,10 @@ public static class Campfires
         foreach (var si in file.All("SceneInstance"))
         {
             var prefab = si.Ref("Prefab").Path ?? "";
-            if (!prefab.Contains("campfire", StringComparison.OrdinalIgnoreCase)) continue;
+            if (!prefab.Contains(HzdNames.Str("campfires.prefab_match"), StringComparison.OrdinalIgnoreCase)) continue;
             var wt = si.Struct("Orientation");
             var name = si.Str("Name");
-            if (string.IsNullOrEmpty(name)) name = $"Campfire_x{WorldTiles.Fmt(x)}_y{WorldTiles.Fmt(y)}_i{i}";
+            if (string.IsNullOrEmpty(name)) name = HzdNames.Fill("campfires.id_fallback", ("x", WorldTiles.Fmt(x)), ("y", WorldTiles.Fmt(y)), ("i", i.ToString(System.Globalization.CultureInfo.InvariantCulture)));
             var g = WorldXf.Godot(wt);
             list.Add(new Campfire(name, WorldXf.HzdPos(wt), g.Translation, WorldXf.GodotYawDeg(g)));
             i++;
@@ -38,7 +40,7 @@ public static class Campfires
     public static Dictionary<string, Vector3> Markers(Resolver res, int x, int y)
     {
         var d = new Dictionary<string, Vector3>(StringComparer.Ordinal);
-        var file = res.TryFile($"{WorldTiles.TileDir(x, y)}/layers/gameplay/markers");
+        var file = res.TryFile($"{WorldTiles.TileDir(x, y)}/{HzdNames.Str("start.markers_layer")}");
         if (file is null) return d;
         foreach (var m in file.All("AIMarker")) d.TryAdd(m.Str("Name"), WorldXf.HzdPos(m.Struct("Orientation")));
         return d;
