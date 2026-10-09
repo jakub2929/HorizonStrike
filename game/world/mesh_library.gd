@@ -39,10 +39,10 @@ func prepare(ids: Array) -> void:
 		_mutex.unlock()
 		if done:
 			continue
-		var p := GlbReader.read(dir.path_join(id + ".glb"), true)
-		if not p.is_empty() and (p["alpha"] or (p["faces"] as PackedVector3Array).size() > MAX_TRIMESH_FACES):
-			p.erase("faces")
+		var p := GlbReader.read(dir.path_join(id + ".glb"), false)
 		if not p.is_empty():
+			if _wants_trimesh(p):
+				p["faces"] = _faces(p)
 			_generate_lods(p)
 		_mutex.lock()
 		_parsed[id] = p
@@ -52,6 +52,28 @@ func prepare(ids: Array) -> void:
 		for m in p["materials"]:
 			if str(m["image"]) != "":
 				_decode(str(m["image"]))
+
+
+## Solid meshes big enough to block the player get a triangle-mesh collider (faces built here, on the worker).
+static func _wants_trimesh(p: Dictionary) -> bool:
+	if p["alpha"] or int(p["tris"]) * 3 > MAX_TRIMESH_FACES:
+		return false
+	var a: AABB = p["aabb"]
+	return maxf(a.size.x, a.size.z) >= 0.8 or a.size.y >= 0.8
+
+
+static func _faces(p: Dictionary) -> PackedVector3Array:
+	var faces := PackedVector3Array()
+	faces.resize(int(p["tris"]) * 3)
+	var k := 0
+	for s in p["surfaces"]:
+		var pos: PackedVector3Array = s["arrays"][Mesh.ARRAY_VERTEX]
+		var idx: PackedInt32Array = s["arrays"][Mesh.ARRAY_INDEX]
+		for i in idx.size():
+			faces[k] = pos[idx[i]]
+			k += 1
+	faces.resize(k)
+	return faces
 
 
 ## Automatic LODs (meshoptimizer through ImporterMesh, CPU only) -> per surface {screen size: indices}.
@@ -211,14 +233,10 @@ func get_shape(id: String) -> Shape3D:
 				cyl.radius = clampf(minf(aabb.size.x, aabb.size.z) * 0.06, 0.12, 0.6)
 				cyl.height = minf(aabb.size.y, 6.0)
 				shape = cyl
-		else:
-			var faces: PackedVector3Array = e.get("faces", PackedVector3Array())
-			if faces.size() > 0:
-				var s := ConcavePolygonShape3D.new()
-				s.set_faces(faces)
-				shape = s
-			else:
-				shape = (e["mesh"] as ArrayMesh).create_convex_shape(true, true)
+		elif (e.get("faces", PackedVector3Array()) as PackedVector3Array).size() > 0:
+			var s := ConcavePolygonShape3D.new()
+			s.set_faces(e["faces"])
+			shape = s
 		e.erase("faces")
 	_shapes[id] = shape
 	return shape
@@ -253,7 +271,7 @@ func _load_gltf(id: String) -> Dictionary:
 	scene.free()
 	if merged.get_surface_count() == 0:
 		return {}
-	return {"mesh": merged, "aabb": merged.get_aabb(), "plant": false, "tris": 0, "faces": merged.get_faces()}
+	return {"mesh": merged, "aabb": merged.get_aabb(), "plant": false, "tris": merged.get_faces().size() / 3}
 
 
 func _collect(node: Node, parent_xf: Transform3D, merged: ArrayMesh, is_root: bool) -> void:

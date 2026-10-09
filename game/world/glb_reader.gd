@@ -80,12 +80,18 @@ static func read(path: String, want_faces: bool = false) -> Dictionary:
 					pos[i] = xf * pos[i]
 				for i in nrm.size():
 					nrm[i] = (nb * nrm[i]).normalized()
-			for p in pos:
-				if first:
-					aabb = AABB(p, Vector3.ZERO)
-					first = false
-				else:
-					aabb = aabb.expand(p)
+			var pa: Dictionary = j["accessors"][int(attrs["POSITION"])]
+			var paabb := AABB()
+			if xf.is_equal_approx(Transform3D.IDENTITY) and pa.has("min") and pa.has("max"):
+				var mn: Array = pa["min"]
+				var mx: Array = pa["max"]
+				paabb = AABB(Vector3(mn[0], mn[1], mn[2]), Vector3(mx[0] - mn[0], mx[1] - mn[1], mx[2] - mn[2]))
+			else:
+				paabb = AABB(pos[0], Vector3.ZERO) if pos.size() > 0 else AABB()
+				for p in pos:
+					paabb = paabb.expand(p)
+			aabb = paabb if first else aabb.merge(paabb)
+			first = false
 			var arrays := []
 			arrays.resize(Mesh.ARRAY_MAX)
 			arrays[Mesh.ARRAY_VERTEX] = pos
@@ -193,7 +199,10 @@ static func _floats(acc: Array) -> PackedFloat32Array:
 
 
 static func _vec3(j: Dictionary, bin: PackedByteArray, ai: int) -> PackedVector3Array:
-	var f := _floats(_acc(j, bin, ai))
+	var acc := _acc(j, bin, ai)
+	if int(acc[3]) == 5126 and int(acc[4]) == 12:
+		return (acc[0] as PackedByteArray).slice(0, int(acc[1]) * 12).to_vector3_array()
+	var f := _floats(acc)
 	var out := PackedVector3Array()
 	out.resize(f.size() / 3)
 	for i in out.size():
@@ -202,7 +211,10 @@ static func _vec3(j: Dictionary, bin: PackedByteArray, ai: int) -> PackedVector3
 
 
 static func _vec2(j: Dictionary, bin: PackedByteArray, ai: int) -> PackedVector2Array:
-	var f := _floats(_acc(j, bin, ai))
+	var acc := _acc(j, bin, ai)
+	if int(acc[3]) == 5126 and int(acc[4]) == 8:
+		return (acc[0] as PackedByteArray).slice(0, int(acc[1]) * 8).to_vector2_array()
+	var f := _floats(acc)
 	var out := PackedVector2Array()
 	out.resize(f.size() / 2)
 	for i in out.size():

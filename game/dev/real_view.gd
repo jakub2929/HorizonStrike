@@ -60,6 +60,14 @@ func _run() -> void:
 		print("REAL perf: %.1f fps avg, worst frame %.1f ms, draw calls %d, primitives %d, machines %d" % [frames / perf, worst,
 			Performance.get_monitor(Performance.RENDER_TOTAL_DRAW_CALLS_IN_FRAME), Performance.get_monitor(Performance.RENDER_TOTAL_PRIMITIVES_IN_FRAME),
 			_game.machines.size()])
+		var vp_rid := root.get_viewport_rid()
+		RenderingServer.viewport_set_measure_render_time(vp_rid, true)
+		await _wait(1.0)
+		print("REAL timings: process %.2f ms, physics %.2f ms, cpu render %.2f ms, gpu render %.2f ms, objects %d, nodes %d, physics active %d, collision pairs %d" % [
+			Performance.get_monitor(Performance.TIME_PROCESS) * 1000.0, Performance.get_monitor(Performance.TIME_PHYSICS_PROCESS) * 1000.0,
+			RenderingServer.viewport_get_measured_render_time_cpu(vp_rid), RenderingServer.viewport_get_measured_render_time_gpu(vp_rid),
+			Performance.get_monitor(Performance.RENDER_TOTAL_OBJECTS_IN_FRAME), Performance.get_monitor(Performance.OBJECT_NODE_COUNT),
+			Performance.get_monitor(Performance.PHYSICS_3D_ACTIVE_OBJECTS), Performance.get_monitor(Performance.PHYSICS_3D_COLLISION_PAIRS)])
 	print("REAL done")
 	quit(0)
 
