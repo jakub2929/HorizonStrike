@@ -63,4 +63,4 @@ static func kill(ctx, m: Node, weapon_id: String, part: String = "body", max_sho
 	if not is_dead(m):
 		await ctx.physics_frames(1)
 		reasons["line_of_sight_at_end"] = ctx.line_of_sight_to(m, part)
-	return {"dead": is_dead(m), "shots": shots.size(), "hits": hits, "hits_on_other_targets": other, "miss_reasons": reasons, "ammo_end": str(ammo_end), "interval_s": snappedf(interval, 0.001)}
+	return {"dead": is_dead(m), "shots": shots.size(), "hits": hits, "hits_on_other_targets": other, "miss_reasons": reasons, "ammo_end": str(ammo_end), "interval_s": snappedf(interval, 0.001), "first_shots": shots.slice(0, 8)}

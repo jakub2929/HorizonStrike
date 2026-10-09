@@ -28,7 +28,24 @@ static func go_near_site(ctx, site: Dictionary, machine_type: String, need: int,
 	## teleports 40 m from the site, waits for its cell and for `need` machines of the type near the site
 	var pos: Vector3 = site.pos
 	var start: Vector3 = pos + Vector3(40.0, 2.0, 0.0)
+	# the ground 40 m from the site can be far below the site: invulnerable while moving there (setup, not a fall
+	# test), then put down on the loaded ground
+	var p: Node = ctx.player
+	var was: Variant = p.get("invulnerable") if p != null and "invulnerable" in p else null
+	if was != null:
+		p.set("invulnerable", true)
 	await ctx.call_api(ctx.game, "teleport", [start])
+	var ground := {"y": null}
+	var deadline := Time.get_ticks_msec() + 120000
+	while ground.y == null and Time.get_ticks_msec() < deadline:
+		ground.y = await ctx.ground_y(start.x, start.z, start.y + 300.0)
+		if ground.y == null:
+			await ctx.wait(0.5)
+	if ground.y != null:
+		await ctx.call_api(ctx.game, "teleport", [Vector3(start.x, float(ground.y) + 0.3, start.z)])
+	await ctx.wait(1.0)
+	if was != null:
+		p.set("invulnerable", was)
 	var box := {"found": []}
 	var radius: float = site.radius + 40.0
 	var cond := func() -> bool:

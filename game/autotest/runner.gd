@@ -80,7 +80,7 @@ func _main() -> void:
 	if _early_world_ready:
 		ctx.on_world_ready()
 	var g: Node = ctx.game
-	ctx.note("runner start: %s %s, out=%s, child=%s, exe=%s" % [ProjectSettings.get_setting("application/config/name", "?"), "template" if OS.has_feature("template") else "editor", out_dir, str(is_child), OS.get_executable_path()])
+	ctx.note("runner start: %s %s, pid %d, out=%s, child=%s, exe=%s" % [ProjectSettings.get_setting("application/config/name", "?"), "template" if OS.has_feature("template") else "editor", OS.get_process_id(), out_dir, str(is_child), OS.get_executable_path()])
 	ctx.note("argv: " + " ".join(args.argv))
 	if g == null:
 		ctx.note("Game autoload (/root/Game) not found")

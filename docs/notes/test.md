@@ -88,8 +88,26 @@ Aligned with hra's in-progress code (read-only look at the hra worktree, not mer
   process` (`Log` opens it with FileMode.Create + FileShare.Read; still so on main 73099fb). Hits the t08 child
   (same cache dir as the parent -> same `<cache>/../logs`) and any second game instance. Fix: FileShare.ReadWrite or a
   per-process `--log-dir` from the game. Reproduced with two `hzsconv serve` processes (scratch build of the skeleton).
+  Lower priority now: hra's game does not start the converter when HZD is missing (t08 log: "converter not started"),
+  so the autotest no longer hits it; a second game instance still would.
+- F3 (hra) t04, real data: spawned Watchers have health 140 (sheet design value); expected = resolved hzd_health 90 x
+  `combat.machine_health_scale` (1.0) per the svet merge decision. `setup: watchers at full health 90.0: A 140.0
+  B 140.0`. Damage numbers themselves match (weak 107.76 vs expected 107.58 +-1.09 at 8.5 m; body 12.66 vs 12.50).
+- F4 (hra, spawner) t05, real data: cell 5_-2 lists two spawns with the same site name `FE_Harvester_Scout`
+  (4 grazer orig harvester + 2 watcher orig scout); the game log shows only `site FE_Harvester_Scout active: 4 grazer
+  (orig harvester)` – the watcher entry never spawns (sites keyed by name?), so there is no Watcher at a real Watcher
+  site in [5,-2]/[3,-2] and t05/s02 cannot run (`0 found` within 240 s). Key sites by name + index or by entry.
+- F5 (hra / svet) engine error while cells load, real data: `jolt_shaped_object_3d.cpp:138 Failed to create compound
+  shape for body 'InstanceBodies:<StaticBody3D>' ... 'Compound hierarchy is too deep and exceeds the amount of
+  available sub shape ID bits'` – that cell's static instances probably have no collision. Split InstanceBodies into
+  several bodies (Jolt sub-shape ID bits limit).
 - F2 (hra): parent and child game share `%LOCALAPPDATA%\HorizonStrike\logs\latest.log` – hra's log.gd already
   opens it shared, appends within 120 s and tags lines with the pid; t08 filters by pid. Closed unless it regresses.
 
 ## Log
 - 2026-10-09 runner, libs and all 13 scenario scripts written against the documented API; stub verification above.
+- 2026-10-09 pre-merge integration: hra's committed game (branch head 4ea177b, exported with `git archive` into a
+  scratch folder, my game/autotest overlaid; nothing merged) on mock data and on real data (copy of cache-dev in
+  `C:\meshy\_tools\cache-test-real`, converter built from my merged main). Fixes on my side from these runs: t03 start
+  money from prices, LOS-checked spawns, tapping, kill_award_class fallback, t10 "already loaded", user args to
+  children, s03 view point, sites prefer the own HZD type, no fall damage from site teleports.
