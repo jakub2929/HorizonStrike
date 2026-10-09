@@ -76,6 +76,7 @@ var _stuck_t := 0.0
 var _dead_t := 0.0
 var _rng := RandomNumberGenerator.new()
 var _gravity := 9.8
+var _perc_acc := randf() * 0.1   # perception runs at 10 Hz, staggered
 
 
 func setup(type: String, machine_meta: Dictionary) -> void:
@@ -379,7 +380,10 @@ func _physics_process(delta: float) -> void:
 	var desired := Vector3.ZERO
 	var speed := 0.0
 	if ai_enabled:
-		_perceive(delta)
+		_perc_acc += delta
+		if _perc_acc >= 0.1:
+			_perceive(_perc_acc)
+			_perc_acc = 0.0
 		var r := _think(delta)
 		desired = r[0]
 		speed = r[1]
