@@ -19,6 +19,7 @@ var current_weapon := ""
 var health := 100.0
 var armor := 0.0
 var invulnerable := false
+var speed_mult := 1.0          ## test setup only (perf.stress_speed_mult): scales the CS max speed; movement still by input
 
 var head: Node3D
 var camera: Camera3D
@@ -307,7 +308,7 @@ func _physics_process(delta: float) -> void:
 		walking = Input.is_action_pressed("walk")
 		_set_crouch(Input.is_action_pressed("crouch"))
 		jump_pressed = Input.is_action_just_pressed("jump")
-	var max_speed: float = weapons.max_speed_u() * _u
+	var max_speed: float = weapons.max_speed_u() * _u * speed_mult
 	if crouched:
 		max_speed *= Sheets.sys_num("movement.crouch_mult", 0.34)
 	elif walking:

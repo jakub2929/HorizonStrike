@@ -29,6 +29,8 @@ func _init(c: Vector2i, d: Dictionary, lib: RefCounted, world_node: Node3D, play
 	parent = world_node
 	_steps.append(["root", null])
 	_steps.append(["terrain", null])
+	for o in d.get("occluders", []):
+		_steps.append(["occluder", o])
 	var p2 := Vector2(player_pos.x, player_pos.z)
 	# nearest first; sorting [distance, index] pairs natively (a sort_custom lambda over thousands of chunks was slow)
 	var tiles: Array = d.get("tcol_tiles", [])
@@ -123,6 +125,9 @@ func _run(s: Array) -> bool:
 			phases["mesh_upload"] += maxf(up - tx, 0.0)
 			phases["tex_upload"] += tx
 			phases["multimesh"] += maxf(_ms(t0) - up, 0.0)
+		"occluder":
+			root.add_child(CellBuilder.make_occluder(s[1], data["origin"]))
+			phases["add_child"] += _ms(t0)
 		"campfires":
 			for cf in data["info"].get("campfires", []):
 				root.add_child(CellBuilder.make_campfire(cf))

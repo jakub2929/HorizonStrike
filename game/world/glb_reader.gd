@@ -64,6 +64,7 @@ static func read(path: String, want_faces: bool = false) -> Dictionary:
 			var pos := _vec3(j, bin, int(attrs["POSITION"]))
 			var nrm := _vec3(j, bin, int(attrs["NORMAL"])) if attrs.has("NORMAL") else PackedVector3Array()
 			var uv := _vec2(j, bin, int(attrs["TEXCOORD_0"])) if attrs.has("TEXCOORD_0") else PackedVector2Array()
+			var col := _colors(j, bin, int(attrs["COLOR_0"])) if attrs.has("COLOR_0") else PackedColorArray()
 			var idx := _indices(j, bin, int(prim["indices"])) if prim.has("indices") else PackedInt32Array()
 			if idx.is_empty():
 				idx.resize(pos.size())
@@ -99,6 +100,8 @@ static func read(path: String, want_faces: bool = false) -> Dictionary:
 				arrays[Mesh.ARRAY_NORMAL] = nrm
 			if uv.size() == pos.size():
 				arrays[Mesh.ARRAY_TEX_UV] = uv
+			if col.size() == pos.size():
+				arrays[Mesh.ARRAY_COLOR] = col
 			arrays[Mesh.ARRAY_INDEX] = idx
 			out["surfaces"].append({"arrays": arrays, "material": int(prim.get("material", -1))})
 			out["tris"] = int(out["tris"]) + idx.size() / 3
@@ -206,6 +209,20 @@ static func _floats(acc: Array) -> PackedFloat32Array:
 				5122:
 					v = maxf(data.decode_s16(o) / 32767.0, -1.0)
 			out[i * comps + c] = v
+	return out
+
+
+## COLOR_0 (VEC3 or VEC4; float or normalised integers) -> PackedColorArray.
+static func _colors(j: Dictionary, bin: PackedByteArray, ai: int) -> PackedColorArray:
+	var acc := _acc(j, bin, ai)
+	var comps: int = acc[2]
+	var f := _floats(acc)
+	var out := PackedColorArray()
+	if comps < 3:
+		return out
+	out.resize(f.size() / comps)
+	for i in out.size():
+		out[i] = Color(f[i * comps], f[i * comps + 1], f[i * comps + 2], f[i * comps + 3] if comps == 4 else 1.0)
 	return out
 
 

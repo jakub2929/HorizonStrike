@@ -11,8 +11,10 @@ extends RefCounted
 const Log := preload("res://core/log.gd")
 const FsUtil := preload("res://core/fsutil.gd")
 const Campfire := preload("res://world/campfire.gd")
+const GlbReader := preload("res://world/glb_reader.gd")
 const TerrainMaterial := preload("res://world/terrain_material.gd")
 const MeshLib := preload("res://world/mesh_library.gd")
+const WaterMaterial := preload("res://world/water_material.gd")
 
 const MAX_VISUAL_VERTS := 257
 const MAX_COLLISION_VERTS := 257      # = the visual terrain grid (2 m): feet stand on the surface that is drawn
@@ -87,6 +89,7 @@ static func prepare(cell_dir: String, meshes: RefCounted) -> Dictionary:
 				out[key + "_img"] = img
 	# terrain normal maps: "world_xz" = R world X, G world Z (Y rebuilt), else tangent space
 	out["normal_world"] = str(terr.get("normal_space", "")) == "world_xz"
+	out["layers"] = _terrain_layers(cell_dir, terr)
 	tp["terrain_tex"] = (Time.get_ticks_usec() - tw) / 1000.0
 	tw = Time.get_ticks_usec()
 	# ---- instances grouped by mesh
@@ -112,6 +115,20 @@ static func prepare(cell_dir: String, meshes: RefCounted) -> Dictionary:
 			tints[mid].append(Color.WHITE)
 	out["instances"] = groups
 	out["tints"] = tints
+	# water surfaces (cell.json water.instances): drawn with the shared water material, no collision
+	var water := {}
+	var wdata = info.get("water")
+	if typeof(wdata) == TYPE_DICTIONARY:
+		for inst in wdata.get("instances", []):
+			var wm := str(inst.get("mesh", ""))
+			var wxf: Array = inst.get("xf", [])
+			if wm == "" or wxf.size() != 12:
+				continue
+			if not water.has(wm):
+				water[wm] = []
+			water[wm].append(_xf(wxf))
+	out["water"] = water
+	out["occluders"] = _plan_occluders(info, origin)
 	tp["instances"] = (Time.get_ticks_usec() - tw) / 1000.0
 	tw = Time.get_ticks_usec()
 	# ---- vegetation scattered from the density map
@@ -120,6 +137,8 @@ static func prepare(cell_dir: String, meshes: RefCounted) -> Dictionary:
 	var ids := {}
 	for mid in groups:
 		ids[mid] = true
+	for wm in out["water"]:
+		ids[wm] = true
 	for key in out["vegetation"]:
 		if not str(key).begins_with("_"):
 			ids[out["vegetation"][key]["mesh"]] = true
@@ -137,6 +156,175 @@ static func prepare(cell_dir: String, meshes: RefCounted) -> Dictionary:
 	out["t"] = tp
 	out["ok"] = true
 	return out
+
+
+## cell.json terrain.layers (format 8): {masks, channels [4 names = masks R,G,B,A], layers [{name, albedo, normal, orm,
+## tile_m}] with cache-relative paths}. Returns {masks_img, albedo/normal/orm: [4 absolute paths in channel order],
+## tile: Vector4} or {} (older caches, or anything missing).
+static func _terrain_layers(cell_dir: String, terr: Dictionary) -> Dictionary:
+	var tl = terr.get("layers")
+	if typeof(tl) != TYPE_DICTIONARY:
+		return {}
+	var root := cell_dir.get_base_dir().get_base_dir().get_base_dir()   # <cache>/hzd/cells/<x>_<y> -> <cache>
+	var masks_file := cell_dir.path_join(str(tl.get("masks", "")))
+	if str(tl.get("masks", "")) == "" or not FileAccess.file_exists(masks_file):
+		return {}
+	var channels: Array = tl.get("channels", [])
+	var by_name := {}
+	for l in tl.get("layers", []):
+		by_name[str(l.get("name", ""))] = l
+	if channels.size() < 4:
+		return {}
+	var out := {"albedo": [], "normal": [], "orm": [], "tile": Vector4(4, 4, 4, 6)}
+	for i in 4:
+		var l: Dictionary = by_name.get(str(channels[i]), {})
+		if l.is_empty():
+			return {}
+		for kind in ["albedo", "normal", "orm"]:
+			out[kind].append(root.path_join(str(l.get(kind, ""))))
+		out["tile"][i] = maxf(float(l.get("tile_m", 4.0)), 0.5)
+	var img: Image = MeshLib.load_dds(masks_file) if masks_file.get_extension().to_lower() == "dds" else Image.load_from_file(masks_file)
+	if img == null:
+		return {}
+	out["masks_img"] = img
+	return out
+
+
+## cell.json occluders (format 8): boxes [{xf, size}] of big opaque buildings/rocks and a terrain grid {res, spacing,
+## heights} lying below the surface. Both become one triangle soup each (cell-local vertices) for an ArrayOccluder3D:
+## two OccluderInstance3D per cell instead of hundreds. Returns [{vertices, indices}] (0-2 entries).
+static func _plan_occluders(info: Dictionary, origin: Vector3) -> Array:
+	var occ = info.get("occluders")
+	if typeof(occ) != TYPE_DICTIONARY:
+		return []
+	var out: Array = []
+	var bv := PackedVector3Array()
+	var bi := PackedInt32Array()
+	# box faces as quads of corner indices (corner bit 0 = +x, bit 1 = +y, bit 2 = +z)
+	var faces := [[0, 2, 3, 1], [4, 5, 7, 6], [0, 1, 5, 4], [2, 6, 7, 3], [0, 4, 6, 2], [1, 3, 7, 5]]
+	for b in occ.get("boxes", []):
+		var xa: Array = b.get("xf", [])
+		var sz: Array = b.get("size", [])
+		if xa.size() != 12 or sz.size() != 3:
+			continue
+		var t := _xf(xa)
+		var h := Vector3(float(sz[0]), float(sz[1]), float(sz[2])) * 0.5
+		var base := bv.size()
+		for k in 8:
+			var c := Vector3(h.x if k & 1 else -h.x, h.y if k & 2 else -h.y, h.z if k & 4 else -h.z)
+			bv.append(t * c - origin)
+		for f in faces:
+			bi.append_array(PackedInt32Array([base + f[0], base + f[1], base + f[2], base + f[0], base + f[2], base + f[3]]))
+	if not bv.is_empty():
+		out.append({"vertices": bv, "indices": bi})
+	var tg = occ.get("terrain")
+	if typeof(tg) == TYPE_DICTIONARY:
+		var res := int(tg.get("res", 0))
+		var sp := float(tg.get("spacing", 16.0))
+		var hs: Array = tg.get("heights", [])
+		if res >= 2 and hs.size() >= res * res:
+			var tv := PackedVector3Array()
+			tv.resize(res * res)
+			for r in res:
+				for c in res:
+					tv[r * res + c] = Vector3(c * sp, float(hs[r * res + c]) - origin.y, r * sp)
+			var ti := PackedInt32Array()
+			for r in res - 1:
+				for c in res - 1:
+					var a := r * res + c
+					ti.append_array(PackedInt32Array([a, a + 1, a + res + 1, a, a + res + 1, a + res]))
+			out.append({"vertices": tv, "indices": ti})
+	return out
+
+
+# ------------------------------------------------------------------ far cells (HLOD)
+
+const FAR_TERRAIN_VERTS := 65
+
+## Worker: what a far cell (Chebyshev ring >= render.hlod_from_ring) shows instead of its instances - a coarse terrain
+## (65 x 65, 8 m) with the cell albedo and the converter's hlod.glb proxy (<= 20k triangles, vertex colours).
+## {} when the cell has no HLOD.
+static func prepare_far(cell_dir: String) -> Dictionary:
+	var info = FsUtil.read_json(cell_dir.path_join("cell.json"))
+	if typeof(info) != TYPE_DICTIONARY:
+		return {}
+	var hl = info.get("hlod")
+	if typeof(hl) != TYPE_DICTIONARY or not FileAccess.file_exists(cell_dir.path_join(str(hl.get("file", "hlod.glb")))):
+		return {}
+	var size := float(info.get("size", 512.0))
+	var org: Array = info.get("origin", [0, 0, 0])
+	var origin := Vector3(float(org[0]), float(org[1]), float(org[2]))
+	var terr: Dictionary = info.get("terrain", {}) if typeof(info.get("terrain")) == TYPE_DICTIONARY else {}
+	var res: Array = terr.get("res", [0, 0])
+	var w := int(res[0])
+	var h := int(res[1])
+	var hpath := cell_dir.path_join(str(terr.get("file", "height.r32")))
+	if w < 2 or h < 2 or not FileAccess.file_exists(hpath):
+		return {}
+	var bytes := FileAccess.get_file_as_bytes(hpath)
+	if bytes.size() < w * h * 4:
+		return {}
+	var heights := bytes.slice(0, w * h * 4).to_float32_array()
+	for i in heights.size():
+		if is_nan(heights[i]) or is_inf(heights[i]):
+			heights[i] = 0.0
+	var out := {"origin": origin, "size": size, "terrain_arrays": _terrain_arrays(heights, w, h, origin, size, FAR_TERRAIN_VERTS)}
+	var af := str(terr.get("albedo", ""))
+	if af != "" and FileAccess.file_exists(cell_dir.path_join(af)):
+		var img: Image = MeshLib.load_dds(cell_dir.path_join(af)) if af.get_extension().to_lower() == "dds" else Image.load_from_file(cell_dir.path_join(af))
+		if img:
+			if not img.is_compressed() and not img.has_mipmaps():
+				img.generate_mipmaps()
+			out["albedo_img"] = img
+	var p := GlbReader.read(cell_dir.path_join(str(hl.get("file", "hlod.glb"))), false)
+	if not p.is_empty():
+		out["hlod_surfaces"] = p["surfaces"]
+	return out
+
+
+static var _hlod_mat: StandardMaterial3D
+
+
+## The HLOD proxies' material (vertex colour albedo); shared, also drawn by world/precompile.gd.
+static func hlod_material() -> StandardMaterial3D:
+	if _hlod_mat == null:
+		_hlod_mat = StandardMaterial3D.new()
+		_hlod_mat.vertex_color_use_as_albedo = true
+		_hlod_mat.vertex_color_is_srgb = false
+		_hlod_mat.roughness = 0.9
+	return _hlod_mat
+
+
+## Main thread: the far cell node (terrain + HLOD proxy), no collision, no shadows.
+static func make_far(d: Dictionary) -> Node3D:
+	var root := Node3D.new()
+	var tm := MeshInstance3D.new()
+	var tmesh := ArrayMesh.new()
+	tmesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, d["terrain_arrays"])
+	tm.mesh = tmesh
+	var alb: Texture2D = ImageTexture.create_from_image(d["albedo_img"]) if d.has("albedo_img") else null
+	tm.material_override = TerrainMaterial.make(alb, null, false)
+	tm.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	root.add_child(tm)
+	if d.has("hlod_surfaces"):
+		var hm := ArrayMesh.new()
+		for s in d["hlod_surfaces"]:
+			hm.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, s["arrays"])
+			hm.surface_set_material(hm.get_surface_count() - 1, hlod_material())
+		var hi := MeshInstance3D.new()
+		hi.mesh = hm
+		hi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		root.add_child(hi)
+	return root
+
+
+static func make_occluder(o: Dictionary, origin: Vector3) -> OccluderInstance3D:
+	var ao := ArrayOccluder3D.new()
+	ao.set_arrays(o["vertices"], o["indices"])
+	var oi := OccluderInstance3D.new()
+	oi.occluder = ao
+	oi.position = origin
+	return oi
 
 
 static func _xf(a: Array) -> Transform3D:
@@ -159,8 +347,8 @@ static func sample_height(heights: PackedFloat32Array, w: int, h: int, origin: V
 
 
 ## Terrain surface arrays (pure data, safe on a worker thread).
-static func _terrain_arrays(heights: PackedFloat32Array, w: int, h: int, origin: Vector3, size: float) -> Array:
-	var step := maxi(1, int(ceil(float(maxi(w, h) - 1) / float(MAX_VISUAL_VERTS - 1))))
+static func _terrain_arrays(heights: PackedFloat32Array, w: int, h: int, origin: Vector3, size: float, max_verts: int = MAX_VISUAL_VERTS) -> Array:
+	var step := maxi(1, int(ceil(float(maxi(w, h) - 1) / float(max_verts - 1))))
 	var cols := PackedInt32Array()
 	var c := 0
 	while c < w - 1:
@@ -421,6 +609,17 @@ static func _plan(out: Dictionary, meshes: RefCounted) -> void:
 		_plan_chunks(chunks, str(key), str(v["mesh"]), inf2, v["xfs"], origin, [])
 		if v["channel"] == "trees":
 			_plan_collision(col, str(v["mesh"]), inf2, v["xfs"], origin)
+	var water: Dictionary = out.get("water", {})
+	for wm in water:
+		var winf: Dictionary = meshes.info(wm)
+		if winf.is_empty():
+			continue
+		var n0 := chunks.size()
+		_plan_chunks(chunks, "water:" + wm, wm, winf, water[wm], origin, [])
+		for k in range(n0, chunks.size()):
+			chunks[k]["water"] = true
+			chunks[k]["shadow"] = false
+			chunks[k]["vis_end"] = 0.0
 	out["chunks"] = chunks
 	out["col_buckets"] = col
 	var n := 0
@@ -593,7 +792,10 @@ static func make_terrain(data: Dictionary) -> MeshInstance3D:
 	tm.mesh = tmesh
 	var alb: Texture2D = ImageTexture.create_from_image(data["albedo_img"]) if data.has("albedo_img") else null
 	var nrm: Texture2D = ImageTexture.create_from_image(data["normal_img"]) if data.has("normal_img") else null
-	tm.material_override = TerrainMaterial.make(alb, nrm, bool(data.get("normal_world", false)))
+	var layers: Dictionary = (data.get("layers", {}) as Dictionary).duplicate()
+	if layers.has("masks_img"):
+		layers["masks"] = ImageTexture.create_from_image(layers["masks_img"])
+	tm.material_override = TerrainMaterial.make(alb, nrm, bool(data.get("normal_world", false)), layers)
 	return tm
 
 
@@ -635,10 +837,13 @@ static func make_chunk(spec: Dictionary, meshes: RefCounted) -> MultiMeshInstanc
 		mmi.visibility_range_end_margin = 15.0
 		mmi.visibility_range_fade_mode = GeometryInstance3D.VISIBILITY_RANGE_FADE_SELF
 	mmi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON if spec["shadow"] else GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	if spec.get("water", false):
+		mmi.material_override = WaterMaterial.get_material()
 	return mmi
 
 
-const SHAPES_PER_BODY := 64           # shapes per object collision body (one body is one budgeted insertion step)
+const SHAPES_PER_BODY := 16           # shapes per object collision body (one body is one budgeted insertion step;
+                                      # a 64-shape Jolt compound took 10-30 ms to add)
 
 
 ## Static bodies (<= SHAPES_PER_BODY shapes each, shape owners, no node per shape) for one collision bucket.

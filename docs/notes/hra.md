@@ -139,6 +139,25 @@ Rules I follow: no class_name lookups across files (everything via preload, so a
   towards their surfaces) the nearest one the weapon's own trace reaches. dev/weak_spots.gd (8 directions, 12 m):
   before watcher eye 7/8, strider 0/8, grazer 0/8; after 7/8, 5/8, 8/8 (the rest: world or body really in front).
 
+## 0.2 (night run 2026-10-09/10)
+- H1 --profile-cells / --quit-after-cells, <logs>/cell_phases.csv, `cell phases: top=...`, vram at start, frame stats.
+  Before: worst load frame 1676 ms (add_child 1126 ms, collision, multimesh, first draw).
+- H2 world/cell_inserter.gd: one cell at a time in budgeted steps (streaming.main_thread_budget_ms); worker plans
+  MultiMesh buffers, collision buckets, terrain collision (2 m = visual grid); object collision only within
+  streaming.collision_radius_m, one 16-shape body per step from an 800-tri LOD; unloads freed lazily leaves-first;
+  big data dropped on workers; herd members one per frame; machine types warmed up while loading.
+- H3 DDS (verified in the 4.7.2 release template), normal/ORM/AO maps, MikkTSpace tangents on the worker.
+- H8 world/precompile.gd: every StandardMaterial3D variant on quads with the real vertex layout, real materials,
+  terrain, water, HLOD, one machine per type and all weapon view models drawn under the loading screen; variants kept
+  alive (a shared shader dies with its last material -> 20 ms surface_set_material later).
+- H4 layered terrain (4 layer sets, masks renormalised, rock triplanar, cell albedo tints near / far).
+- H5 sky/sun/fog from render.* (HZD 9:00; height fog falloff x0.02 - 1:1 was a white sheet).
+- H6 water material (translucent, world-space ripples); H7 occluders (2 ArrayOccluder3D per cell), occlusion culling,
+  far cells (ring >= render.hlod_from_ring) = coarse terrain + hlod.glb, request_ring converted also standing;
+  LOD threshold 12 px (render.lod_threshold_px), FXAA, 2048 shadow atlas.
+- Release, converted format-8 route, 1920x1080, no vsync: route avg 98.4 fps, 1% low 46.0, worst 48.7 ms, 0 frames
+  > 50 ms; vram at start 1425 MB.
+
 ## Notes for teammates (relay via main)
 - test (t10): real cells outside the start area are ~11 MB (meshes/textures shared), 5 steps east add ~164 MB, so
   cap = bytes + reserve(600) + 300 MiB never evicts (target = cap - reserve). Use e.g. cap = bytes + reserve + 50 MiB
