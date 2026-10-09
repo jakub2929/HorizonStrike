@@ -26,7 +26,8 @@ public sealed class CoreFile
             var type = BinaryPrimitives.ReadUInt64LittleEndian(data.AsSpan(pos));
             var size = BinaryPrimitives.ReadInt32LittleEndian(data.AsSpan(pos + 8));
             if (size < 0 || pos + 12 + size > data.Length) throw new InvalidDataException($"{path}: bad object header at {pos}");
-            var uuid = size >= 16 ? new Guid(data.AsSpan(pos + 12, 16)) : Guid.Empty;
+            var lead = Layouts.LeadSize(type); // members serialized before the ObjectUUID (e.g. WorldNode.Orientation)
+            var uuid = size >= lead + 16 ? new Guid(data.AsSpan(pos + 12 + lead, 16)) : Guid.Empty;
             var o = new CoreObject(type, pos + 12, size, uuid, Objects.Count);
             Objects.Add(o);
             _byUuid.TryAdd(uuid, o);
@@ -40,6 +41,14 @@ public sealed class CoreFile
 
     public CoreObject? First(ulong type) => Objects.FirstOrDefault(o => o.Type == type);
 
-    /// <summary>Reader positioned after the ObjectUUID of <paramref name="o"/>, bounded to the object.</summary>
-    public BinReader Reader(CoreObject o) => new(Data, o.Offset + 16, o.Offset + o.Size);
+    public IEnumerable<CoreObject> OfType(string type) => OfType(Types.Id(type));
+
+    /// <summary>Decodes an object with its hand-written layout.</summary>
+    public Obj Decode(CoreObject o) => Layouts.Decode(this, o);
+
+    /// <summary>Decodes all objects of a type.</summary>
+    public IEnumerable<Obj> All(string type) => OfType(type).Select(Decode);
+
+    /// <summary>Decodes the first object of a type, or null.</summary>
+    public Obj? FirstObj(string type) => First(Types.Id(type)) is { } o ? Decode(o) : null;
 }

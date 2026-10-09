@@ -84,13 +84,12 @@ public sealed class HzdArchive : IDisposable
     private string[] LoadPrefetchPaths()
     {
         var core = ReadCore(PrefetchPath);
-        var obj = core.First(Types.PrefetchList) ?? throw new InvalidDataException("prefetch list object not found");
-        var r = core.Reader(obj);
-        var files = r.Array(x => x.Str()); // Array<AssetPath>, AssetPath = { String Path }
+        var obj = core.FirstObj("PrefetchList") ?? throw new InvalidDataException("prefetch list object not found");
+        var files = obj.Arr("Files"); // Array<AssetPath>, AssetPath = { String Path }
         var set = new HashSet<string>(files.Length, StringComparer.Ordinal);
         foreach (var f in files)
         {
-            var p = f.Replace('\\', '/').TrimStart('/');
+            var p = ((string)f!).Replace('\\', '/').TrimStart('/');
             if (p.EndsWith(".core", StringComparison.Ordinal)) p = p[..^5];
             set.Add(p);
         }

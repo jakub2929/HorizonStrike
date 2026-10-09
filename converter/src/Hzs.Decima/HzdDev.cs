@@ -71,6 +71,32 @@ public static partial class HzdDev
                 }
             case "hzd-dump":
                 return Dump(arc, Get, Has);
+            case "hzd-extract":
+                {
+                    // dev only: raw decompressed cores (+ streams) into a scratch folder for format research
+                    var prefixes = (Get("--prefix") ?? throw new ArgumentException("--prefix is required")).Split(',');
+                    var outDir = Get("--out") ?? throw new ArgumentException("--out <scratch dir> is required");
+                    var rx = Get("--regex") is { } re ? new Regex(re) : null;
+                    var noStream = Has("--no-stream");
+                    long bytes = 0; var n = 0;
+                    var list = arc.Paths.Where(p => prefixes.Any(x => p.StartsWith(x, StringComparison.Ordinal)) && (rx is null || rx.IsMatch(p))).ToList();
+                    foreach (var x in prefixes)
+                        if (!list.Contains(x) && arc.Exists(x)) list.Add(x); // exact paths not in the prefetch list
+                    foreach (var p in list)
+                    {
+                        foreach (var file in noStream ? new[] { p + ".core" } : new[] { p + ".core", p + ".core.stream" })
+                        {
+                            var d = arc.TryRead(file);
+                            if (d is null) continue;
+                            var dst = Path.Combine(outDir, file.Replace('/', Path.DirectorySeparatorChar));
+                            Directory.CreateDirectory(Path.GetDirectoryName(dst)!);
+                            File.WriteAllBytes(dst, d);
+                            bytes += d.Length; n++;
+                        }
+                    }
+                    Console.WriteLine($"extracted {n} files, {bytes} bytes -> {outDir}");
+                    return 0;
+                }
             default:
                 Console.Error.WriteLine($"unknown command {args[0]}");
                 return 2;

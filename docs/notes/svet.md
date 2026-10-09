@@ -32,3 +32,54 @@ Acceptance (S1):
 hzd-ls --prefix models/characters/robots/scout/   -> 25 .core paths
 hzd-ls --tiles                                    -> 360 tiles, 340 terrain, x -7..12, y -9..7
 ```
+
+## S2 object reader (2026-10-09)
+- Generic decoder (`Core/Layouts.cs`) driven by hand-written layouts (`Core/Layouts.*.cs`): one line per class with
+  its type id and the members in serialization order. Partial layouts stop after the last member we need.
+  Member types: primitives, `eN` enums (N bytes), `Ref` (any reference kind), `Array<T>`, `Map<T>` (HashMap/Set),
+  embedded structs (own layout, no UUID).
+- Members serialized BEFORE the ObjectUUID exist (members with offsets below 12): every WorldNode subclass
+  (`Orientation: WorldTransform`, 60 bytes: 3 doubles + 3x3 floats), EntityResource (`Lockable`, `ZoomLockable`),
+  PhysicsInstance/PhysicsCollisionResource (`CollisionFilterInfo` u32), WaveResource (3 bytes) and a few more.
+  `CoreFile` uses the layout's lead size to locate the UUID.
+- The order of members with equal offsets follows the engine's own quicksort (LCG-seeded pivot), so it is not
+  alphabetical and differs between subclasses (e.g. Lockable/ZoomLockable swap) - layouts list the real order.
+- `hzd-dump --member Type[sel].A.B[n].C[SubType].D` follows references (also into other files). `[Name]` on the
+  first segment picks the object by its Name (machine files hold a normal and a corrupted variant).
+- LocalizedTextResource (binary): after the UUID, one entry per language (English first): u16 length + UTF-8.
+
+### Machine identities (from CharacterDescriptionComponentResource.LocalizedName, English)
+| internal | display | AI resource | InitialHealth (normal) |
+|---|---|---|---|
+| scout | Watcher | ai/characters/scout | 90 |
+| horse | Strider | ai/characters/horse | 105 |
+| harvester | Grazer | ai/characters/harvester | 150 |
+| antelope | Lancehorn | ai/characters/harvester | 275 |
+| longhorn | Broadhead | ai/characters/horse | 175 |
+| goat | Charger | ai/characters/horse | 325 |
+| bison | Trampler | ai/characters/bison | 1200 |
+| hyena | Scrapper | ai/characters/hyena | 220 |
+| direwolf | Sawtooth | ai/characters/direwolf | 1100 |
+| greywolf | Ravager | ai/characters/greywolf | 1300 |
+| raptor | Thunderjaw | ai/characters/raptor | 6500 |
+| laserscout | Redeye Watcher | ai/characters/scout | 200 |
+| longlegbird | Longleg | ai/characters/longlegbird | 750 |
+| glider | Glinthawk | ai/characters/glider | 450 |
+| thunderhawk | Stormbird | ai/characters/thunderhawk | 5000 |
+| beachlizard | Snapmaw | ai/characters/beachlizard | 1450 |
+| crab | Shell-Walker | ai/characters/crab | 800 |
+| cargorhino | Behemoth | ai/characters/cargorhino | 2700 |
+| spraybot | Fire/Freeze Bellowback | ai/characters/spraybot | 1600 |
+| mole | Rockbreaker | ai/characters/mole | 3500 |
+| stalker | Stalker | ai/characters/stalker | 800 |
+| hackbot | (no display name; Corruptor) | ai/characters/hackbot | 1900 |
+The planning hypotheses antelope = Grazer, longhorn = Lancehorn, bison = Broadhead, raptor = Sawtooth/Ravager,
+mole = Burrower were wrong. Grazer is `harvester`.
+- The machine's DestructibilityResource lives in the entity file (`entities/characters/robots/<n>/<n>.core`), not
+  in `<n>_destructibility.core` (that file holds the parts). Acceptance for S2 therefore uses `scout.core`.
+- Weak spots (DestructibilityPart): Watcher `Scout_EyePart` bone `Eye_helper` (health 50, DamageToEntityMultiplier
+  8.0); Strider canister bone `Horse_Goat_Canister_Fuel_helper` (mult 1.5, mesh canisters/.../horse_goat_canister_fuel),
+  eye `Eye_Lx_helper` (mult 2.0); Grazer canisters `lfcannisterHelper`, `rfcannisterHelper`, `lbcannisterHelper`,
+  `rbcannisterHelper` (mult 1.5, mesh canisters/.../harvester_canister_fuel), rotor blades `DestructablePart14_helper`,
+  `DestructablePart15_helper`, eye `DestructablePart13_helper`.
+- AIVisualSensor angles are degrees and (from their sizes: direct 12-16, peripheral 78-90) half-angles of the cone.
