@@ -87,6 +87,7 @@ static func prepare(cell_dir: String, meshes: RefCounted) -> Dictionary:
 				out[key + "_img"] = img
 	# terrain normal maps: "world_xz" = R world X, G world Z (Y rebuilt), else tangent space
 	out["normal_world"] = str(terr.get("normal_space", "")) == "world_xz"
+	out["layers"] = _terrain_layers(cell_dir, terr)
 	tp["terrain_tex"] = (Time.get_ticks_usec() - tw) / 1000.0
 	tw = Time.get_ticks_usec()
 	# ---- instances grouped by mesh
@@ -136,6 +137,38 @@ static func prepare(cell_dir: String, meshes: RefCounted) -> Dictionary:
 	tp["plan"] = (Time.get_ticks_usec() - tw) / 1000.0
 	out["t"] = tp
 	out["ok"] = true
+	return out
+
+
+## cell.json terrain.layers (format 8): {masks, channels [4 names = masks R,G,B,A], layers [{name, albedo, normal, orm,
+## tile_m}] with cache-relative paths}. Returns {masks_img, albedo/normal/orm: [4 absolute paths in channel order],
+## tile: Vector4} or {} (older caches, or anything missing).
+static func _terrain_layers(cell_dir: String, terr: Dictionary) -> Dictionary:
+	var tl = terr.get("layers")
+	if typeof(tl) != TYPE_DICTIONARY:
+		return {}
+	var root := cell_dir.get_base_dir().get_base_dir().get_base_dir()   # <cache>/hzd/cells/<x>_<y> -> <cache>
+	var masks_file := cell_dir.path_join(str(tl.get("masks", "")))
+	if str(tl.get("masks", "")) == "" or not FileAccess.file_exists(masks_file):
+		return {}
+	var channels: Array = tl.get("channels", [])
+	var by_name := {}
+	for l in tl.get("layers", []):
+		by_name[str(l.get("name", ""))] = l
+	if channels.size() < 4:
+		return {}
+	var out := {"albedo": [], "normal": [], "orm": [], "tile": Vector4(4, 4, 4, 6)}
+	for i in 4:
+		var l: Dictionary = by_name.get(str(channels[i]), {})
+		if l.is_empty():
+			return {}
+		for kind in ["albedo", "normal", "orm"]:
+			out[kind].append(root.path_join(str(l.get(kind, ""))))
+		out["tile"][i] = maxf(float(l.get("tile_m", 4.0)), 0.5)
+	var img: Image = MeshLib.load_dds(masks_file) if masks_file.get_extension().to_lower() == "dds" else Image.load_from_file(masks_file)
+	if img == null:
+		return {}
+	out["masks_img"] = img
 	return out
 
 
@@ -593,7 +626,10 @@ static func make_terrain(data: Dictionary) -> MeshInstance3D:
 	tm.mesh = tmesh
 	var alb: Texture2D = ImageTexture.create_from_image(data["albedo_img"]) if data.has("albedo_img") else null
 	var nrm: Texture2D = ImageTexture.create_from_image(data["normal_img"]) if data.has("normal_img") else null
-	tm.material_override = TerrainMaterial.make(alb, nrm, bool(data.get("normal_world", false)))
+	var layers: Dictionary = (data.get("layers", {}) as Dictionary).duplicate()
+	if layers.has("masks_img"):
+		layers["masks"] = ImageTexture.create_from_image(layers["masks_img"])
+	tm.material_override = TerrainMaterial.make(alb, nrm, bool(data.get("normal_world", false)), layers)
 	return tm
 
 
