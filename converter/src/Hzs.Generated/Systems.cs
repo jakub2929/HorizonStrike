@@ -101,10 +101,10 @@ public static class SystemsSheet
     public static readonly SystemsRow CacheTextureMaxPx = new("cache.texture_max_px", "cache", "int", "1024", "px", "max texture edge for weapons, machines, meshes (CS2 AK color map is 4096 / 20 MB PNG)");
     public static readonly SystemsRow CacheTerrainTexturePx = new("cache.terrain_texture_px", "cache", "int", "1024", "px", "terrain albedo/normal per cell");
     public static readonly SystemsRow AudioMusicSource = new("audio.music_source", "audio", "string", "sounds/music/world/world.core + levels/worlds/world/leveldata/music_world.core", "-", "HZD world music (MusicResource, streaming banks)");
-    public static readonly SystemsRow AudioMusicExploreTrack = new("audio.music_explore_track", "audio", "string", "TODO", "-", "exploration track/preset id from audio.music_source");
+    public static readonly SystemsRow AudioMusicExploreTrack = new("audio.music_explore_track", "audio", "string", "exploration_nora_02_flutetheme", "-", "exploration track/preset id from audio.music_source");
     public static readonly SystemsRow AudioMusicCombatTrigger = new("audio.music_combat_trigger", "audio", "string", "any machine in attack state within 80 m of the player", "-", "switch to combat music");
     public static readonly SystemsRow AudioMusicCrossfadeS = new("audio.music_crossfade_s", "audio", "float", "2.0", "s", "music crossfade");
-    public static readonly SystemsRow AudioAmbienceTrack = new("audio.ambience_track", "audio", "string", "TODO", "-", "Nora daytime ambience loop from sounds/environments/");
+    public static readonly SystemsRow AudioAmbienceTrack = new("audio.ambience_track", "audio", "string", "sounds/environments/senv_fauna_forestconiferous", "-", "Nora daytime ambience loop from sounds/environments/");
     public static readonly SystemsRow AudioMachineMaxDistanceM = new("audio.machine_max_distance_m", "audio", "float", "60", "m", "3D machine sound range");
     public static readonly SystemsRow AudioPlayerWeapon2d = new("audio.player_weapon_2d", "audio", "bool", "true", "-", "own weapon sounds are non-positional");
     public static readonly SystemsRow SpawningActivationRadiusM = new("spawning.activation_radius_m", "spawning", "float", "250", "m", "machines simulate within");

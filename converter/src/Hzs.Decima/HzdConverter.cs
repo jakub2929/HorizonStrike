@@ -111,6 +111,7 @@ public static class HzdConverter
                     ["immediate_alert_m"] = rv["immediate_alert_m"]?.DeepClone(),
                 };
             }
+            Audio.MachineSounds.Export(res, row.HzdInternalName, JsonNode.Parse(row.SoundRoles)!.AsArray().Select(x => x!.GetValue<string>()), tmp, ctx.Log);
             Atomic.WriteJson(Path.Combine(tmp, "meta.json"), meta);
             Atomic.CommitDir(tmp, target);
             Atomic.WriteJson(Path.Combine(ctx.Cache.Hzd, "machines.json"), resolved);
@@ -135,6 +136,98 @@ public static class HzdConverter
         World.CellConverter.Convert(ctx, new Resolver(Archive(ctx)), x, y, progress);
 
     /// <summary>Horizon music and ambience used by the game.</summary>
-    public static long ConvertAudio(ConvContext ctx, IProgressSink progress) =>
-        throw new NotImplementedException("svet: ConvertAudio");
+    public static long ConvertAudio(ConvContext ctx, IProgressSink progress)
+    {
+        var arc = Archive(ctx);
+        var res = new Resolver(arc);
+        var root = Path.Combine(ctx.Cache.Hzd, "audio");
+        var force = Environment.GetCommandLineArgs().Contains("--force");
+        if (!force && Stamped(ctx) && File.Exists(Path.Combine(root, "audio.json")))
+        {
+            ctx.Log.Info("hzd audio up to date");
+            return 0;
+        }
+        var tmp = Atomic.BeginDir(root);
+        var index = new JsonObject();
+        long bytes = 0;
+        progress.Report("audio", 0, 3);
+
+        // music: Nora exploration themes, the open-world robot fight cue, the sneak cue
+        var music = new Audio.Music(res);
+        Audio.Music.Track? T(string name) => music.Tracks.FirstOrDefault(t => t.Name.Equals(name, StringComparison.OrdinalIgnoreCase));
+        IEnumerable<Audio.Music.Track> Fam(string fam, int max) => music.Tracks
+            .Where(t => t.Name.EndsWith(fam, StringComparison.OrdinalIgnoreCase) || t.Name.Contains(fam + "-", StringComparison.OrdinalIgnoreCase))
+            .OrderBy(t => t.Name, StringComparer.OrdinalIgnoreCase).Take(max);
+        var cues = new (string File, Audio.Music.Track[] Tracks)[]
+        {
+            ("explore_nora", new[] { T("exploration_nora_02_flutetheme") }.OfType<Audio.Music.Track>().ToArray()),
+            ("explore_nora_2", new[] { T("exploration_nora_03_full_pt01"), T("exploration_nora_03_full_pt02") }.OfType<Audio.Music.Track>().ToArray()),
+            ("combat", new[] { music.Tracks.FirstOrDefault(t => t.Name.EndsWith("robot_fight_v4-intro", StringComparison.OrdinalIgnoreCase)) }.OfType<Audio.Music.Track>()
+                .Concat(music.Tracks.Where(t => t.Name.Contains("robot_fight_v4-high-", StringComparison.OrdinalIgnoreCase))
+                    .OrderBy(t => t.Name[(t.Name.LastIndexOf('-') + 1)..], StringComparer.Ordinal).Take(12)).ToArray()),
+            ("sneak", music.Tracks.Where(t => t.Name.Contains("robot_fight_v4-sneak", StringComparison.OrdinalIgnoreCase)).OrderBy(t => t.Name, StringComparer.Ordinal).ToArray()),
+        };
+        var mj = new JsonObject();
+        Directory.CreateDirectory(Path.Combine(tmp, "music"));
+        foreach (var (file, tracks) in cues)
+        {
+            if (tracks.Length == 0) { ctx.Log.Warn($"music cue {file}: no tracks"); continue; }
+            var data = music.Join(tracks);
+            File.WriteAllBytes(Path.Combine(tmp, "music", file + ".mp3"), data);
+            bytes += data.Length;
+            mj[file] = new JsonObject { ["file"] = $"music/{file}.mp3", ["tracks"] = new JsonArray(tracks.Select(t => (JsonNode)t.Name).ToArray()) };
+        }
+        index["music"] = mj;
+        index["music_explore"] = "explore_nora";
+        index["music_combat"] = "combat";
+        progress.Report("audio", 1, 3);
+
+        // ambience: the conifer-forest environment's bird calls (the wind/rain beds are 6-channel ATRAC9) + campfire loop
+        var amb = new JsonArray();
+        Directory.CreateDirectory(Path.Combine(tmp, "ambience"));
+        var counters = new Dictionary<string, int>();
+        void ExportFolder(string folder, string prefix, int max)
+        {
+            var n = 0;
+            foreach (var p in arc.Paths.Where(p => p.StartsWith(folder, StringComparison.Ordinal)).OrderBy(p => p, StringComparer.Ordinal))
+            {
+                if (n >= max) break;
+                var f = res.TryFile(p);
+                if (f is null) continue;
+                foreach (var w in f.All("WaveResource"))
+                {
+                    if (n >= max) break;
+                    var e = Audio.Waves.Export(arc, w);
+                    if (e is null || e.Seconds < 0.5) continue;
+                    n++;
+                    var k = counters.GetValueOrDefault(prefix);
+                    counters[prefix] = k + 1;
+                    var fn = $"{prefix}_{k}.{e.Ext}";
+                    File.WriteAllBytes(Path.Combine(tmp, "ambience", fn), e.Data);
+                    bytes += e.Data.Length;
+                    amb.Add(new JsonObject { ["file"] = $"ambience/{fn}", ["kind"] = prefix, ["source"] = p, ["seconds"] = Math.Round(e.Seconds, 2) });
+                }
+            }
+        }
+        var env = res.TryFile("sounds/environments/senv_fauna_forestconiferous");
+        if (env is not null)
+            foreach (var es in env.All("EnvironmentSound").Take(10))
+            {
+                var bank = es.Ref("Sound").Path;
+                if (bank is null) continue;
+                var folder = bank[..(bank.LastIndexOf('/') + 1)];
+                ExportFolder(folder, "birds", 2);
+            }
+        ExportFolder("sounds/effects/world/global/fire/fire_festivalcampfires/", "campfire", 2);
+        index["ambience"] = amb;
+        index["ambience_source"] = "sounds/environments/senv_fauna_forestconiferous";
+        progress.Report("audio", 2, 3);
+
+        var json = System.Text.Encoding.UTF8.GetBytes(index.ToJsonString(new System.Text.Json.JsonSerializerOptions { WriteIndented = true }));
+        File.WriteAllBytes(Path.Combine(tmp, "audio.json"), json);
+        Atomic.CommitDir(tmp, root);
+        progress.Report("audio", 3, 3);
+        ctx.Log.Info($"audio: {mj.Count} music cues, {amb.Count} ambience sounds, {bytes} bytes");
+        return Sizes.DirBytes(root);
+    }
 }

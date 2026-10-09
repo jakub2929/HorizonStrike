@@ -71,6 +71,44 @@ public static partial class HzdDev
                 }
             case "hzd-dump":
                 return Dump(arc, Get, Has);
+            case "hzd-world":
+                {
+                    // dev: convert many cells (ring around the start or --all) and report time/size/failures per cell
+                    var cacheDir = Get("--cache") ?? throw new ArgumentException("--cache <dir>");
+                    var cache = new Hzs.Common.CachePaths(cacheDir);
+                    using var log = new Hzs.Common.Log(Get("--log-dir") ?? Path.Combine(cache.Root, "logs"));
+                    var ctx = new Hzs.Common.ConvContext(null, hzd, cache, log, CancellationToken.None);
+                    var res = new Resolver(arc);
+                    var tiles = WorldTiles.Scan(arc).Terrain.ToList();
+                    var ring = int.TryParse(Get("--ring"), out var rr) ? rr : 1;
+                    var cells = tiles.Where(t => Has("--all") || Math.Max(Math.Abs(t.X - 4), Math.Abs(t.Y + 3)) <= ring)
+                        .OrderBy(t => Math.Max(Math.Abs(t.X - 4), Math.Abs(t.Y + 3))).ThenBy(t => t.X).ThenBy(t => t.Y).ToList();
+                    var workers = int.TryParse(Get("--workers"), out var ww) ? ww : 1;
+                    var results = new System.Collections.Concurrent.ConcurrentBag<string>();
+                    var sink = new NullSink();
+                    var fails = 0;
+                    Parallel.ForEach(cells, new ParallelOptions { MaxDegreeOfParallelism = workers }, c =>
+                    {
+                        var t0 = Stopwatch.StartNew();
+                        try
+                        {
+                            CellConverter.Convert(ctx, res, c.X, c.Y, sink);
+                            var cj = System.Text.Json.Nodes.JsonNode.Parse(File.ReadAllText(Path.Combine(cache.Cell(c.X, c.Y), "cell.json")))!;
+                            var line = $"{c.X},{c.Y} ok {t0.ElapsedMilliseconds} ms real={cj["terrain"]!["real"]} instances={cj["instances"]!.AsArray().Count} campfires={cj["campfires"]!.AsArray().Count} spawns={cj["spawns"]!.AsArray().Count} cell_bytes={Hzs.Common.Sizes.DirBytes(cache.Cell(c.X, c.Y))}";
+                            results.Add(line);
+                            Console.WriteLine(line);
+                        }
+                        catch (Exception ex)
+                        {
+                            Interlocked.Increment(ref fails);
+                            var line = $"{c.X},{c.Y} FAIL {t0.ElapsedMilliseconds} ms {ex.GetType().Name}: {ex.Message}";
+                            results.Add(line);
+                            Console.WriteLine(line);
+                        }
+                    });
+                    Console.WriteLine($"cells {cells.Count}, failed {fails}, total {sw.Elapsed.TotalSeconds:F0} s, cache hzd {Hzs.Common.Sizes.DirBytes(cache.Hzd)} bytes");
+                    return fails == 0 ? 0 : 1;
+                }
             case "hzd-sites":
                 {
                     // variant-B site table for the whole main world (markdown)
@@ -235,4 +273,9 @@ public static partial class HzdDev
             Console.WriteLine($"  [{o.Index}] {o.TypeName} size={o.Size} uuid={o.Uuid}");
         return 0;
     }
+}
+
+internal sealed class NullSink : Hzs.Common.IProgressSink
+{
+    public void Report(string stage, int done, int total) { }
 }

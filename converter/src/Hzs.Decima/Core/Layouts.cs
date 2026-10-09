@@ -15,6 +15,7 @@ public static partial class Layouts
         RegisterGame();
         RegisterAssets();
         RegisterWorld();
+        RegisterAudio();
     }
 
     /// <summary>Structs with handler-defined (MsgReadBinary) payloads embedded inside other objects.</summary>

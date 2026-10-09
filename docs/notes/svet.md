@@ -185,3 +185,19 @@ mole = Burrower were wrong. Grazer is `harvester`.
 | scout | 2 | 5 | watcher | 5 | type:scout |
 | spraybot | 3 | 5 | strider | 7 | type:spraybot |
 80 site groups in 360 tiles, 930 ms
+
+## S7 Strider, Grazer, sounds, music, ambience (2026-10-09)
+- Internal names confirmed from CharacterDescriptionComponentResource (table in S2): Strider = horse, Grazer =
+  harvester (not antelope). Strider/Grazer convert with the same builder (165 / 157 joints).
+- WaveResource: lead members EncodingQuality (e4), IsStreaming, UseVBR before the ObjectUUID; WaveData inline or data
+  source. EWaveDataEncoding 0 PCM, 3 ATRAC9, 4 MP3. Machine effects: 934 MP3 + 64 PCM + 1 ATRAC9 (scout/horse/harvester).
+  Roles assigned from wave names (no soundbank graph evaluation); every role of the three machines has files.
+- Music: world.core MusicResource -> Echo bank (ECHO/MEDA(PICD)/STRL) -> 746 MP3 tracks in 3 streaming banks.
+  Cues exported: explore_nora (exploration_nora_02_flutetheme, 299 s), explore_nora_2, combat (robot_fight_v4 intro +
+  high-01..12, 143 s), sneak. Concatenated MP3 frames play as one file (ffprobe ok).
+- Ambience: outdoor wind/rain beds are 6-channel ATRAC9 (RIFF extensible with the ATRAC9 sub-format GUID) - not
+  decodable. Used instead: bird calls of sounds/environments/senv_fauna_forestconiferous (MP3) + campfire loop.
+- World sweep (hzsconv hzd-world --all --workers 2): 340/340 cells, 0 failures, all real terrain, 52 s total,
+  median 0.1 s / max 5.7 s per cell; 131 cells have placed objects (1.63 M instances), 209 outer cells only terrain +
+  procedural vegetation; 167 campfires, 80 machine sites; cache hzd 4.2 GB (cells 2.6 GB, meshes 1.1 GB,
+  textures 0.39 GB).
