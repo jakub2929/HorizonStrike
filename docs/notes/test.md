@@ -198,6 +198,27 @@ t04 FAIL (slot key: current stays ak47), t06 FAIL (crouch key: crouched = false;
   weapon is already in hand (switch away first - a dead key cannot pass); the cleanup gives the start loadout back via
   `kill_player` + respawn when a scenario lost it (buying a pistol replaces the Glock).
 
+### t04 weak spot as the first hit (after hra 430c92f) and the full suite 14/14
+- Line of sight per shot: the ray from the camera (machines' non-hitbox bodies ignored, like the bullet trace) must hit
+  the wanted hitbox FIRST. Exception that mirrors the game rule since 430c92f ("weak wins inside an enclosing body
+  box"): the first collider may be a body hitbox of the same machine if the weak hitbox lies INSIDE that box where the
+  ray meets it; a weak hitbox BEHIND a body box fails and the player is moved around the target (8 x 45 deg). The first
+  hit is reported (`first_hit`, earlier blockers). Stub checks: weak inside -> clear "next: eye ... inside it"; weak
+  behind -> "next: eye at 2.57 m further, behind it" -> moved until clear; a game that never counts the weak spot inside
+  the body still FAILS (weak 12.6 vs 105.6).
+- Real data, before hra's fix (t04run1-3 of the first round): "line of sight B eye ... first hit: Hit_body ... after
+  9 moves" 3/3 FAIL (the eye inside the Watcher's body box) and one Grazer canister shot without damage.
+- Spread: a weak-spot shot that misses or lands on the body (damage < half of damage x headshot_mult) is retried, 3 shots
+  max; earlier shots are recorded (`earlier_shots_damage`), the measured damage is the last shot's. If the game never
+  counted the weak spot all 3 would be body damage and the formula check fails.
+- After hra 430c92f, t04 three times (`C:\meshy\_tools\autotest-dev\t04run{1,2,3}`): PASS 17/17 each. Body 12.66
+  (expected 12.34 +-0.39); Watcher eye kills (90 HP, formula 107.2); Grazer canister 104.55 / 104.59 / 104.51 (expected
+  103.59 +-4.06); first hits: Watcher eye inside Hit_body (0.00 m), canister inside Hit_body (0.76 m); run 3 needed one
+  extra shot (first landed on the body: 12.31).
+- Full suite (`C:\meshy\_tools\autotest-dev\full-0.1.1c`): ExitCode 0, 14/14 PASS. t09 bootstrap_seconds 119.9,
+  337.8 MiB at world_ready, 793.3 MiB after the 3x3; t10 Game.cache_bytes max 975.6 MiB, folder max 842.8 MiB, cap
+  1 219.9 MiB, 24 evictions (F6 fixed); t02 1100/3050/16000; t06 30.8 -> 81.6 m.
+
 ## Scenario isolation + t04 line of sight (after final3: t04 miss, s03/t06 herd of 1 at the machine cap)
 - The runner calls `ctx.begin_scenario()` before and `ctx.cleanup()` after every in-process scenario (also after a
   timeout): machines the scenario spawned through `Game.spawn_machine` are freed (`queue_free`; the game unregisters
