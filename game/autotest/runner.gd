@@ -334,4 +334,10 @@ func _finish() -> void:
 	var code := 0 if all_pass else 1
 	ctx.note("exit code %d" % code)
 	ctx.close()
-	get_tree().quit(code)
+	# the game's own quit path stops the converter first (a bare SceneTree.quit with a busy converter hung on exit)
+	var g: Node = get_tree().root.get_node_or_null("Game")
+	var m: Variant = g.get("main") if g != null and "main" in g else null
+	if m is Node and (m as Node).has_method("quit_game"):
+		m.call("quit_game", code)
+	else:
+		get_tree().quit(code)

@@ -381,6 +381,8 @@ func begin_scenario() -> void:
 		for k in ["invulnerable", "crouched", "crouching"]:
 			if k in p:
 				_player_state[k] = p.get(k)
+		if "inventory" in p:
+			_player_state.inventory = Array(p.get("inventory")).map(func(x): return str(x))
 
 
 func cleanup() -> Dictionary:
@@ -412,6 +414,23 @@ func cleanup() -> Dictionary:
 				p.call("set_crouch", was)
 		if _player_state.has("invulnerable"):
 			p.set("invulnerable", _player_state.invulnerable)
+		# a scenario that began with the start loadout (knife + Glock) and lost part of it (buying a pistol replaces
+		# the Glock, CS rule) gives it back through the game's own path: death -> respawn at the last campfire
+		var start_ids: Array = oracle.start_loadout() if oracle != null else []
+		var had: Array = _player_state.get("inventory", [])
+		var now: Array = Array(p.get("inventory")).map(func(x): return str(x)) if "inventory" in p else []
+		# (had is empty when the scenario started before the player existed: the game then hands out the start loadout)
+		var lost := not start_ids.is_empty() and (had.is_empty() or start_ids.all(func(i): return had.has(i))) and not start_ids.all(func(i): return now.has(i))
+		if lost and game != null and game.has_method("kill_player"):
+			var resp := record(game, "player_respawned")
+			if "invulnerable" in p:
+				p.set("invulnerable", false)
+			game.call("kill_player")
+			var ok: bool = await wait_until(func(): return not resp.events.is_empty(), float(oracle.f(oracle.system("respawn.delay_s"))) + 20.0)
+			disconnect_all()
+			if _player_state.has("invulnerable"):
+				p.set("invulnerable", _player_state.invulnerable)
+			out.start_loadout_restored = {"via": "kill_player + respawn", "ok": ok, "inventory": Array(p.get("inventory"))}
 	# never leave the user's mouse captured (t03 captures it for a moment, as during play)
 	if Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
 		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE

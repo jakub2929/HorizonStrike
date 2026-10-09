@@ -40,11 +40,12 @@ func release(action: String) -> bool:
 	return _action(action, false)
 
 
-func tap(action: String, hold_frames: int = 2) -> bool:
+func tap(action: String, hold_frames: int = 3) -> bool:
 	## press, keep it down for a few frames (games poll is_action_just_pressed in _process/_physics_process), release
 	if not press(action):
 		return false
-	await ctx.physics_frames(hold_frames)
+	await ctx.frames(hold_frames + 1)
+	await ctx.physics_frames(1)
 	release(action)
 	await ctx.frames(1)
 	return true
@@ -72,7 +73,6 @@ func _action(action: String, pressed: bool) -> bool:
 		m.button_mask = MOUSE_BUTTON_MASK_LEFT if pressed and m.button_index == MOUSE_BUTTON_LEFT else 0
 		e = m
 	Input.parse_input_event(e)
-	Input.flush_buffered_events()
 	sent.append("%s %s" % [action, "down" if pressed else "up"])
 	return true
 
@@ -100,7 +100,6 @@ func mouse_move(canvas_pos: Vector2) -> void:
 	e.relative = to - from
 	e.screen_relative = to - from
 	Input.parse_input_event(e)
-	Input.flush_buffered_events()
 	_cursor = to
 	sent.append("mouse move to %s" % str(canvas_pos.round()))
 	await ctx.frames(2)
@@ -116,7 +115,6 @@ func click(canvas_pos: Vector2, button: MouseButton = MOUSE_BUTTON_LEFT) -> void
 		e.global_position = _cursor
 		e.button_mask = (MOUSE_BUTTON_MASK_LEFT if button == MOUSE_BUTTON_LEFT else MOUSE_BUTTON_MASK_RIGHT) if pressed else 0
 		Input.parse_input_event(e)
-		Input.flush_buffered_events()
 		await ctx.frames(2)
 	sent.append("click at %s" % str(canvas_pos.round()))
 
@@ -133,6 +131,14 @@ func equip(weapon_id: String) -> bool:
 	if action == "":
 		return false
 	var p: Node = ctx.player
+	if p != null and str(p.get("current_weapon")) == weapon_id:
+		# already in hand: switch away first, so the slot key itself is exercised (a dead key must not pass)
+		var away := "slot3" if action != "slot3" else "slot2"
+		await tap(away)
+		await ctx.wait(0.1)
+		if str(p.get("current_weapon")) == weapon_id:
+			sent.append("%s had no effect (still %s)" % [away, weapon_id])
+			return false
 	for i in 4:
 		if p == null or str(p.get("current_weapon")) == weapon_id:
 			break

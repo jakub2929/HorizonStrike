@@ -176,6 +176,28 @@ t04 FAIL (slot key: current stays ak47), t06 FAIL (crouch key: crouched = false;
   `player/player.gd` movement/crouch need the captured mouse too. Automated runs must accept (simulated) input without
   capturing the OS mouse, otherwise no test can exercise the real input path.
 
+### After hra's buy wheel fix (main d0a0de1, real data, editor)
+- t03 now also has a case that starts with `Input.mouse_mode = MOUSE_MODE_CAPTURED` (as during play): the buy key must
+  make the mouse visible and the buy still works by motion + click. Side effect: for that moment the OS cursor is
+  captured and the game warps it to the window centre once when the wheel opens; `ctx.cleanup` always frees it.
+- t03 three times (`C:\meshy\_tools\autotest-dev\t03after{1,2,3}`): PASS 28/28 each (P250, AK-47, HE by release, Kevlar,
+  Desert Eagle with captured mouse 2 -> 0, AWP refused with $4749). Game log shows `buywheel: open/hover/select/bought/close`.
+- Full suite (`C:\meshy\_tools\autotest-dev\full-0.1.1b`): 11/14 PASS (t08 t11 t09 t10 t01 t03 s01 t05 s02 s03 t07);
+  FAIL t02, t04, t06 = F8 below (weapons and crouch still ignore input while the mouse is not captured).
+- F8 (hra) still open for weapons/player: `player/weapons.gd:163` returns unless `Input.mouse_mode ==
+  MOUSE_MODE_CAPTURED` (slot keys, fire, reload) and `player/player.gd:298` (`input_enabled`, crouch/move) the same.
+  Evidence: "ak47 taken with its slot key | current ak47" (slot 3 had no effect), "fire button fired the Glock ... ammo
+  (20, 60) -> (20, 60)", "player.crouched = false" with the crouch key held. On the stub with an input path that does
+  not require the captured mouse, t02 16/16, t04 14/14, t06 12/12 PASS; with weapons ignoring input t04 FAIL.
+- F9 (hra): the t09/t10 child hung for 20 min after its runner called `get_tree().quit(0)` (results written, converter
+  still running, no exit) and was killed by PID. The runner now quits through `Game.main.quit_game(code)` (stops the
+  converter first): verified `quitting (0)` and ExitCode 0. A bare SceneTree.quit with a busy converter should still
+  not hang.
+- Runner fixes on the way: simulated events are no longer force-flushed (the engine delivers them at frame start, so
+  every `_process` sees `is_action_just_pressed`); taps hold for 4 process frames; a slot key is exercised even when the
+  weapon is already in hand (switch away first - a dead key cannot pass); the cleanup gives the start loadout back via
+  `kill_player` + respawn when a scenario lost it (buying a pistol replaces the Glock).
+
 ## Scenario isolation + t04 line of sight (after final3: t04 miss, s03/t06 herd of 1 at the machine cap)
 - The runner calls `ctx.begin_scenario()` before and `ctx.cleanup()` after every in-process scenario (also after a
   timeout): machines the scenario spawned through `Game.spawn_machine` are freed (`queue_free`; the game unregisters
