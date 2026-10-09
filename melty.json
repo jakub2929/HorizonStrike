@@ -1,0 +1,39 @@
+{
+  "schemaVersion": 1,
+  "mode": "standalone",
+  "games": [
+    {
+      "role": "primary",
+      "slug": "counter-strike-2"
+    },
+    {
+      "role": "secondary",
+      "slug": "custom-horizon-zero-dawn-complete-edition"
+    }
+  ],
+  "components": [
+    {
+      "id": "main",
+      "kind": "main",
+      "label": "Horizon Strike",
+      "fileName": "HorizonStrike-*.zip",
+      "required": true
+    }
+  ],
+  "mappings": [
+    {
+      "component": "main",
+      "from": "",
+      "to": "{managed}"
+    }
+  ],
+  "launch": {
+    "kind": "exe",
+    "path": "{managed}/HorizonStrike.exe",
+    "args": [
+      "--game",
+      "{game}"
+    ]
+  },
+  "requirements": []
+}
