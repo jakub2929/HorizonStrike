@@ -184,6 +184,9 @@ func _update_streaming() -> void:
 	for c in ring(pc, load_r):
 		want[c] = 0
 	var room := _room_for_requests()
+	# until the game is playable only the bootstrap's start cell exists (t09); ring cells are requested after
+	if not Game.is_world_ready:
+		want.clear()
 	for c in want:
 		if on_disk.has(c) or (failed.has(c) and failed[c] > now):
 			continue

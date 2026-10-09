@@ -55,3 +55,33 @@ Rules I follow: no class_name lookups across files (everything via preload, so a
   Machine projectiles are in group `machine_projectiles`; player hits are logged `player hit by <attack>`.
 - Logging: latest.log is shared by concurrent instances (append, pid on every line); a non-autotest launch truncates
   it unless it was written in the last 120 s.
+- H2: `--hzd C:\nonexistent` -> latest.log `MissingHzdScreen shown (folder does not exist: C:/nonexistent)`. Real run:
+  HZD auto-detected via Steam, `hzsconv serve` child process over stdio, progress drives the loading screen, the
+  (not yet merged) HZD stage error shows the error screen, quit stops the converter.
+- H3: real CS2 content works (seeded from cache-dev): view.glb in its own SubViewport world, clips + anim_events
+  sounds, icons, resolved stats (reserve_as_clips true -> reserve = clips x clip_size). Smoke on real data OK.
+- H5: real model.glb per machine (packed once per type), per-bone hitbox boxes from skinned vertices, weak spots
+  on layer 16 winning within 15 cm behind a body box, knee = largest bend between 25-75 % of the chain, helper
+  bones never animated, eye/head from meta. Bone poses read outside a SkeletonModifier3D are the unmodified
+  ones (Godot 4.3+ restores them) -> use BoneAttachment3D positions for anything that must follow the animation.
+- Decisions (MODLOG candidates): sight cone = 2 x meta perception.sight_half_angle_deg (the resolved
+  `sight_fov_deg` holds HZD's half angle); immediate suspicion/alert distances apply only inside the cone and are
+  scaled by stance x stealth grass; peripheral vision (outside the cone, up to peripheral_range_m 96) builds
+  suspicion at 0.3x; grazing herds bolt from a gunshot/blast they hear (loud noise raising them to suspicious ->
+  alert -> flee); ring cells are requested only after world_ready; automated runs never capture the mouse.
+- Dev scenarios (dev/scenarios.gd, my versions through the Game API): t05 PASS (patrol,suspicious,alert,attack +
+  eye bolt in ~6 s), t06 PASS (herd flees in 0.1 s, 33 -> 93 m), t07 PASS (respawn at B, knife+glock, armor 0,
+  money kept), t10 PASS on 30 MiB mock cells (4 evictions farthest-first, max below cap, start cell back).
+- H8: export preset + Build-Game verified from bash (PowerShell is blocked for this agent, so build.ps1 itself was
+  not executed by me): 109 MB exe, boots on mock data, `preflight package dist` CLEAN.
+
+## Notes for teammates (relay via main)
+- test: `Game.fire()` ignores the fire-rate/deploy gate; returned damage includes CS range falloff (t04 expected
+  values must include `range_modifier^(dist_u/500)`); knife reach = combat.knife_reach_m from the camera;
+  `Game.spawn_machine` faces the player; `player.set_crouch(bool)` exists for t06; projectiles are in group
+  `machine_projectiles`; the MissingHzdScreen Control is `Main/MissingHzdScreenLayer/MissingHzdScreen` with the
+  message in a descendant Label named `Label` (use find_child). Automated runs (`--autotest`, `--script`) never
+  capture the mouse and ignore B/Esc.
+- svet: cell 4_-3 albedo.png is ~90 % white (mean RGB 179/177/170) - is that the real flattened albedo (snow)?
+  Watcher meta height_m 1.449 (S3 asked 1.5-4 m). Game reads cell.json `vegetation: null`, empty instances and
+  campfires fine; the start campfire comes from index.json start_campfire(_pos) until cells list campfires.
