@@ -5,6 +5,10 @@ extends "res://autotest/lib/scenario.gd"
 ## for a normal map (StandardMaterial3D normal_enabled + normal_texture, or a ShaderMaterial texture parameter whose
 ## name contains "normal"). Instances are matched to cell.json by mesh id (node meta "mesh_id" or a node name that
 ## contains the mesh id).
+## Materials HZD itself binds no normal map to carry glTF material extras {"hzd_normal": "none"} (svet); they are
+## excluded from the ratios. The game's glb reader may pass the flag on as material meta "hzd_normal"; when it does
+## not, the flag is read from the cache file hzd/meshes/<mesh id>.glb: an instance is excluded when its surfaces
+## without a normal map are no more than the glb primitives whose material carries the flag.
 
 const KINDS := ["terrain", "rock", "building", "vegetation", "prop"]
 
@@ -42,7 +46,9 @@ func _run(ctx):
 	check("cell.json instances carry a kind (contract addition)", kinds_present, "%d mesh ids with a kind" % kind_of.size())
 	var stats := {}
 	for k in KINDS + ["unknown"]:
-		stats[k] = {"count": 0, "with_normal": 0, "missing": {}}
+		stats[k] = {"count": 0, "with_normal": 0, "excluded": 0, "missing": {}}
+	var glb_flags := {}  # mesh id -> number of glb primitives whose material has hzd_normal none (-1: no glb)
+	var flag_source := {"material meta": 0, "cache glb": 0, "none": 0}
 	var root: Node = w if w is Node else ctx.tree.root
 	for n in root.find_children("*", "GeometryInstance3D", true, false):
 		var gi := n as GeometryInstance3D
@@ -68,6 +74,22 @@ func _run(ctx):
 		st.count += count
 		if ok:
 			st.with_normal += count
+			continue
+		var bare := _surfaces_without_normal(gi, mesh)
+		var meta_flags := bare.filter(func(m): return m is Object and (m as Object).has_meta("hzd_normal") and str((m as Object).get_meta("hzd_normal")) == "none").size()
+		var excused := false
+		if meta_flags > 0:
+			flag_source["material meta"] += 1
+			excused = meta_flags >= bare.size()
+		else:
+			var mid := _mesh_id(gi)
+			if mid != "" and not glb_flags.has(mid):
+				glb_flags[mid] = _glb_flagged(ctx.oracle.cache_dir.path_join("hzd/meshes/%s.glb" % mid))
+			var nf: int = glb_flags.get(mid, -1)
+			flag_source["cache glb" if nf >= 0 else "none"] += 1
+			excused = nf > 0 and bare.size() <= nf
+		if excused:
+			st.excluded += count
 		else:
 			var key := _mesh_id(gi) if _mesh_id(gi) != "" else str(gi.name)
 			st.missing[key] = int(st.missing.get(key, 0)) + count
@@ -76,11 +98,15 @@ func _run(ctx):
 		var st: Dictionary = stats[k]
 		var miss: Array = st.missing.keys()
 		miss.sort_custom(func(a, b): return st.missing[a] > st.missing[b])
-		report[k] = {"count": st.count, "with_normal": st.with_normal, "ratio": snappedf(float(st.with_normal) / maxf(1.0, st.count), 0.001), "top_missing": miss.slice(0, 10).map(func(x): return "%s x%d" % [x, st.missing[x]])}
+		var counted: int = st.count - st.excluded
+		report[k] = {"count": st.count, "excluded_hzd_normal_none": st.excluded, "with_normal": st.with_normal, "ratio": snappedf(float(st.with_normal) / maxf(1.0, counted), 0.001), "top_missing": miss.slice(0, 10).map(func(x): return "%s x%d" % [x, st.missing[x]])}
 	data.materials = report
+	data.hzd_normal_flag_from = flag_source
+	if flag_source["material meta"] == 0 and flag_source["cache glb"] > 0:
+		note("the game does not pass the glTF material extras hzd_normal on (no material meta): flag read from the cache glb files")
 	check("terrain material of every loaded cell has a normal map", report.terrain.count > 0 and report.terrain.with_normal == report.terrain.count, "%d/%d" % [report.terrain.with_normal, report.terrain.count])
 	for k in ["rock", "building"]:
-		check(">= 95 %% of %s instances have a normal map" % k, report[k].count > 0 and report[k].ratio >= 0.95, "%d/%d (%.1f %%), top without: %s" % [report[k].with_normal, report[k].count, report[k].ratio * 100.0, str(report[k].top_missing)])
+		check(">= 95 %% of %s instances have a normal map (materials flagged hzd_normal none excluded)" % k, report[k].count > 0 and report[k].ratio >= 0.95, "%d/%d (%.1f %%; %d excluded), top without: %s" % [report[k].with_normal, report[k].count - report[k].excluded_hzd_normal_none, report[k].ratio * 100.0, report[k].excluded_hzd_normal_none, str(report[k].top_missing)])
 	note("vegetation: %d/%d with a normal map; unknown kind: %d instances" % [report.vegetation.with_normal, report.vegetation.count, report.unknown.count])
 	return true
 
@@ -88,7 +114,56 @@ func _run(ctx):
 static func _mesh_id(gi: Node) -> String:
 	if gi.has_meta("mesh_id"):
 		return str(gi.get_meta("mesh_id"))
+	# world MultiMeshes are named MM_<mesh id> (mesh id = 16 hex + "_" + object index)
+	var nm := str(gi.name)
+	if nm.begins_with("MM_"):
+		var rest := nm.substr(3)
+		var parts := rest.split("_")
+		if parts.size() == 2 and parts[0].length() == 16 and parts[0].is_valid_hex_number() and parts[1].is_valid_int():
+			return rest
 	return ""
+
+
+static func _surfaces_without_normal(gi: GeometryInstance3D, mesh: Mesh) -> Array:
+	## materials of the surfaces that have no normal map (null for a surface without material)
+	var out := []
+	if gi.material_override != null:
+		if not _material_normal(gi.material_override):
+			out.append(gi.material_override)
+		return out
+	for s in mesh.get_surface_count():
+		var m: Material = null
+		if gi is MeshInstance3D:
+			m = (gi as MeshInstance3D).get_active_material(s)
+		if m == null:
+			m = mesh.surface_get_material(s)
+		if m == null or not _material_normal(m):
+			out.append(m)
+	return out
+
+
+static func _glb_flagged(path: String) -> int:
+	## glb JSON chunk: primitives whose material carries extras.hzd_normal == "none"; -1 when unreadable
+	var f := FileAccess.open(path, FileAccess.READ)
+	if f == null or f.get_length() < 20:
+		return -1
+	f.seek(12)
+	var n := f.get_32()
+	if f.get_32() != 0x4E4F534A:  # "JSON"
+		return -1
+	var j: Variant = JSON.parse_string(f.get_buffer(n).get_string_from_utf8())
+	if not (j is Dictionary):
+		return -1
+	var mats: Array = (j as Dictionary).get("materials", [])
+	var flagged := 0
+	for me in (j as Dictionary).get("meshes", []):
+		for pr in (me as Dictionary).get("primitives", []):
+			var mi := int((pr as Dictionary).get("material", -1))
+			if mi >= 0 and mi < mats.size():
+				var ex: Variant = (mats[mi] as Dictionary).get("extras", {})
+				if ex is Dictionary and str((ex as Dictionary).get("hzd_normal", "")) == "none":
+					flagged += 1
+	return flagged
 
 
 static func _kind(gi: GeometryInstance3D, kind_of: Dictionary) -> String:
