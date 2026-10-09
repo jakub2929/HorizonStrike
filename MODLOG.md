@@ -143,3 +143,10 @@ Full per-site table: `docs/notes/svet.md`. No placement references `ai/groups`, 
   Godot's built-in mesh LOD generation; shadows only from objects >= 12 m; a failed bootstrap with a playable cache
   continues; automated runs never capture the mouse. Movement constants + kevlar armor points remain unverified
   (CS2 defaults live only in server.dll binaries) -> design values with evidence "CS2 cvar defaults".
+- 2026-10-09 test merged (5d1bc3d). Exported build (as Melty launches + --autotest): 13/14 PASS, FAIL t10 (F6:
+  converter per-cell done.bytes cumulative -> game cache size inflated). t09: bootstrap 74.4 s, 341.5 MiB at
+  world_ready (start cell only), 749.0 MiB after 3x3. Screenshots in _tools/autotest-dist. Fix round started:
+  svet (F6, vegetation alpha, terrain albedo, rock tint), hra (F5 Jolt compound depth -> missing collisions, F7 herd
+  flee distance, fire() point/distance, magenta splotch, cache size from disk).
+- D40 (test) Scenario order t03 before t02, s03 before t06; t04 accounts for CS range falloff; t09 allows cells within
+  2 of start after bootstrap; t10 cap reserve 50 MiB; s02 re-shoots from 6 m when the Watcher is too small.
