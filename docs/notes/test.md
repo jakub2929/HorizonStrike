@@ -253,6 +253,67 @@ t04 FAIL (slot key: current stays ak47), t06 FAIL (crouch key: crouched = false;
 - F2 (hra): parent and child game share `%LOCALAPPDATA%\HorizonStrike\logs\latest.log` – hra's log.gd already
   opens it shared, appends within 120 s and tags lines with the pid; t08 filters by pid. Closed unless it regresses.
 
+## 0.2 night run (T1-T6)
+
+### T1 baseline 0.1.1 (status for the coordinator)
+- Build: game source 042d111 (`git archive` into `C:\meshy\_tools\baseline-0.1.1\src`, no worktree), current
+  game/autotest overlaid (+ `autotest/data/systems_rows.json` with the 59 systems rows 0.1.1 lacks), exported with
+  Godot 4.7.2 into `baseline-0.1.1\build-b` (converter copied from `build`). Cache copy
+  `C:\meshy\_tools\cache-baseline-011-a`. t15 child at 1920x1080, vsync off, max_fps 0, RTX 3060 Ti.
+- Shot poses (systems `perf.shot_poses`): mothers_heart (2587.5, 243.2, 1386.2) yaw 45 pitch -9.8; valley
+  (2229.1, 381.5, 1027.8) yaw -90 pitch -6; rocks_close (2568.6, 177.5, 786.4) yaw -113.4 pitch 8.
+  "Before" screenshots: `C:\meshy\_tools\records-0.2\before\{mothers_heart,valley,rocks_close}.png` (checked, not
+  blank).
+- Measurement problem found and fixed on my side: the runner's parent is a full game instance and kept rendering and
+  streaming next to the measuring child (parent log: 38 fps at 43 ms process while the child measured). Fixed in
+  `lib/proc.gd quiet_parent()` (parent: 3D off, 5 fps cap, low-processor mode, tree paused while a child runs; also
+  t16 and the movie children). Runs a-d were made with the old runner and are not valid baselines.
+- Second problem, not fixable from the test: other agents' Godot / hzsconv processes share the GPU. t15 records them
+  at start and end of the measurement (`data.other_load_start/_end`, note), and the baseline runs wait for a machine
+  without such processes (scratch `wait_quiet.py`, 20 s quiet, max 30 min) - they start again within seconds.
+- Numbers so far (route = the 10 cells of perf.route_cells, start = 30 s 360 deg turn):
+
+| run | runner | start avg / 1 % low | route avg / 1 % low | worst | worst during load | VRAM start | cells | others |
+|---|---|---|---|---|---|---|---|---|
+| c | old (parent rendered) | 75.4 / 68.9 | 47.7 / 14.2 | 3262 ms | 2052 ms | 1229.7 MiB | 7 | yes |
+| e | parent quiet | 8.5 / 1.9 | 42.1 / 2.6 | 1500 ms | 1500 ms | 1229.7 MiB | 10 | yes (2 Godot + hzsconv started right after the quiet window) |
+| f | parent quiet | 20.8 / 2.8 | 47.5 / 4.5 | 1979 ms | 1683 ms | 1229.7 MiB | 10 | yes at start (2 Godot + hzsconv), none at the end |
+
+  Run e's start phase is ~500 ms per frame for 25 s - another process saturated the GPU; route 42 fps is closer to
+  run c. Start phase in 3 s buckets (ms per frame): c 13-14 throughout, e 130-515, f 240/305 then 28-88 - the
+  start phase depends on whoever else renders at that moment. Robust across c/e/f: route avg 42-48 fps, VRAM 1230 MiB
+  at start, and 1.5-2.1 s frames while cells load (0.1.1 inserts cells on the main thread). 1 % low is not
+  comparable between runs on this shared machine.
+- Baseline kept: run f -> `C:\meshy\_tools\records-0.2\baseline\frametimes.csv` (+ `results-t15.json`,
+  `frametime_0.1.1.svg`). For r04 I will rerun 0.1.1 and 0.2 t15 back to back late in the night so both see similar
+  conditions, and report the competing processes of both.
+
+### T2-T5 scenarios (committed; runs on the 0.2 game follow)
+- t12 new machines (main process): open snow field (2582, 178, 780); Broadhead spawned as a pair (the second must
+  leave graze). Input only: W until suspicious, view kept by mouse motion, one glock shot into the air if no alert
+  10 s after suspicious, W again if alert but no attack 8 s later (defend_charge only charges inside 25 m). Stalk =
+  sub-state of alert, scavenge = calm (stroje's states). Laser burst: a node in group machine_projectiles whose
+  `attack` is scrapper_laser_burst.
+- t13 weak spots for every machines row: 8 ring positions at 10 m, mouse aim at each weak point, first hit along the
+  shot must be that weak spot (lib/hitcheck.gd), deagle shot by the fire button, retried up to 3x on spread, body
+  shot for comparison; reports N/8 per machine.
+- t14 normal maps: classification by cell.json `instances[].kind` (or node meta `kind` / mesh id in the node name).
+  Validated on the 0.1.1 cache (no kind field): terrain 9/9 with a normal map, 2 of 220 197 instances with a normal
+  map -> FAIL, as it should before svet's V-tasks.
+- t16 stress (main process): perf.stress_runs children `--autotest t16run --out <out>/t16/run<n>`; the child sets
+  `player.speed_mult = perf.stress_speed_mult` (setup; missing on main -> note, normal speed), walks
+  perf.stress_route_cells by input (25 s legs, then a teleport to the waypoint), writes RSS (tasklist), VRAM and the
+  `[error]` lines of its pid in latest.log. Sheet t16: process main (was child).
+- r02 / r03 (sheet: process main): lib/movie.gd starts a movie-maker child (`--write-movie <avi> --fixed-fps 30
+  --resolution 1280x720`); the child films through its own side-on camera (HUD and the first-person weapon layer
+  hidden; the player's camera still drives aim and shots) and writes the frame range of each clip; the parent cuts
+  MP4s with ffmpeg (dev tool, PATH or HZS_FFMPEG) and checks 3 frames of each for blankness. One child per machine
+  (walk, attack, death in a row) instead of one per clip: 6 boots instead of 18. Raw AVIs stay in `<out>/r02raw`,
+  `<out>/r03raw` (not in the records folder).
+  Validation on main 36e1bea + the 0.1.1 cache (dev editor): r03 PASS (25.3 s, cells (4,-3) -> (4,-4) -> (5,-4),
+  luma stddev 41-46); r02 PASS 18/18 clips of 7.2-8 s, not blank (new machines were placeholder boxes there).
+- Needs: hra `player.speed_mult` (t16); svet `kind` per cell.json instance (t14).
+
 ## Log
 - 2026-10-09 runner, libs and all 13 scenario scripts written against the documented API; stub verification above.
 - 2026-10-09 pre-merge integration: hra's committed game (branch head 4ea177b, exported with `git archive` into a
