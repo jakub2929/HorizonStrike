@@ -621,6 +621,37 @@ func play_pose(pose: String, duration: float) -> void:
 		animator.play_pose(pose, duration)
 
 
+## Scavenger radar ping: an expanding ring from the radar part (point whose part/name is "radar", else the eye).
+func radar_pulse(radius: float) -> void:
+	var from := eye_global()
+	for pn in points:
+		if str(points[pn].get("part", "")).contains("radar") or str(pn).contains("radar"):
+			from = point_global(str(pn), from)
+			break
+	var ring := MeshInstance3D.new()
+	var tm := TorusMesh.new()
+	tm.inner_radius = 0.92
+	tm.outer_radius = 1.0
+	tm.rings = 48
+	ring.mesh = tm
+	var mat := StandardMaterial3D.new()
+	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	mat.albedo_color = Color(1.0, 0.35, 0.2, 0.7)
+	mat.no_depth_test = true
+	ring.material_override = mat
+	ring.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	var parent := machine.get_parent() if machine and machine.get_parent() else self
+	parent.add_child(ring)
+	ring.global_position = from
+	ring.scale = Vector3.ONE * 0.3
+	var tw := ring.create_tween()
+	tw.set_parallel(true)
+	tw.tween_property(ring, "scale", Vector3.ONE * maxf(radius, 1.0), 0.9)
+	tw.tween_property(mat, "albedo_color:a", 0.0, 0.9)
+	tw.chain().tween_callback(ring.queue_free)
+
+
 ## Attack pose with the machine_attacks row timing (pose, windup_s, active_s).
 func play_attack(a: Dictionary) -> void:
 	if animator:

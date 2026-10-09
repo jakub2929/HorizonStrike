@@ -452,6 +452,8 @@ class Runner extends Node:
 
 	func _close_machine() -> void:
 		var ph: Dictionary = _rec["phases"]
+		if OS.get_environment("BENCH_TRACE") != "" and _an.has_method("debug_dump"):
+			print(_an.debug_dump())
 		var slide := 0.0
 		var pen := 0.0
 		var fsum := 0.0

@@ -47,7 +47,7 @@ var _hip_h := 1.0                      # body bone height above the bind-pose gr
 var _spine := PackedInt32Array()
 var _neck := PackedInt32Array()
 var _head := -1
-var _jaw := -1
+var _jaws: Array = []                  # [bone, side]: role jaw, or a pair of mandibles (jaw_l / jaw_r)
 var _tail := PackedInt32Array()
 var _rotors: Array = []                # [bone, axis (bone space)]
 var _legs: Array = []
@@ -178,6 +178,19 @@ func flinch(amount: float) -> void:
 	var slow := id == "rear_up"
 	_hit = {"def": Poses.HITS.get(id, Poses.HITS["flinch_back"]), "t": 0.0, "side": side, "amp": amount,
 		"windup": 0.15 if slow else 0.03, "active": 0.4 if slow else 0.1, "recover": 0.5 if slow else 0.3}
+
+
+## Dev: leg geometry as text (bench trace).
+func debug_dump() -> String:
+	var sk: Skeleton3D = rig.skeleton
+	var out := "body %s hip_h %.2f len %.2f travel_max %.2f
+" % [sk.get_bone_name(_body) if _body >= 0 else "-", _hip_h, _body_len, _travel_max]
+	for l in _legs:
+		out += "  %s hip %s knee %s ankle %s end %s a %.2f b %.2f L %.2f foot %.2f home %s mid %s hip_m %s
+" % [l["group"],
+			sk.get_bone_name(int(l["hip"])), sk.get_bone_name(int(l["knee"])), sk.get_bone_name(int(l["ankle"])),
+			sk.get_bone_name(int(l["end"])), float(l["a"]), float(l["b"]), float(l["L"]), float(l["foot_len"]), l["home_m"], l.get("mid_m"), l["hip_m"]]
+	return out
 
 
 ## True when leg i (rig.leg_chains order) is planted (bench).
@@ -336,7 +349,10 @@ func _init_rig(sk: Skeleton3D) -> void:
 	_neck = _path(sk, int(rig.roles.get("neck", -1)), _head)
 	if _neck.is_empty() and _head >= 0 and int(rig.roles.get("neck", -1)) >= 0:
 		_neck = PackedInt32Array([int(rig.roles.get("neck", -1))])
-	_jaw = int(rig.roles.get("jaw", -1))
+	for r in rig.roles:
+		if str(r).begins_with("jaw"):
+			_jaws.append([int(rig.roles[r]), -1.0 if str(r).ends_with("_l") else (1.0 if str(r).ends_with("_r") else 0.0)])
+			_touch(int(rig.roles[r]))
 	_tail = tail_chain()
 	for r in ["rotor_l", "rotor_r"]:
 		var rb := int(rig.roles.get(r, -1))
@@ -354,9 +370,8 @@ func _init_rig(sk: Skeleton3D) -> void:
 		_touch(b)
 	for b in _tail:
 		_touch(b)
-	for b in [_head, _jaw]:
-		if b >= 0:
-			_touch(b)
+	if _head >= 0:
+		_touch(_head)
 	_head_rest_h = _rest_m(sk, _head).y if _head >= 0 else _hip_h
 	# trunk boxes (death settling): body hitboxes not on legs, neck, head or tail
 	var skip := {}
@@ -790,6 +805,13 @@ func _update_channels(delta: float) -> void:
 			_ch["rotor"] = maxf(float(_ch.get("rotor", 0.0)), _graze_w)
 		if _graze_pose.contains("drill"):
 			_ch["head_pitch"] = float(_ch.get("head_pitch", 0.0)) + 0.06 * sin(_t * 25.0) * _graze_w
+	# predators stalk low with the head down; alerted quadrupeds paw the ground while they size up the threat
+	if _state == "stalk":
+		_ch["body_dy"] = float(_ch.get("body_dy", 0.0)) - 0.1
+		_ch["neck_pitch"] = float(_ch.get("neck_pitch", 0.0)) + 0.25
+		_ch["head_pitch"] = float(_ch.get("head_pitch", 0.0)) - 0.15
+	elif _state == "alert" and not _biped and _speed < 0.2 and _attack.is_empty() and fmod(_t, 4.0) < 1.3:
+		_ch["paw"] = maxf(float(_ch.get("paw", 0.0)), 1.0)
 	# idle actions while calm and standing
 	if calm and _speed < 0.2 and _attack.is_empty() and _graze_w < 0.05 and not _idle_actions.is_empty():
 		if _idle.is_empty():
@@ -1128,8 +1150,14 @@ func _pose_upper(sk: Skeleton3D, M: Transform3D, delta: float) -> void:
 		var clear := hw.y - _ground(hw)
 		var want := maxf(_head_rest_h * 0.12, 0.12)
 		_graze_angle = clampf(_graze_angle + (clear - want) * delta * 2.5, 0.2, 1.7)
-	if _jaw >= 0:
-		_rotate_global(sk, _jaw, Quaternion(right, -0.45 * clampf(float(_ch.get("jaw", 0.0)), 0.0, 1.0)))
+	var jaw_open := clampf(float(_ch.get("jaw", 0.0)), 0.0, 1.0)
+	if jaw_open > 0.001:
+		for j in _jaws:
+			# a single jaw drops; mandible pairs also spread sideways
+			var q := Quaternion(right, -0.4 * jaw_open)
+			if float(j[1]) != 0.0:
+				q = Quaternion(up, float(j[1]) * 0.3 * jaw_open) * q
+			_rotate_global(sk, int(j[0]), q)
 	# tail: idle sway, lags behind turns, lifts when running, attack sweeps
 	if not _tail.is_empty():
 		_tail_lag = lerpf(_tail_lag, clampf(-_yaw_rate * 0.25, -0.8, 0.8), clampf(delta * 3.0, 0.0, 1.0))
@@ -1246,8 +1274,8 @@ func _apply_death_pose(sk: Skeleton3D, M: Transform3D, buckle: float, fall: floa
 		if settle and fall >= 1.0:
 			var tc := _min_clear(sk, _grp_tail)
 			_death_tail = clampf(_death_tail + clampf((tc - 0.04) * 0.8, -0.15, 0.08), -1.5, 0.6)
-	if _jaw >= 0:
-		_rotate_global(sk, _jaw, Quaternion((sb * Vector3.RIGHT).normalized(), -0.25 * fall))
+	for j in _jaws:
+		_rotate_global(sk, int(j[0]), Quaternion((sb * Vector3.RIGHT).normalized(), -0.25 * fall))
 
 
 static func _smooth(x: float) -> float:
