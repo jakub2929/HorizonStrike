@@ -49,3 +49,5 @@ Journal and decision log (orchestrator-owned). Newest entries at the bottom of e
 (to be filled when spawn sites are decoded)
 
 ## Log
+- 2026-10-09 Melty draft created: modId `6e2ecdda-6217-40c2-b016-e6940db6aee4`, slug `horizon-strike`,
+  Studio https://melty.gg/studio/6e2ecdda-6217-40c2-b016-e6940db6aee4 (title, games, MIT, madeBy EM; text later).
