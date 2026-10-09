@@ -144,7 +144,15 @@ public static class HzdConverter
     {
         var path = Path.Combine(ctx.Cache.Cell(x, y), "cell.json");
         if (!File.Exists(path) || !Stamped(ctx)) return false;
-        try { return JsonNode.Parse(File.ReadAllText(path))?["format"]?.GetValue<int>() == World.CellConverter.Format; }
+        try
+        {
+            var cell = JsonNode.Parse(File.ReadAllText(path));
+            if (cell?["format"]?.GetValue<int>() != World.CellConverter.Format) return false;
+            // the game's cache GC may have deleted shared meshes/textures the cell uses: then convert it again
+            var meshes = cell["meshes"]?.AsArray().Select(m => Path.Combine(ctx.Cache.Meshes, $"{m}.glb")) ?? [];
+            var textures = cell["textures"]?.AsArray().Select(t => Path.Combine(ctx.Cache.Hzd, "textures", $"{t}.png")) ?? [];
+            return meshes.Concat(textures).All(File.Exists);
+        }
         catch (Exception) { return false; }
     }
 

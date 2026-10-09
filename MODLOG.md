@@ -180,3 +180,12 @@ Full per-site table: `docs/notes/svet.md`. No placement references `ai/groups`, 
   uncompressed textures: ~58-65 fps at start, 1.1-1.5 GB VRAM); 30 s perf line in latest.log; cache size scans
   (game + autotest) never call FileAccess.get_size on paths that may vanish; s03 picks a camera position that sees the
   whole herd (test d9b1a3d).
+- 2026-10-09 Final-release autotest round 3 (0.1.0-final): 11/14, 0 engine errors; found mesh GC deleting meshes the
+  converter session still considered written (cell re-conversion referenced missing files) and partial herd
+  activation under the machine cap; test scenarios left spawned machines behind. Fixed: test per-scenario cleanup +
+  t04 line of sight (128fa4d); hra GC pins meshes known to the running converter and runs only when idle, whole-herd
+  activation nearest-first (ba7bc33). Open: converter re-export of missing meshes (svet), a 1-in-4 segfault during
+  mock world load (hra investigating).
+- D45 A site activates only when its whole herd fits under spawning.max_active_machines; nearest sites first, far
+  idle sites yield.
+- 2026-10-09 svet 6074fe1 merged: WorldMeshes.Ensure re-exports missing glb/.tex/textures; CellUpToDate requires all referenced files (GC regen verified in one serve session).
