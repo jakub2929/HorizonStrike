@@ -2,14 +2,19 @@ extends RefCounted
 ## Process helpers: launching the game again as a child, netstat / tasklist parsing, independent disk usage.
 
 
-static func game_launch_prefix() -> PackedStringArray:
-	## editor binary (dev): "--path <project>" + "--"; exported exe: nothing (exactly as Melty launches it)
+const ENGINE_VALUE_ARGS := ["--resolution", "--write-movie", "--fixed-fps", "--position"]
+
+
+static func game_launch_prefix(engine_args: PackedStringArray = PackedStringArray()) -> PackedStringArray:
+	## editor binary (dev): "--path <project>" + engine options + "--"; exported exe: engine options only (exactly as
+	## Melty launches it plus those)
 	var out := PackedStringArray()
 	if not OS.has_feature("template"):
 		out.append("--path")
 		out.append(ProjectSettings.globalize_path("res://").trim_suffix("/"))
 	if DisplayServer.get_name() == "headless":
 		out.append("--headless")
+	out.append_array(engine_args)
 	if not OS.has_feature("template"):
 		out.append("--")
 	return out

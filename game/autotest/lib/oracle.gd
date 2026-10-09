@@ -62,7 +62,18 @@ func machine_health(id: String) -> Dictionary:
 	return {"value": f(machine(id, "health")), "source": "sheet health (hzd_health unresolved)"}
 
 
+const EXTRA_SYSTEMS := "res://autotest/data/systems_rows.json"
+static var _extra_rows: Variant = null
+
+
 func system(id: String) -> Variant:
+	if not SystemsSheet.ROWS.has(id):
+		# a game build older than the sheet (the 0.1.1 baseline) lacks newer rows: the baseline export carries the
+		# test-owned rows it needs in this file (systems sheet rows, same format)
+		if _extra_rows == null:
+			_extra_rows = read_json(EXTRA_SYSTEMS) if FileAccess.file_exists(EXTRA_SYSTEMS) else {}
+		if _extra_rows is Dictionary and (_extra_rows as Dictionary).has(id):
+			return _cell("systems", _extra_rows, SystemsSheet.COLUMNS, id, "value")
 	return _cell("systems", SystemsSheet.ROWS, SystemsSheet.COLUMNS, id, "value")
 
 

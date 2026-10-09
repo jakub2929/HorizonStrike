@@ -25,6 +25,8 @@ const SCENARIOS := {
 	"t11": preload("res://autotest/scenarios/t11_no_listener.gd"),
 	"s01": preload("res://autotest/scenarios/s01_buy_wheel.gd"),
 	"s03": preload("res://autotest/scenarios/s03_herd_landscape.gd"),
+	"t15": preload("res://autotest/scenarios/t15_perf.gd"),
+	"r01": preload("res://autotest/scenarios/r01_shots.gd"),
 }
 ## rows produced inside another scenario's run (sheet: s02 "taken inside t05")
 const HOSTED := {"s02": "t05"}
@@ -235,9 +237,22 @@ func _run_child(id: String) -> Array:
 	if ci >= 0:
 		extra[ci + 1] = _fresh_dir(extra[ci + 1], notes)
 	DirAccess.make_dir_recursive_absolute(child_out)
-	var argv := Proc.game_launch_prefix()
+	# engine options in the sheet's extra_args (--resolution, --write-movie, --fixed-fps) must reach the engine: before
+	# "--" with the editor binary, anywhere with the exported exe
+	var engine := PackedStringArray()
+	var rest := PackedStringArray()
+	var i := 0
+	while i < extra.size():
+		if extra[i] in Proc.ENGINE_VALUE_ARGS and i + 1 < extra.size():
+			engine.append(extra[i])
+			engine.append(extra[i + 1])
+			i += 2
+		else:
+			rest.append(extra[i])
+			i += 1
+	var argv := Proc.game_launch_prefix(engine)
 	argv.append_array(args.forward(drop))
-	argv.append_array(extra)
+	argv.append_array(rest)
 	var exe := OS.get_executable_path()
 	var launched_unix := int(Time.get_unix_time_from_system())
 	ctx.note("== child %s: %s %s" % [",".join(group), exe, " ".join(argv)])
