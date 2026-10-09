@@ -244,6 +244,47 @@ public static partial class HzdDev
                     Console.WriteLine($"extracted {n} files, {bytes} bytes -> {outDir}");
                     return 0;
                 }
+            case "hzd-bcbench":
+                {
+                    // dev only: BC encode speed / error on HZD colour textures (first Texture of texture-set files under --prefix)
+                    var prefix = Get("--prefix") ?? "models/building_blocks/nora/";
+                    var n = int.TryParse(Get("--n"), out var nv) ? nv : 24;
+                    var bres = new Resolver(arc);
+                    var imgs = new List<Assets.Image>();
+                    foreach (var path in arc.Paths.Where(x => x.StartsWith(prefix, StringComparison.Ordinal) && x.EndsWith("_set", StringComparison.Ordinal)))
+                    {
+                        if (imgs.Count >= n) break;
+                        var tf = bres.TryFile(path + ".core");
+                        var to = tf?.Objects.FirstOrDefault(o => o.TypeName == "Texture");
+                        if (tf is null || to is null) continue;
+                        try
+                        {
+                            var tx = Assets.HzdTexture.Parse(tf.Decode(to));
+                            var im = tx.Decode(arc, tx.MipFor(512)).Fit(512);
+                            if (im.Channels == 4 && im.Width >= 256) imgs.Add(im);
+                        }
+                        catch (Exception) { }
+                    }
+                    var mpix = imgs.Sum(i => (double)i.Width * i.Height) / 1e6;
+                    Console.WriteLine($"{imgs.Count} textures, {mpix:F2} MPix");
+                    void Report(string name, Assets.BcFormat bf, Func<Assets.Image, byte[]> enc)
+                    {
+                        var t0 = Stopwatch.StartNew();
+                        double err = 0; long cnt = 0;
+                        foreach (var im in imgs)
+                        {
+                            var raw = enc(im);
+                            var back = Assets.Dds.DecodeBlocks(bf, raw, im.Width, im.Height);
+                            var chans = bf == Assets.BcFormat.BC5 ? 2 : bf == Assets.BcFormat.BC1 ? 3 : 4;
+                            for (var i = 0; i < im.Width * im.Height; i++)
+                                for (var c = 0; c < chans; c++) { var d = im.Pixels[i * 4 + c] - back[i * 4 + c]; err += d * d; cnt++; }
+                        }
+                        Console.WriteLine($"{name,-24} {t0.Elapsed.TotalMilliseconds / mpix,8:F1} ms/MPix  PSNR {10 * Math.Log10(255.0 * 255.0 / (err / cnt)):F1} dB");
+                    }
+                    foreach (var bf in new[] { Assets.BcFormat.BC1, Assets.BcFormat.BC3, Assets.BcFormat.BC5, Assets.BcFormat.BC7 })
+                        Report($"own {bf}", bf, im => Assets.BcEncode.Encode(bf, im.Pixels, im.Width, im.Height));
+                    return 0;
+                }
             case "hzd-veg":
                 {
                     // dev only: placement layers of a tile -> density channel and placement target type

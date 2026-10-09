@@ -291,3 +291,14 @@ mole = Burrower were wrong. Grazer is `harvester`.
   files were collected is not answered `cached` but converted again.
 - Check (scratch gc_regen.py, one serve session): 5,-3 converted, its 1194 glb + 223 png (+ half the sidecars)
   deleted, re-requested -> cached false, missing 0/0; 4,-3 same with the cell dir deleted too -> missing 0/0.
+
+## 0.2 V0 texture audit + encoder (2026-10-09)
+- Start area 3x3 around 4,-3 (cache-svetwork/c24, scratch texaudit.py; machines from cache-dev):
+  albedo 307 (62.1 MPix, mostly 512^2), albedo_alpha 119 (25.4 MPix), terrain albedo 9 x 2048^2, veg maps 18 x 512^2,
+  machine colour 9. textures: 462, VRAM est 690 MiB uncompressed (RGBA8 + mips) -> 109 MiB BC.
+- Encoder benchmark (hzsconv hzd-bcbench, 24 nora building colour maps, 5.37 MPix, 1 thread):
+  BCnEncoder.Net 2.3.0 (MIT OR Unlicense): BC1 fast 32 ms/MPix 24.6 dB, balanced 150 ms/MPix 29.4 dB; BC5 65 ms 46.9 dB;
+  BC7 fast 5977 ms/MPix 36.9 dB, balanced 13796 ms/MPix 41.2 dB -> BC7 far too slow for on-demand cells.
+  Own encoders (Assets/BcEncode.cs, no dependency): BC1 249 ms/MPix 30.4 dB, BC3 284 ms 31.7 dB, BC5 115 ms 44.6 dB,
+  BC7 (mode 6 only) 304 ms/MPix 32.7 dB. Choice: own encoders; BCnEncoder not kept.
+- Per-cell conversion before V1 (c24, 2 workers, cold): 0.4 - 4.2 s per cell, 9 cells in 13 s.
