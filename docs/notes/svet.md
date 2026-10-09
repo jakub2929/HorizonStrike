@@ -333,3 +333,59 @@ mole = Burrower were wrong. Grazer is `harvester`.
   (V0 audit): 690 MiB if uploaded as RGBA8 + mips, without any normal / ORM maps.
 - Whole world after V2 (c33, 2 workers): 340 cells, 0 failed, 159 s, median 518 ms, p90 1.72 s, max 10.6 s,
   cache hzd 5.15 GB (after V1 134 s / 4.36 GB).
+
+## 0.2 V3 new machines (2026-10-09)
+- hzd_health: direwolf.core DireWolfDestructibilityResource 1100 (Corrupted 1650), hyena.core Hyena_DefaultDestructibilityResource
+  220 (Corrupted 330), longhorn.core LongHornDestructibilityResource 175 (Corrupted 263); grazer's 150 unchanged.
+- Weak spots (DestructibilityPart BoneName, DamageToEntityMultiplier 1.5): Sawtooth DireWolf_CanisterPart ->
+  DireWolf_Canister_Fuel_helper; Scrapper Hyena_BatteryPart -> Battery_helper (power cell), Hyena_RadarPart ->
+  Radar_helper; Broadhead Canister_{Left,Right}_01Part -> {L,R}_Longhorn_Canister_Fuel_helper. Eyes 2.0x (fx points).
+- The Sawtooth (direwolf) mesh is skinned to the greywolf (Ravager) rig; its own helpers (canister, eye, plates) are in
+  direwolf/animation/skeletons/*_helpers. MachineBuilder now reads helpers from the sheet skeleton folder first, then
+  from the mesh skeleton's folder, maps helper parent indices by joint name through the folder's own skeleton and
+  matches DestructibilityPart bones case-insensitively (Eye_helper vs eye_helper). Before: plates at Ravager positions.
+  Watcher / Strider / Grazer meta (bones, positions, chains, weak spots, points, roles) unchanged.
+- The longhorn entity uses ai/characters/horse (Strider's AI): perception 45 m / 12 deg / 96 m / hearing 20 m.
+  Sawtooth and Scrapper resolve 45 / 25 / 96 / 100 / 30 / 15 from their own AI files.
+- Leg chains: paws with three toes on the ground (direwolf/hyena rigs) break the one-grounded-leaf derivation; then the
+  chains are the joint paths of the bone_roles legs (upper .. toe). Roles: foot = joint carrying the toes, toe = middle toe.
+- Sounds: machine sound folders = own + every robot folder of the sheet sound banks (Broadhead body sounds = horse);
+  patterns + scavenge, vox_hit, vox_hr_, footdown.
+- site_map prepared (merge last): type:direwolf -> sawtooth, type:hyena -> scrapper, type:longhorn -> broadhead (x1.0).
+
+Sites of the new machines (svet 0.2 V3, hzsconv hzd-sites after site_map type:direwolf/hyena/longhorn -> sawtooth/scrapper/broadhead):
+
+| tile | site | original | orig count | 0.2 machine | count | rule |
+|---|---|---|---|---|---|---|
+| -3,-3 | FE_Horse | longhorn | 6-8 | broadhead | 6 | type:longhorn |
+| -3,0 | FE_Longhorn | longhorn | 3-3 | broadhead | 3 | type:longhorn |
+| -2,0 | FE_Longhorn | longhorn | 4-4 | broadhead | 4 | type:longhorn |
+| -2,1 | FE_Longhorn_01 | longhorn | 3-3 | broadhead | 3 | type:longhorn |
+| -1,-2 | FE_Longhorn | longhorn | 6-8 | broadhead | 6 | type:longhorn |
+| -1,0 | FE_Longhorn_01 | longhorn | 3-5 | broadhead | 4 | type:longhorn |
+| 0,-2 | Longhorn_01 | longhorn | 3-4 | broadhead | 4 | type:longhorn |
+| 0,-2 | Horse_03 | longhorn | 3-3 | broadhead | 3 | type:longhorn |
+| 0,-2 | Longhorn_02 | longhorn | 3-3 | broadhead | 3 | type:longhorn |
+| 0,0 | Longhorn_01 | longhorn | 3-5 | broadhead | 4 | type:longhorn |
+| 1,-3 | Longhorn_01 | longhorn | 4-4 | broadhead | 4 | type:longhorn |
+| 1,-2 | Longhorn_02 | longhorn | 3-3 | broadhead | 3 | type:longhorn |
+| 1,-1 | Horse | longhorn | 3-3 | broadhead | 3 | type:longhorn |
+| 1,-1 | Longhorn_03 | longhorn | 3-3 | broadhead | 3 | type:longhorn |
+| 1,0 | Longhorn_02 | longhorn | 3-5 | broadhead | 4 | type:longhorn |
+| 2,-1 | Horse | longhorn | 3-3 | broadhead | 3 | type:longhorn |
+| 2,-1 | Longhorn_2 | longhorn | 3-3 | broadhead | 3 | type:longhorn |
+| 2,0 | Horse_01 | longhorn | 3-3 | broadhead | 3 | type:longhorn |
+| 2,0 | Longhorn_01 | longhorn | 3-5 | broadhead | 4 | type:longhorn |
+| 3,-4 | FE_Hyena_Scene | hyena | 4-4 | scrapper | 4 | type:hyena |
+| 3,-2 | Longhorn_Scene | longhorn | 6-8 | broadhead | 6 | type:longhorn |
+| 3,-1 | DireWolf_Mountain_Scene | direwolf | 1-1 | sawtooth | 1 | type:direwolf |
+| 4,-4 | FE_Hyena | hyena | 3-3 | scrapper | 3 | type:hyena |
+| 6,-1 | FE_Longhorn | longhorn | 3-3 | broadhead | 3 | type:longhorn |
+| 6,0 | FE_Longhorn_01 | longhorn | 4-4 | broadhead | 4 | type:longhorn |
+| 6,0 | FE_Longhorn | longhorn | 3-3 | broadhead | 3 | type:longhorn |
+
+| original | sites | orig machines | 0.2 machine | machines | rule |
+|---|---|---|---|---|---|
+| direwolf | 1 | 1 | sawtooth | 1 | type:direwolf |
+| hyena | 2 | 7 | scrapper | 7 | type:hyena |
+| longhorn | 23 | 88 | broadhead | 86 | type:longhorn |

@@ -20,12 +20,12 @@ public static class SiteMapSheet
     public static readonly SiteMapRow TypeAntelope = new("type:antelope", "type", "antelope", "grazer", true, 1.0, "Lancehorn (verified); same count");
     public static readonly SiteMapRow TypeHorse = new("type:horse", "type", "horse", "strider", true, 1.0, "Strider (verified); same count");
     public static readonly SiteMapRow TypeHarvester = new("type:harvester", "type", "harvester", "grazer", true, 1.0, "Grazer (verified); same count");
-    public static readonly SiteMapRow TypeLonghorn = new("type:longhorn", "type", "longhorn", "grazer", true, 1.0, "Broadhead (verified); same count");
+    public static readonly SiteMapRow TypeLonghorn = new("type:longhorn", "type", "longhorn", "broadhead", true, 1.0, "Broadhead (verified); own model from 0.2, same count");
     public static readonly SiteMapRow TypeBison = new("type:bison", "type", "bison", "strider", true, 1.0, "Trampler (verified); same count");
     public static readonly SiteMapRow TypeGoat = new("type:goat", "type", "goat", "strider", true, 1.0, "Charger (verified); same count");
-    public static readonly SiteMapRow TypeHyena = new("type:hyena", "type", "hyena", "watcher", true, 1.0, "Scrapper (verified); same count");
+    public static readonly SiteMapRow TypeHyena = new("type:hyena", "type", "hyena", "scrapper", true, 1.0, "Scrapper (verified); own model from 0.2, same count");
     public static readonly SiteMapRow TypeRaptor = new("type:raptor", "type", "raptor", "watcher", true, 1.5, "Thunderjaw (verified); predator: more v1 machines");
-    public static readonly SiteMapRow TypeDirewolf = new("type:direwolf", "type", "direwolf", "watcher", true, 1.5, "Sawtooth (verified); predator: more v1 machines");
+    public static readonly SiteMapRow TypeDirewolf = new("type:direwolf", "type", "direwolf", "sawtooth", true, 1.0, "Sawtooth (verified); own model from 0.2, same count");
     public static readonly SiteMapRow TypeGreywolf = new("type:greywolf", "type", "greywolf", "watcher", true, 1.5, "Ravager (verified); predator: more v1 machines");
     public static readonly SiteMapRow TypeStalker = new("type:stalker", "type", "stalker", "watcher", true, 1.5, "Stalker (verified); predator: more v1 machines");
     public static readonly SiteMapRow TypeLonglegbird = new("type:longlegbird", "type", "longlegbird", "watcher", true, 1.0, "Longleg (verified); same count");

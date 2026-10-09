@@ -111,7 +111,8 @@ public static class HzdConverter
                     ["immediate_alert_m"] = rv["immediate_alert_m"]?.DeepClone(),
                 };
             }
-            Audio.MachineSounds.Export(res, row.HzdInternalName, JsonNode.Parse(row.SoundRoles)!.AsArray().Select(x => x!.GetValue<string>()), tmp, ctx.Log);
+            Audio.MachineSounds.Export(res, row.HzdInternalName, JsonNode.Parse(row.SoundRoles)!.AsArray().Select(x => x!.GetValue<string>()), tmp, ctx.Log,
+                extraFolders: Audio.MachineSounds.Folders(row.HzdInternalName, row.SoundBanks.Key ?? ""));
             Atomic.WriteJson(Path.Combine(tmp, "meta.json"), meta);
             Atomic.CommitDir(tmp, target);
             Atomic.WriteJson(Path.Combine(ctx.Cache.Hzd, "machines.json"), resolved);

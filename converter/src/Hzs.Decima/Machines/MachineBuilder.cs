@@ -169,24 +169,38 @@ public sealed class MachineBuilder(Resolver res, MachinesRow row, JsonObject? re
             }
         log.Info($"{row.Id}: skeleton {skelPath} {_names.Count} joints, {covered} from inverse bind matrices, rest from the initial pose");
 
-        // helpers (attach points, weak spots)
-        var dir = Norm(skelPath);
+        // helpers (attach points, weak spots): the machine's own animation folder (sheet skeleton) first, then the folder
+        // of the skeleton the mesh is skinned to (a machine can share another machine's rig: Sawtooth -> greywolf)
         var animMarker = HzdNames.Str("machines.anim_dir");
-        var animDir = dir[..(dir.IndexOf(animMarker, StringComparison.Ordinal) + animMarker.Length)];
+        string? AnimDir(string? p)
+        {
+            if (p is null) return null;
+            var d = Norm(p);
+            var i = d.IndexOf(animMarker, StringComparison.Ordinal);
+            return i < 0 ? null : d[..(i + animMarker.Length)];
+        }
         var helperMatch = HzdNames.Str("machines.helper_files_match");
-        var helperFiles = res.Archive.Paths.Where(p => p.StartsWith(animDir, StringComparison.Ordinal) && p.Contains(helperMatch, StringComparison.Ordinal));
+        var animDirs = new[] { AnimDir(HzdBindings.Path(row.Skeleton)), AnimDir(skelPath) }.OfType<string>().Distinct().ToList();
+        var helperFiles = animDirs.SelectMany(ad => res.Archive.Paths.Where(p => p.StartsWith(ad, StringComparison.Ordinal) && p.Contains(helperMatch, StringComparison.Ordinal)));
         var meshJointCount = _names.Count;
         foreach (var hf in helperFiles)
         {
             var f = res.TryFile(hf);
             if (f is null) continue;
+            // helper indices address the skeleton of the helper file's own folder: map them by joint name
+            var folder = hf[..(hf.LastIndexOf('/') + 1)];
+            var own = res.Archive.Paths.Where(p => p.StartsWith(folder, StringComparison.Ordinal) && !p.Contains(helperMatch, StringComparison.Ordinal))
+                .Select(p => res.TryFile(p)?.FirstObj("Skeleton")).OfType<Obj>().FirstOrDefault();
+            var ownNames = own?.Structs("Joints").Select(j => j.Str("Name")).ToList();
             foreach (var hs in f.All("SkeletonHelpers"))
                 foreach (var h in hs.Structs("Helpers"))
                 {
                     var name = h.Str("Name");
-                    if (_names.Contains(name)) continue;
+                    if (_names.Contains(name, StringComparer.OrdinalIgnoreCase)) continue;
                     var idx = h.Int("Index");
-                    var parent = idx >= 0 && idx < meshJointCount ? idx : -1;
+                    var parent = ownNames is not null && idx >= 0 && idx < ownNames.Count ? _names.IndexOf(ownNames[idx])
+                        : idx >= 0 && idx < meshJointCount ? idx : -1;
+                    if (parent >= meshJointCount) parent = -1;
                     var local = MeshReader.ToMatrix(h.Struct("Matrix"));
                     _names.Add(name);
                     _parent.Add(parent);
@@ -243,7 +257,7 @@ public sealed class MachineBuilder(Resolver res, MachinesRow row, JsonObject? re
         foreach (var part in file.All("DestructibilityPart"))
         {
             var bone = part.Str("BoneName");
-            var j = _names.IndexOf(bone);
+            var j = _names.FindIndex(n => string.Equals(n, bone, StringComparison.OrdinalIgnoreCase));
             if (bone.Length == 0 || j < 0) continue;
             try
             {
@@ -287,8 +301,12 @@ public sealed class MachineBuilder(Resolver res, MachinesRow row, JsonObject? re
         var weakParts = Json(row.WeakSpotParts) as JsonArray ?? [];
         var weakBones = WeakSpotBones();
         var weak = new JsonArray();
-        foreach (var b in weakBones)
-            weak.Add(new JsonObject { ["part"] = weakParts.Count > 0 ? weakParts[0]!.GetValue<string>() : "weak_spot", ["bone"] = b });
+        for (var i = 0; i < weakBones.Count; i++)
+        {
+            // one part per bone when the sheet lists as many parts as the binding gives bones (Scrapper: power cell, radar)
+            var part = weakParts.Count == weakBones.Count ? weakParts[i] : weakParts.Count > 0 ? weakParts[0] : null;
+            weak.Add(new JsonObject { ["part"] = part?.GetValue<string>() ?? "weak_spot", ["bone"] = weakBones[i] });
+        }
         return new JsonObject
         {
             ["id"] = row.Id,
@@ -359,10 +377,19 @@ public sealed class MachineBuilder(Resolver res, MachinesRow row, JsonObject? re
     }
 
     /// <summary>
-    /// Leg chains hip..foot: for every non-helper leaf joint that rests on the ground in the bind pose, walk up while the
-    /// ancestor leads to only this one grounded leaf. Excludes IK/procedural helper joints.
+    /// Leg chains as skeleton paths, derived: for every non-helper leaf joint that rests on the ground in the bind pose,
+    /// walk up while the ancestor leads to only this one grounded leaf (excludes IK/procedural helper joints). When that
+    /// does not give one chain per leg of bone_roles (paws with several toes on the ground), the chains are the joint
+    /// paths from each leg's upper to its toe (or foot) role (content contract).
     /// </summary>
     public List<List<string>> LegChains()
+    {
+        var derived = DerivedChains();
+        var byRoles = RoleChains();
+        return byRoles.Count > 0 && derived.Count != byRoles.Count ? byRoles : derived;
+    }
+
+    private List<List<string>> DerivedChains()
     {
         bool Skip(int j) => _isHelper[j] || _names[j].StartsWith("ik", StringComparison.Ordinal) || _names[j].Contains("Proc", StringComparison.Ordinal);
         var children = Enumerable.Range(0, _names.Count).ToLookup(j => _parent[j]);
@@ -377,6 +404,30 @@ public sealed class MachineBuilder(Resolver res, MachinesRow row, JsonObject? re
             var cur = leaf;
             while (_parent[cur] >= 0 && GroundedUnder(_parent[cur]) == 1) { cur = _parent[cur]; chain.Insert(0, cur); }
             if (chain.Count >= 3) chains.Add(chain.Select(j => _names[j]).ToList());
+        }
+        return chains;
+    }
+
+    /// <summary>Skeleton path upper .. toe (or foot) for every leg in bone_roles; empty when a leg's roles are not one chain.</summary>
+    private List<List<string>> RoleChains()
+    {
+        var roles = BoneRoles();
+        var legs = roles.Select(kv => kv.Key).Where(k => k.StartsWith("leg_", StringComparison.Ordinal))
+            .GroupBy(k => k[..k.LastIndexOf('_')]).OrderBy(g => g.Key, StringComparer.Ordinal);
+        var chains = new List<List<string>>();
+        foreach (var g in legs)
+        {
+            var upper = roles[g.Key + "_upper"]?.GetValue<string>();
+            var end = (roles[g.Key + "_toe"] ?? roles[g.Key + "_foot"])?.GetValue<string>();
+            if (upper is null || end is null) return [];
+            var path = new List<string>();
+            for (var j = _names.IndexOf(end); j >= 0; j = _parent[j])
+            {
+                path.Insert(0, _names[j]);
+                if (_names[j] == upper) break;
+            }
+            if (path[0] != upper) return [];
+            chains.Add(path);
         }
         return chains;
     }
