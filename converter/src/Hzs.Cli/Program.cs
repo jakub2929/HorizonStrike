@@ -111,6 +111,8 @@ internal sealed class Server
     private readonly HashSet<(int, int)> _runningCells = new();
     private readonly SemaphoreSlim _signal = new(0);
     private long _seq;
+    private int _allowed;  // jobs that may run at once (op "throttle"); <= _workers
+    private int _running;  // jobs running now
     private bool _bootstrapped;
     private int _bootstrapActive; // queued or running bootstrap jobs: cells wait for them (start area first)
 
@@ -118,6 +120,7 @@ internal sealed class Server
     {
         _ctx = ctx;
         _workers = workers;
+        _allowed = workers;
         _proto = new Protocol(Console.Out);
         ctx.Log.Events = _proto;
     }
@@ -129,7 +132,10 @@ internal sealed class Server
 
     public int Run(TextReader input, TextWriter _)
     {
-        var threads = Enumerable.Range(0, _workers).Select(i => new Thread(Worker) { IsBackground = true, Name = $"conv{i}" }).ToList();
+        // the game runs next to us: never compete with its main / render threads
+        try { System.Diagnostics.Process.GetCurrentProcess().PriorityClass = System.Diagnostics.ProcessPriorityClass.BelowNormal; }
+        catch (Exception ex) { _ctx.Log.Warn($"process priority: {ex.Message}"); }
+        var threads = Enumerable.Range(0, _workers).Select(i => new Thread(Worker) { IsBackground = true, Name = $"conv{i}", Priority = ThreadPriority.BelowNormal }).ToList();
         threads.ForEach(t => t.Start());
         string? line;
         while ((line = input.ReadLine()) is not null)
@@ -168,6 +174,17 @@ internal sealed class Server
                         }
                     }
                     break;
+                case "throttle":
+                    {
+                        // {"op":"throttle","workers":1,"threads":2}: in the world 1 job with 2 threads, loading screen up to
+                        // the --workers count with more threads; takes effect for the next job / parallel loop
+                        var w = Math.Clamp(req["workers"]?.GetValue<int>() ?? _workers, 1, _workers);
+                        var t = req["threads"]?.GetValue<int>() ?? (w <= 1 ? 2 : Math.Max(1, Environment.ProcessorCount / 2));
+                        Hzs.Decima.ConversionLimits.Threads = t;
+                        lock (_lock) { _allowed = w; Monitor.PulseAll(_lock); }
+                        _proto.Emit(new JsonObject { ["id"] = id, ["event"] = "throttled", ["workers"] = w, ["threads"] = Hzs.Decima.ConversionLimits.Threads });
+                    }
+                    break;
                 case "status":
                     {
                         var bytes = Sizes.DirBytes(_ctx.Cache.Root); // outside the lock: can take a while on a big cache
@@ -176,6 +193,7 @@ internal sealed class Server
                             {
                                 ["id"] = id, ["event"] = "status", ["bytes"] = bytes,
                                 ["pending"] = _pendingCells.Count, ["running"] = _runningCells.Count, ["bootstrapped"] = _bootstrapped,
+                                ["workers"] = _allowed, ["threads"] = Hzs.Decima.ConversionLimits.Threads,
                             });
                     }
                     break;
@@ -218,6 +236,8 @@ internal sealed class Server
             Job? job;
             lock (_lock)
             {
+                // throttle: wait until fewer than the allowed number of jobs run (the signal is passed on)
+                while (_running >= _allowed && !_ctx.Ct.IsCancellationRequested) Monitor.Wait(_lock, 200);
                 if (!_queue.TryDequeue(out job, out _)) continue;
                 if (job.Op == "cell")
                 {
@@ -226,6 +246,7 @@ internal sealed class Server
                     if (!_pendingCells.Remove((job.X, job.Y))) continue; // cancelled
                     _runningCells.Add((job.X, job.Y));
                 }
+                _running++;
             }
             var sink = new EventProgress(_proto, job.Id);
             try
@@ -245,6 +266,7 @@ internal sealed class Server
             }
             finally
             {
+                lock (_lock) { _running--; Monitor.PulseAll(_lock); }
                 if (job.Op == "cell") lock (_lock) _runningCells.Remove((job.X, job.Y));
                 if (job.Op == "bootstrap") lock (_lock) { _bootstrapActive--; Monitor.PulseAll(_lock); }
             }

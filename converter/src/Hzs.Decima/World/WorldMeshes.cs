@@ -30,7 +30,7 @@ public sealed class WorldMeshes(Resolver res, CachePaths cache, Log log, int tex
     /// glb asset.extras.format of shared meshes; bump when mesh/texture export changes. Meshes of another format are
     /// exported again (same id, overwritten atomically) together with their textures.
     /// </summary>
-    public const int Format = 4;
+    public const int Format = 5;
 
     private const string ColorizedFlag = "#colorized";
 

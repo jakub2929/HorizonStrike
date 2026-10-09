@@ -17,6 +17,25 @@ public static class CellConverter
     /// <summary>cell.json "format"; bump when the cell layout changes so old cells are converted again.</summary>
     public const int Format = 8;
 
+    /// <summary>
+    /// Hash of the sheet values a cell's output depends on (site_map, hzd_content, machines id / herd sizes, systems
+    /// render.* and streaming.*; descriptions and notes excluded). Stored in cell.json "sheets": a cell converted with
+    /// other values (e.g. a site_map change of the machine at a spawn site) is not up to date and converts again.
+    /// </summary>
+    public static readonly string SheetsHash = ComputeSheetsHash();
+
+    private static string ComputeSheetsHash()
+    {
+        var sb = new System.Text.StringBuilder();
+        foreach (var r in Hzs.Generated.SiteMapSheet.All) sb.Append($"S|{r.Id}|{r.Kind}|{r.HzdName}|{r.Machine}|{r.Populate}|{r.CountMult.ToString(System.Globalization.CultureInfo.InvariantCulture)}\n");
+        foreach (var r in Hzs.Generated.HzdContentSheet.All) sb.Append($"H|{r.Id}|{r.Value}\n");
+        foreach (var r in Hzs.Generated.MachinesSheet.All) sb.Append($"M|{r.Id}|{r.HerdSizeMin}|{r.HerdSizeMax}\n");
+        foreach (var r in Hzs.Generated.SystemsSheet.All.Where(r => r.Id.StartsWith("render.", StringComparison.Ordinal) || r.Id.StartsWith("streaming.", StringComparison.Ordinal)))
+            sb.Append($"Y|{r.Id}|{r.Value}\n");
+        var h = System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(sb.ToString()));
+        return System.Convert.ToHexString(h, 0, 8).ToLowerInvariant();
+    }
+
     public static long Convert(ConvContext ctx, Resolver res, int x, int y, IProgressSink progress)
     {
         var texPx = HzdNames.Int("terrain.albedo_px");
@@ -63,7 +82,7 @@ public static class CellConverter
             var meshes = Meshes(ctx, res);
             var ids = new System.Collections.Concurrent.ConcurrentDictionary<(string, Guid), MeshRef?>();
             var done = 0;
-            Parallel.ForEach(unique, new ParallelOptions { MaxDegreeOfParallelism = 4, CancellationToken = ctx.Ct }, u =>
+            Parallel.ForEach(unique, ConversionLimits.Options(ctx.Ct), u =>
             {
                 ids[u] = meshes.Ensure(u.MeshFile, u.MeshUuid, written);
                 var d = Interlocked.Increment(ref done);
@@ -116,7 +135,7 @@ public static class CellConverter
                     var maxPer = HzdNames.Int("vegetation.max_instances_per_species");
                     var cluster = HzdNames.Json("vegetation.cluster");
                     var vids = new System.Collections.Concurrent.ConcurrentDictionary<int, MeshRef?>();
-                    Parallel.For(0, sp.Count, new ParallelOptions { MaxDegreeOfParallelism = 4, CancellationToken = ctx.Ct }, i => vids[i] = meshes.Ensure(sp[i].Species.MeshFile, sp[i].Species.MeshUuid, written));
+                    Parallel.For(0, sp.Count, ConversionLimits.Options(ctx.Ct), i => vids[i] = meshes.Ensure(sp[i].Species.MeshFile, sp[i].Species.MeshUuid, written));
                     for (var i = 0; i < sp.Count; i++)
                     {
                         if (vids.GetValueOrDefault(i) is not { } m) continue;
@@ -162,7 +181,7 @@ public static class CellConverter
                 if (wp.Count > 0)
                 {
                     var wids = new System.Collections.Concurrent.ConcurrentDictionary<(string, Guid), MeshRef?>();
-                    Parallel.ForEach(wp.Select(q => (q.MeshFile, q.MeshUuid)).Distinct(), new ParallelOptions { MaxDegreeOfParallelism = 4, CancellationToken = ctx.Ct },
+                    Parallel.ForEach(wp.Select(q => (q.MeshFile, q.MeshUuid)).Distinct(), ConversionLimits.Options(ctx.Ct),
                         u => wids[u] = meshes.Ensure(u.MeshFile, u.MeshUuid, written));
                     var winst = new JsonArray();
                     foreach (var q in wp)
@@ -236,6 +255,7 @@ public static class CellConverter
             var cell = new JsonObject
             {
                 ["format"] = Format,
+                ["sheets"] = SheetsHash,
                 ["cell"] = new JsonArray(x, y),
                 ["origin"] = new JsonArray(x * TerrainReader.TileSize, 0f, -(y + 1) * TerrainReader.TileSize),
                 ["size"] = TerrainReader.TileSize,

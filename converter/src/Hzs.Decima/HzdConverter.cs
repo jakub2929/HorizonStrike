@@ -149,6 +149,7 @@ public static class HzdConverter
         {
             var cell = JsonNode.Parse(File.ReadAllText(path));
             if (cell?["format"]?.GetValue<int>() != World.CellConverter.Format) return false;
+            if (cell["sheets"]?.GetValue<string>() != World.CellConverter.SheetsHash) return false; // sheet values changed (e.g. site_map)
             // the game's cache GC may have deleted shared meshes/textures the cell uses: then convert it again
             var meshes = cell["meshes"]?.AsArray().Select(m => Path.Combine(ctx.Cache.Meshes, $"{m}.glb")) ?? [];
             var textures = cell["textures"]?.AsArray().Select(t => Path.Combine(ctx.Cache.Hzd, "textures", $"{t}{World.WorldMeshes.TexExt}")) ?? [];

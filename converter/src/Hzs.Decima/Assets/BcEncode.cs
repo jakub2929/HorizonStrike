@@ -15,7 +15,7 @@ public static class BcEncode
     {
         int bw = Math.Max(1, (w + 3) / 4), bh = Math.Max(1, (h + 3) / 4), bb = Dds.BlockBytes(f);
         var o = new byte[bw * bh * bb];
-        Parallel.For(0, bh, new ParallelOptions { MaxDegreeOfParallelism = (long)w * h >= 1 << 20 ? Environment.ProcessorCount : 1 }, by =>
+        Parallel.For(0, bh, new ParallelOptions { MaxDegreeOfParallelism = (long)w * h >= 1 << 20 ? ConversionLimits.Threads : 1 }, by =>
         {
             Span<byte> blk = stackalloc byte[64];
             for (var bx = 0; bx < bw; bx++)
