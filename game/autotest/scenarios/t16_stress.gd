@@ -15,6 +15,10 @@ func _init() -> void:
 func _run(ctx):
 	var o = ctx.oracle
 	var runs: int = o.i(o.system("perf.stress_runs"))
+	if OS.get_environment("HZS_T16_RUNS").is_valid_int():
+		# dev only: a shorter series to validate the scenario itself (the result names the count it ran)
+		runs = int(OS.get_environment("HZS_T16_RUNS"))
+		note("HZS_T16_RUNS: %d runs instead of perf.stress_runs" % runs)
 	var exe := OS.get_executable_path()
 	var results := []
 	for n in range(1, runs + 1):

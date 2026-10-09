@@ -4,7 +4,8 @@ extends "res://autotest/lib/scenario.gd"
 ## 0, 45 ... 315 deg on a 10 m ring. At each position the camera is turned onto a weak point by relative mouse motion;
 ## a ray first checks that the FIRST thing a bullet meets is that weak spot (lib/hitcheck.gd; else the direction is
 ## blocked); then the fire button. A shot that misses or lands on the body is retried (3 shots max). Health is set
-## very high before each shot (setup) so damage is not capped; one body shot from the same position for comparison.
+## very high before each shot (setup) so damage is not capped; one body shot from the same position for comparison,
+## aimed at a body-only line (no weak box on the ray up to 2 m behind the aim point - the game counts those as weak).
 ##   weak = deagle.damage * headshot_mult * falloff (weak spots ignore armor); details: N/8 directions per machine.
 
 const InputSim := preload("res://autotest/lib/inputsim.gd")
@@ -90,6 +91,9 @@ func _machine(ctx, inp, g: Node, o, mt: String, center: Vector3) -> Dictionary:
 	var u2m: float = o.f(o.system("combat.units_to_m"))
 	var f := func(dist_m: float) -> float: return pow(rm, (dist_m / u2m) / step)
 	var good := 0
+	var compared := 0
+	var beats := 0
+	var not_beating := []
 	var formula_ok := 0
 	var formula_bad := []
 	for k in 8:
@@ -154,22 +158,33 @@ func _machine(ctx, inp, g: Node, o, mt: String, center: Vector3) -> Dictionary:
 		m.set("health", BIG_HP)
 		if "armor" in m:
 			m.set("armor", armor0)
-		# a body point whose first hit is a body hitbox (on some machines the default body point lies on the weak spot)
+		# a body-only line: first hit a body hitbox and no weak hitbox of the machine on the ray up to 2 m behind the
+		# aim point (the game turns a body hit into a weak hit when the weak box lies just behind it or inside it)
 		var bp: Vector3 = HitCheck.target_point(m, "body")
-		d.body_point = "none clear: default"
+		var body_only := false
 		for cand in HitCheck.body_points(m):
 			await inp.aim_at_point(cand)
 			await ctx.physics_frames(2)
-			if HitCheck.first_hit(ctx, m, cand, "body").clear:
+			if not HitCheck.first_hit(ctx, m, cand, "body").clear:
+				continue
+			if weak_parts.all(func(wp): return HitCheck.weak_distance(ctx, m, cand, wp) < 0.0):
 				bp = cand
-				d.body_point = "first hit body"
+				body_only = true
 				break
-		await inp.aim_at_point(bp)
-		var body: Dictionary = await Combat.shoot(ctx, inp, m)
-		d.body_damage = snappedf(float(body.get("damage", 0.0)), 0.01)
-		var weak_ok: bool = float(d.weak_damage) > float(d.body_damage) and float(d.weak_damage) > 0.0
-		if weak_ok:
+		d.body_only_line = body_only
+		var weak_hit := float(d.weak_damage) > 0.0 and absf(float(d.weak_damage) - exp_w) <= tol
+		if weak_hit:
 			good += 1
+		if body_only:
+			await inp.aim_at_point(bp)
+			var body: Dictionary = await Combat.shoot(ctx, inp, m)
+			d.body_damage = snappedf(float(body.get("damage", 0.0)), 0.01)
+			if float(d.body_damage) > 0.0:
+				compared += 1
+				if float(d.weak_damage) > float(d.body_damage):
+					beats += 1
+				else:
+					not_beating.append("%d deg: weak %s <= body %s" % [45 * k, str(d.weak_damage), str(d.body_damage)])
 		if absf(float(d.weak_damage) - exp_w) <= tol:
 			formula_ok += 1
 		else:
@@ -177,8 +192,10 @@ func _machine(ctx, inp, g: Node, o, mt: String, center: Vector3) -> Dictionary:
 		info.directions.append(d)
 		await ctx.wait(Combat.shot_interval(ctx, WEAPON))
 	info.hittable = good
-	note("%s: weak spot first hit and beating the body from %d/8 directions" % [mt, good])
-	check("%s: >= 1 direction where the weak spot is the first hit and weak > body (%d/8)" % [mt, good], good >= 1, str(info.directions.map(func(x): return [x.deg, x.get("part", "blocked"), x.get("weak_damage", "-"), x.get("body_damage", "-")])))
+	info.body_compared = compared
+	note("%s: weak spot first hit and hit by the shot from %d/8 directions; weak > body in %d of %d directions with a body-only line" % [mt, good, beats, compared])
+	check("%s: weak spot is the first hit and is hit from >= 1 of 8 directions (%d/8)" % [mt, good], good >= 1, str(info.directions.map(func(x): return [x.deg, x.get("part", "blocked"), x.get("weak_damage", "-"), x.get("body_damage", "-")])))
+	check("%s: weak > body wherever a body-only shot landed (>= 1 such direction)" % mt, compared >= 1 and not_beating.is_empty(), "%d/%d; %s" % [beats, compared, "; ".join(not_beating) if not not_beating.is_empty() else "no direction with a body-only line (every body line meets a weak box)" if compared == 0 else "ok"])
 	check("%s: weak damage == deagle.damage * headshot_mult * falloff on every hit direction" % mt, formula_bad.is_empty() and formula_ok >= 1, "; ".join(formula_bad) if not formula_bad.is_empty() else "%d ok" % formula_ok)
 	ctx.despawn(m)
 	await ctx.physics_frames(3)
