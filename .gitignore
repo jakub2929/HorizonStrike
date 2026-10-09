@@ -22,3 +22,6 @@ cache/
 *.log
 .vs/
 .vscode/
+
+# agent worktrees
+.claude/worktrees/

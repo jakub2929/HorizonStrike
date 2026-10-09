@@ -16,7 +16,7 @@ public static class Program
         {
             Console.WriteLine("""
                 hzsconv 0.1.0 - converts your own CS2 and Horizon Zero Dawn content into a local cache
-                  hzsconv cs2      --cs2 <dir> --cache <dir>
+                  hzsconv cs2      --cs2 <dir> --cache <dir> [--only-stats] [--force] [--only id,id]
                   hzsconv machines --hzd <dir> --cache <dir>
                   hzsconv audio    --hzd <dir> --cache <dir>
                   hzsconv index    --hzd <dir> --cache <dir>
@@ -48,7 +48,7 @@ public static class Program
         {
             switch (args[0])
             {
-                case "cs2": Report(Cs2Converter.ConvertWeapons(ctx, console)); return 0;
+                case "cs2": Report(Cs2Converter.ConvertWeapons(ctx, console, Cs2Options.Parse(args))); return 0;
                 case "machines": Report(HzdConverter.ConvertMachines(ctx, console)); return 0;
                 case "audio": Report(HzdConverter.ConvertAudio(ctx, console)); return 0;
                 case "index": Report(HzdConverter.BuildIndex(ctx, console)); return 0;

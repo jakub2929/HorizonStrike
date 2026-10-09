@@ -69,6 +69,17 @@ Journal and decision log (orchestrator-owned). Newest entries at the bottom of e
   facts needed to bind and verify); no bulk extracts, text dumps or files from the games in the repo.
 - D27 Assumptions: armor is lost on death; before any campfire is activated the respawn point is the start campfire
   near Mother's Heart; the kill reward uses the weapon that dealt the killing damage; molotov (not incendiary).
+- D28 (cs2) view.glb = CS2 arms (`weapon_arms.vmdl`) + weapon world model (`body_hd`) on bone `wpn`; origin = eye,
+  forward -Z, parent under Camera3D with identity; always play a clip. Clips from the weapon's anim graph resources:
+  draw, idle, fire (`shoot1_*`; knife `light_miss1`; grenades `throw_overhand`), reload, inspect (`lookat01`), extra
+  `fire2` (knife heavy), `pullpin`; additive clips composed over idle. Forearm twist constraint not evaluated (minor
+  wrist deformation in extreme poses).
+- D29 (cs2) Textures max 1024 px (opaque JPEG q90 4:4:4, alpha PNG); GLBs compacted (VRF otherwise keeps 4096 px data).
+  Sounds `snd/<lower(after first dot)>_<n>.(wav|mp3)`; `anim_events.json` = {clip:[{t,event}]}. Missing vdata keys ->
+  null + log warning. A key is a pair if any weapon stores it as a 2-element array; scalars become [v, v].
+- D30 (cs2) Serve mode keeps stdout protocol-only (VRF stdout redirected to the log). Manifest gains `cs2_format`;
+  a full run clears the cs2 stamp first so an interrupted conversion repeats. Shared helper Hzs.Common/ManifestFile.cs.
+- D31 Teammate agents cannot message each other (executor/tester tool sets lack SendMessage); the orchestrator relays.
 
 ## Site mapping (variant B)
 (to be filled when spawn sites are decoded)
@@ -78,3 +89,5 @@ Journal and decision log (orchestrator-owned). Newest entries at the bottom of e
   Studio https://melty.gg/studio/6e2ecdda-6217-40c2-b016-e6940db6aee4 (title, games, MIT, madeBy EM; text later).
 - 2026-10-09 CS2 updated by the user: buildid 25738536 -> 25815307 (StateFlags 4, fully installed). All CS2 evidence
   and conversions from now on refer to build 25815307.
+- 2026-10-09 cs2 merged (C1-C5 accepted): 14 items, 27 glb, cache/cs2 115 MiB, ~60 s full conversion; second run
+  `cs2 up to date (25815307)`; Build-Converter publish verified by the orchestrator (96.3 MB, hzsconv --help ok).
