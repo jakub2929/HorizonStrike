@@ -11,6 +11,7 @@ var out_dir := ""             ## --out <dir>
 var mock_data := false        ## --mock-data: synthetic content (dev/test only)
 var converter_exe := ""       ## --converter <exe>: dev override of the converter path
 var seed_cache := ""          ## --seed-cache <dir>: dev, with --mock-data copy real cs2/ + hzd/machines from <dir>
+var mock_cell_mib := 0        ## --mock-cell-mib <n>: dev, pad every mock cell to ~n MiB (eviction tests)
 var exit_after := -1.0        ## --exit-after <s>: dev, quit cleanly after s seconds
 var screenshot_at := -1.0     ## --screenshot-at <s> <png>: dev, save a screenshot after s seconds
 var screenshot_path := ""
@@ -65,6 +66,10 @@ static func parse(list: PackedStringArray) -> RefCounted:
 			"--seed-cache":
 				if has_value:
 					a.seed_cache = nxt
+					i += 1
+			"--mock-cell-mib":
+				if has_value:
+					a.mock_cell_mib = int(nxt)
 					i += 1
 			"--exit-after":
 				if has_value:

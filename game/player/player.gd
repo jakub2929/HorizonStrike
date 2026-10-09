@@ -301,7 +301,7 @@ func _physics_process(delta: float) -> void:
 		wish = scripted_move.limit_length(1.0)
 		jump_pressed = scripted_jump
 		scripted_jump = false
-	elif input_enabled:
+	elif input_enabled and not scripted:
 		wish = Input.get_vector("move_left", "move_right", "move_forward", "move_back")
 		walking = Input.is_action_pressed("walk")
 		_set_crouch(Input.is_action_pressed("crouch"))
@@ -396,6 +396,11 @@ func _air_accelerate(dir: Vector3, wish_speed: float, delta: float) -> void:
 	var a := minf(Sheets.sys_num("movement.air_accelerate", 12.0) * wish_speed * delta, add)
 	velocity.x += a * dir.x
 	velocity.z += a * dir.z
+
+
+## Crouch/stand through the normal hull change (used by input and by test drivers).
+func set_crouch(want: bool) -> void:
+	_set_crouch(want)
 
 
 func _set_crouch(want: bool) -> void:

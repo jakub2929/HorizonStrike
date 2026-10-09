@@ -13,6 +13,9 @@ const LAYER_WORLD := 1
 const LAYER_PLAYER := 2
 const LAYER_MACHINE := 4
 const LAYER_HITBOX := 8
+## Peripheral vision (outside the sight cone, up to peripheral_range_m) builds suspicion at this fraction of the
+## direct rate: machines notice movement behind them slowly instead of instantly (design, hra).
+const PERIPHERAL_GAIN := 0.3
 
 var machine_type := "watcher"
 var state := "idle"
@@ -274,17 +277,20 @@ func _perceive(delta: float) -> void:
 	var rng := sight_range if in_cone else peripheral_range
 	if state in ["alert", "attack"]:
 		rng = maxf(rng, sight_range * 1.5)
-	var visible := d <= maxf(rng, imm_susp) and _line_of_sight(eye, target)
+	var vis: float = p.visibility_factor()
+	var visible := d <= rng and _line_of_sight(eye, target)
 	if visible:
 		_sees_player = true
 		_last_seen = p.global_position
 		_last_seen_time = _now()
-		var stance: float = p.visibility_factor()
-		if d <= imm_alert:
+		# immediate detection only inside the sight cone, at distances scaled by stance x stealth grass
+		if in_cone and d <= imm_alert * vis:
 			suspicion = maxf(suspicion, alert_threshold)
-		elif d <= imm_susp:
+		elif in_cone and d <= imm_susp * vis:
 			suspicion = maxf(suspicion, susp_threshold)
-		var g := gain_per_s * stance * clampf(1.0 - d / maxf(rng, 0.01), 0.0, 1.0)
+		var g := gain_per_s * vis * clampf(1.0 - d / maxf(rng, 0.01), 0.0, 1.0)
+		if not in_cone:
+			g *= PERIPHERAL_GAIN
 		suspicion = minf(suspicion + g * delta, alert_threshold * 1.5)
 		_stimulus = p.global_position
 	else:

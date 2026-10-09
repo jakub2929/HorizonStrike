@@ -120,6 +120,7 @@ func _start_bootstrap() -> void:
 		mc.name = "MockConverter"
 		mc.cell_size = Sheets.sys_num("streaming.cell_size_m", 512.0)
 		mc.seed_cache = Paths.norm(args.seed_cache)
+		mc.pad_bytes = args.mock_cell_mib * 1048576
 		add_child(mc)
 		mc.start(Game.cache_root)
 		converter = mc

@@ -34,6 +34,7 @@ var _stream_timer := 0.0
 var _evict_timer := 0.0
 var _size_timer := 0.0
 var _cache_bytes := 0
+var _delta_since_scan := 0     # bytes added/removed since the running background size scan started
 var _size_task := -1
 var _size_result := [0]
 var _bootstrap_cells_on_disk := 0
@@ -232,7 +233,7 @@ func _on_converter_event(e: Dictionary) -> void:
 				failed.erase(c)
 				request_ids.erase(id)
 				Game.cells_converted += 1
-				_cache_bytes += int(e.get("bytes", 0))
+				_add_bytes(int(e.get("bytes", 0)))
 				Log.info("cell %s converted (%d bytes, cache %d)" % [c, int(e.get("bytes", 0)), _cache_bytes])
 				enforce_cap()
 		"error":
@@ -360,15 +361,22 @@ func cache_bytes() -> int:
 	return _cache_bytes
 
 
+func _add_bytes(n: int) -> void:
+	_cache_bytes += n
+	_delta_since_scan += n
+
+
 func _refresh_size_async() -> void:
 	if _size_task >= 0:
 		if not WorkerThreadPool.is_task_completed(_size_task):
 			return
 		WorkerThreadPool.wait_for_task_completion(_size_task)
-		_cache_bytes = _size_result[0]
+		# the scan may have missed what changed while it ran: keep those deltas (over-counting is the safe side)
+		_cache_bytes = int(_size_result[0]) + _delta_since_scan
 		_size_task = -1
 	var root := cache_root
 	var res := _size_result
+	_delta_since_scan = 0
 	_size_task = WorkerThreadPool.add_task(func(): res[0] = FsUtil.dir_bytes(root), false, "cache size")
 
 
@@ -431,7 +439,7 @@ func evict(c: Vector2i) -> void:
 	if loaded.has(c):
 		_unload(c)
 	if FsUtil.remove_tree(dir, cache_root.path_join("hzd/cells")):
-		_cache_bytes -= bytes
+		_add_bytes(-bytes)
 		on_disk.erase(c)
 		Log.info("cell %s evicted (%d bytes, cache %d, cap %d)" % [c, bytes, _cache_bytes, Game.cache_cap_bytes])
 		Game.cell_evicted.emit(c)
@@ -484,6 +492,6 @@ func _mesh_gc() -> void:
 			removed += 1
 			freed += sz
 			meshes.forget(id)
-	_cache_bytes -= freed
+	_add_bytes(-freed)
 	if removed > 0:
 		Log.info("mesh gc: removed %d unreferenced meshes (%d bytes)" % [removed, freed])
