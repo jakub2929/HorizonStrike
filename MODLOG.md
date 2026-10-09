@@ -163,3 +163,7 @@ Full per-site table: `docs/notes/svet.md`. No placement references `ai/groups`, 
   faithful source. Mother's Heart (4,-3) is 67 % snow in HZD's own snow map, so a white valley is correct. No HZD
   close-up detail layers -> game adds own procedural detail noise. Terrain normal map not exported (no tangents).
 - D43 Vegetation species read via PlacementTargets (fix in progress) with per-species density + global density scale.
+- 2026-10-09 hra follow-up merged (7b8a8f2): rock tint via MultiMesh instance colours, terrain albedo mipmapped +
+  S3TC + anisotropic + own procedural close-up noise, vegetation species params with per-cell budget
+  (`streaming.vegetation_cell_cap` 14000, `streaming.vegetation_density_scale` 1.0). Fresh conversion: world_ready
+  68.3 s (start cell only), 3x3 +17.3 s, 826 MB; 62.6 fps at start (worst frame 17.2 ms); runner t05,t06,s01-s03 PASS.
