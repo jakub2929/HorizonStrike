@@ -11,6 +11,7 @@ const CLOSE_M := 10.0
 const WATCH_S := 25.0
 const WALK_AFTER_S := 15.0
 const S02_MIN_FRAC := 0.15
+const RETAKE_M := 6.0  # the real Watcher is 1.45 m tall: >= 15 % of a 73.74 deg frame only within ~7.5 m
 
 var s02 = null
 var s02_retake := false
@@ -157,7 +158,7 @@ func _capture_s02(ctx, w: Node, how: String) -> void:
 
 func _s02_retake(ctx, g: Node) -> void:
 	## the first alert happened too far away for a readable frame: a fresh Watcher 9 m ahead, AI on, until alert
-	var w2: Node = await ctx.spawn_ahead("watcher", 9.0, 0.0, true)
+	var w2: Node = await ctx.spawn_ahead("watcher", RETAKE_M, 0.0, true)
 	if w2 == null:
 		return
 	var deadline := Time.get_ticks_msec() + 20000
@@ -165,7 +166,7 @@ func _s02_retake(ctx, g: Node) -> void:
 		await ctx.call_api(g, "aim_at", [w2, "body"])
 		await ctx.frames(1)
 	if str(w2.get("state")) == "alert":
-		await _capture_s02(ctx, w2, "retake: watcher spawned 9 m ahead")
+		await _capture_s02(ctx, w2, "retake: watcher spawned %d m ahead" % int(RETAKE_M))
 	else:
 		s02.note("retake: watcher did not reach alert within 20 s (state %s)" % str(w2.get("state")))
 		s02.finished = true

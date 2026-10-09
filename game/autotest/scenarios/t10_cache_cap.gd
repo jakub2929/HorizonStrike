@@ -1,12 +1,12 @@
 extends "res://autotest/lib/scenario.gd"
-## t10 Cache never exceeds the cap (inside the t09 child, fresh cache). Cap = bytes now + cache.reserve_mib + 300 MiB;
+## t10 Cache never exceeds the cap (inside the t09 child, fresh cache). Cap = bytes now + cache.reserve_mib + 50 MiB;
 ## teleport one cell east 5 times (waiting for cell_loaded), then back to the start. The cache size is sampled both
 ## through Game.cache_bytes() and independently from the folder on disk. Restores the previous cap at the end.
 
 const Proc := preload("res://autotest/lib/proc.gd")
 
 const STEPS := 5
-const EXTRA_MIB := 300
+const EXTRA_MIB := 50  # real cells are ~11 MB: 5 steps east add ~164 MB, so the cap must leave less room than that
 
 
 func _init() -> void:
