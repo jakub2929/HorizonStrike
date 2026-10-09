@@ -35,7 +35,28 @@ public sealed class CoreFile
         }
     }
 
-    public CoreObject? Find(Guid uuid) => _byUuid.GetValueOrDefault(uuid);
+    // serialized sizes of members that precede ObjectUUID in classes we have no layout for
+    // (WorldNode.Orientation 60, AIAtmosphereBox 64, EntityResource 2, PhysicsCollisionFilterInfo 4, WaveResource 3, ...)
+    private static readonly int[] LeadGuesses = [60, 64, 4, 2, 3, 16, 48, 5, 8];
+    private volatile Dictionary<Guid, CoreObject>? _guess;
+
+    /// <summary>Object by ObjectUUID. Thread-safe (the primary map is only written by the constructor).</summary>
+    public CoreObject? Find(Guid uuid)
+    {
+        if (_byUuid.TryGetValue(uuid, out var o)) return o;
+        var guess = _guess;
+        if (guess is null)
+        {
+            // index every object also under the UUID found at the usual lead offsets (first wins)
+            guess = new Dictionary<Guid, CoreObject>();
+            foreach (var obj in Objects)
+                foreach (var lead in LeadGuesses)
+                    if (obj.Size >= lead + 16)
+                        guess.TryAdd(new Guid(Data.AsSpan(obj.Offset + lead, 16)), obj);
+            _guess = guess;
+        }
+        return guess.GetValueOrDefault(uuid);
+    }
 
     public IEnumerable<CoreObject> OfType(ulong type) => Objects.Where(o => o.Type == type);
 

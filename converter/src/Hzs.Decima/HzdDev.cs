@@ -71,6 +71,110 @@ public static partial class HzdDev
                 }
             case "hzd-dump":
                 return Dump(arc, Get, Has);
+            case "hzd-sites":
+                {
+                    // variant-B site table for the whole main world (markdown)
+                    using var log = new Hzs.Common.Log(null);
+                    var res = new Resolver(arc);
+                    var tiles = WorldTiles.Scan(arc).All;
+                    var rows = new List<string>();
+                    var byType = new SortedDictionary<string, (int Sites, int Orig, int New, string Machine, string Rule)>(StringComparer.Ordinal);
+                    foreach (var (tx, ty) in tiles)
+                        foreach (var s in new RobotSites(res, log).ForTile(tx, ty))
+                        {
+                            rows.Add($"| {tx},{ty} | {s.Site} | {s.OrigType} | {s.OrigMin}-{s.OrigMax} | {(s.Populate ? s.Type : "(not populated)")} | {s.Count} | {s.Rule} |");
+                            var e = byType.GetValueOrDefault(s.OrigType);
+                            byType[s.OrigType] = (e.Sites + 1, e.Orig + (s.OrigMin + s.OrigMax) / 2, e.New + s.Count, s.Type ?? "-", s.Rule);
+                        }
+                    Console.WriteLine("| tile | site | original | orig count | v1 machine | count | rule |");
+                    Console.WriteLine("|---|---|---|---|---|---|---|");
+                    foreach (var r in rows) Console.WriteLine(r);
+                    Console.WriteLine();
+                    Console.WriteLine("| original | groups | orig machines (mean) | v1 machine | v1 machines | rule |");
+                    Console.WriteLine("|---|---|---|---|---|---|");
+                    foreach (var (k, v) in byType) Console.WriteLine($"| {k} | {v.Sites} | {v.Orig} | {v.Machine} | {v.New} | {v.Rule} |");
+                    Console.WriteLine($"{rows.Count} site groups in {tiles.Count} tiles, {sw.ElapsedMilliseconds} ms");
+                    return 0;
+                }
+            case "hzd-meshinfo":
+                {
+                    // dev: LOD chain and effect texture bindings of one mesh resource (--path core [--index n])
+                    var res = new Resolver(arc);
+                    var f = res.File(Get("--path") ?? throw new ArgumentException("--path"));
+                    var idx = int.TryParse(Get("--index"), out var ix) ? ix : f.Objects.FindIndex(o => o.TypeName is "LodMeshResource" or "StaticMeshResource");
+                    var o = f.Objects[idx];
+                    var obj = f.Decode(o);
+                    Console.WriteLine($"{f.Path}#{idx} {obj.Type} \"{obj.Str("Name")}\"");
+                    var meshes = obj.Type == "LodMeshResource" ? obj.Structs("Meshes").Select(p => res.Deref(f, p.Ref("Mesh"))).ToList() : [obj];
+                    foreach (var m in meshes.Where(m => m is not null))
+                    {
+                        Console.WriteLine($"  {m!.Type} \"{m.Str("Name")}\" verts {Assets.MeshReader.CountVertices(res, m)}");
+                        if (!m.Has("Primitives")) continue;
+                        var effs = m.Type == "StaticMeshResource" ? m.Refs("RenderEffects") : m.Refs("RenderFxResources");
+                        foreach (var er in effs.Take(3))
+                        {
+                            var e = res.Deref(m, er);
+                            if (e is null) continue;
+                            Console.WriteLine($"    effect \"{e.Str("Name")}\"");
+                            foreach (var ts in e.Structs("TechniqueSets"))
+                                foreach (var t in ts.Structs("RenderTechniques"))
+                                    foreach (var tb in t.Structs("TextureBindings"))
+                                    {
+                                        var r = tb.Ref("TextureResource");
+                                        if (!r.IsNull) Console.WriteLine($"      tex {r.Path} -> {res.Target(e.File!, r)?.TypeName}");
+                                    }
+                        }
+                        break;
+                    }
+                    return 0;
+                }
+            case "hzd-meshes":
+                {
+                    // dev: why do meshes of a tile come out empty? prints the LOD structure of the first N failures
+                    var c = (Get("--cell") ?? "4,-3").Split(',').Select(int.Parse).ToArray();
+                    using var log = new Hzs.Common.Log(null);
+                    var res = new Resolver(arc);
+                    var pl = new Placements(res, log).ForTile(c[0], c[1]);
+                    var shown = 0; var ok = 0; var bad = 0;
+                    foreach (var u in pl.Select(p => (p.MeshFile, p.MeshUuid)).Distinct())
+                    {
+                        var f = res.File(u.MeshFile);
+                        var o = f.Find(u.MeshUuid)!;
+                        var (md, lod, lods) = Assets.MeshReader.ReadBudget(res, f, o, 12000);
+                        if (md is not null && md.Prims.Count > 0) { ok++; continue; }
+                        bad++;
+                        if (shown++ >= (int.TryParse(Get("--top"), out var tt) ? tt : 5)) continue;
+                        var obj = f.Decode(o);
+                        Console.WriteLine($"{u.MeshFile}#{o.Index} {obj.Type} \"{obj.Str("Name")}\" lod {lod}/{lods}");
+                        if (obj.Type == "LodMeshResource")
+                            foreach (var part in obj.Structs("Meshes"))
+                            {
+                                var m = res.Deref(f, part.Ref("Mesh"));
+                                var flags = m?.Has("DrawFlags") == true ? (uint)m.Struct("DrawFlags").Long("Data") : 0;
+                                Console.WriteLine($"   d={part.Float("Distance")} {m?.Type} verts={(m is null ? -1 : Assets.MeshReader.CountVertices(res, m))} drawflags={flags:X} prims={(m?.Has("Primitives") == true ? m.Refs("Primitives").Length : -1)}");
+                            }
+                    }
+                    Console.WriteLine($"ok {ok} empty {bad}");
+                    return 0;
+                }
+            case "hzd-cellstats":
+                {
+                    var c = (Get("--cell") ?? "4,-3").Split(',').Select(int.Parse).ToArray();
+                    using var log = new Hzs.Common.Log(null);
+                    var res = new Resolver(arc);
+                    var pl = new Placements(res, log).ForTile(c[0], c[1]);
+                    Console.WriteLine($"placements {pl.Count}, unique meshes {pl.Select(p => (p.MeshFile, p.MeshUuid)).Distinct().Count()}, {sw.ElapsedMilliseconds} ms");
+                    foreach (var g in pl.GroupBy(p => p.Layer).OrderByDescending(g => g.Count()))
+                        Console.WriteLine($"  {g.Key,-60} {g.Count(),6} instances {g.Select(p => (p.MeshFile, p.MeshUuid)).Distinct().Count(),5} meshes");
+                    var inside = pl.Count(p => WorldXf.TileOf(p.World.Translation) == (c[0], c[1]));
+                    var dup = pl.GroupBy(p => (p.MeshFile, p.MeshUuid, (int)MathF.Round(p.World.M41 * 20), (int)MathF.Round(p.World.M42 * 20), (int)MathF.Round(p.World.M43 * 20)))
+                        .Where(g => g.Count() > 1).ToList();
+                    Console.WriteLine($"  duplicates (same mesh within 5 cm): {dup.Sum(g => g.Count() - 1)}; layer pairs: {string.Join(", ", dup.Select(g => string.Join("+", g.Select(p => p.Layer).Distinct().Order())).GroupBy(x => x).Select(g => $"{g.Key} x{g.Count()}").Take(6))}");
+                    Console.WriteLine($"  origin inside the tile: {inside} of {pl.Count}");
+                    foreach (var g in pl.GroupBy(p => p.MeshFile).OrderByDescending(g => g.Count()).Take(int.TryParse(Get("--top"), out var t) ? t : 10))
+                        Console.WriteLine($"  {g.Count(),6}  {g.Key}");
+                    return 0;
+                }
             case "hzd-extract":
                 {
                     // dev only: raw decompressed cores (+ streams) into a scratch folder for format research

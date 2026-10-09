@@ -13,6 +13,8 @@ public sealed class Glb
     private readonly JsonArray _accessors = [], _views = [], _meshes = [], _nodes = [], _materials = [], _textures = [], _images = [], _skins = [];
     private readonly JsonArray _sceneNodes = [];
     public string Generator { get; init; } = "hzsconv";
+    /// <summary>Optional asset.extras (e.g. the source resource path for debugging).</summary>
+    public JsonObject? Extras { get; set; }
 
     private int View(ReadOnlySpan<byte> data, int? target = null, int? stride = null)
     {
@@ -82,13 +84,24 @@ public sealed class Glb
         return _textures.Count - 1;
     }
 
-    public int Material(string name, int? baseColorTex, int? normalTex = null, float metallic = 0f, float roughness = 0.8f, float[]? baseColor = null)
+    /// <summary>External image (relative URI, e.g. a texture shared by many meshes).</summary>
+    public int ImageUri(string uri, string name)
+    {
+        _images.Add(new JsonObject { ["uri"] = uri, ["name"] = name });
+        _textures.Add(new JsonObject { ["source"] = _images.Count - 1, ["sampler"] = 0 });
+        return _textures.Count - 1;
+    }
+
+    public int Material(string name, int? baseColorTex, int? normalTex = null, float metallic = 0f, float roughness = 0.8f, float[]? baseColor = null,
+        bool alphaMask = false, bool doubleSided = false)
     {
         var pbr = new JsonObject { ["metallicFactor"] = metallic, ["roughnessFactor"] = roughness };
         if (baseColorTex is { } t) pbr["baseColorTexture"] = new JsonObject { ["index"] = t };
         if (baseColor is not null) pbr["baseColorFactor"] = new JsonArray(baseColor.Select(x => (JsonNode)x).ToArray());
         var m = new JsonObject { ["name"] = name, ["pbrMetallicRoughness"] = pbr };
         if (normalTex is { } n) m["normalTexture"] = new JsonObject { ["index"] = n };
+        if (alphaMask) { m["alphaMode"] = "MASK"; m["alphaCutoff"] = 0.5f; }
+        if (doubleSided) m["doubleSided"] = true;
         _materials.Add(m);
         return _materials.Count - 1;
     }
@@ -151,7 +164,9 @@ public sealed class Glb
     {
         var json = new JsonObject
         {
-            ["asset"] = new JsonObject { ["version"] = "2.0", ["generator"] = Generator },
+            ["asset"] = Extras is null
+                ? new JsonObject { ["version"] = "2.0", ["generator"] = Generator }
+                : new JsonObject { ["version"] = "2.0", ["generator"] = Generator, ["extras"] = Extras.DeepClone() },
             ["scene"] = 0,
             ["scenes"] = new JsonArray(new JsonObject { ["nodes"] = _sceneNodes.DeepClone() }),
             ["nodes"] = _nodes.DeepClone(),

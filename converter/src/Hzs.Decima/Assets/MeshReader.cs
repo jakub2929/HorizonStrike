@@ -57,6 +57,40 @@ public static class MeshReader
         return mesh is null ? null : ReadMesh(res, mesh, corePath);
     }
 
+    /// <summary>
+    /// The finest LOD of a mesh resource (LodMeshResource / StaticMeshResource object) with at most
+    /// <paramref name="maxVertices"/> vertices (the coarsest LOD if none fits). Returns the chosen LOD index too.
+    /// </summary>
+    public static (MeshData? Mesh, int Lod, int LodCount) ReadBudget(Resolver res, CoreFile file, CoreObject target, int maxVertices)
+    {
+        var obj = file.Decode(target);
+        if (obj.Type != "LodMeshResource") return (ReadMesh(res, obj, file.Path), 0, 1);
+        var lods = obj.Structs("Meshes").OrderBy(p => p.Float("Distance")).Select(p => res.Deref(file, p.Ref("Mesh"))).Where(m => m is not null).ToList();
+        if (lods.Count == 0) return (null, 0, 0);
+        var pick = lods.Count - 1;
+        for (var i = 0; i < lods.Count; i++)
+            if (CountVertices(res, lods[i]!) <= maxVertices) { pick = i; break; }
+        var m = lods[pick]!;
+        if (m.Type == "LodMeshResource") return ReadBudget(res, m.File!, m.Source!, maxVertices);
+        return (m.Type is "StaticMeshResource" or "RegularSkinnedMeshResource" ? ReadMesh(res, m, file.Path) : null, pick, lods.Count);
+    }
+
+    /// <summary>Vertex count of a mesh resource from its vertex array headers (no vertex data is read).</summary>
+    public static int CountVertices(Resolver res, Obj mesh)
+    {
+        if (mesh.Type is not ("StaticMeshResource" or "RegularSkinnedMeshResource")) return int.MaxValue;
+        var total = 0;
+        foreach (var pr in mesh.Refs("Primitives"))
+        {
+            var p = res.Deref(mesh, pr);
+            if (p is null) continue;
+            var va = res.Deref(p, p.Ref("VertexArray"));
+            if (va is null) continue;
+            total += va.ExtraReader().I32();
+        }
+        return total;
+    }
+
     public static MeshData? ReadMesh(Resolver res, Obj mesh, string sourcePath)
     {
         var file = mesh.File!;

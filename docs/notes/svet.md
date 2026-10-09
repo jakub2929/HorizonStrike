@@ -140,3 +140,48 @@ mole = Burrower were wrong. Grazer is `harvester`.
   start campfire Campfire_x04_y-03_01 (47 m from the marketplace). Their Z matches the terrain within 0.33 m - an
   independent check of the height scale (raw/32), the row/column orientation and the world placement.
 - Acceptance: `python -c "...index.json..."` -> `340 512.0 [4, -3] True`.
+
+## S6 full cells (2026-10-09)
+- Static geometry = layer files `tiles/<t>/layers/geometry/*.core` (skipping cinematic/quest/lighting/skybox dressing).
+  StaticMeshInstance (lead WorldTransform) -> Resource: LodMeshResource / StaticMeshResource / MultiMeshResource
+  (Parts: [{Mesh, Transform}] composed with the instance). PrefabInstance -> PrefabResource.ObjectCollection,
+  recursive, Overrides {RuntimeObject uuid, IsRemoved, IsTransformOverridden + Mat44}. Transforms compose
+  child * parent (row-vector), ChildTransformsRelative honoured.
+- Building blocks have three chains: *_VisualLodChain (placed), *_ShadowLodChain (DrawFlags bit 3 = shadow caster
+  only) and *_OccluderLodChain (*_occ_L1 boxes). Also *_ShadowGeo, ProxyShadowMesh*. Compound buildings (Mother's
+  Heart entrance, lodge, bridge) are LodMeshResources whose LOD0 is a MultiMeshResource -> expanded.
+  generated_content/ holds merged far-LOD proxies and a baked copy of hand-placed vegetation (2131/2141 identical in
+  tile 4,-3) -> skipped.
+- Unknown types with members before ObjectUUID break UUID lookups; CoreFile.Find falls back to UUIDs at the usual
+  lead offsets (60, 64, 4, 2, 3, 16, 48, 5, 8).
+- Shared meshes: LOD = finest within 12k vertices; textures shared in hzd/textures at 512 px. Rocks have no colour
+  map (coloured by the ecotope shader): neutral stone x AO channel of their own set. Foliage cut-outs come from an
+  Alpha (type 2) channel of the set. Base colour sources by tier: models/ sets, shader_libraries/ sets, textures/.
+- Campfires and machine sites per tile (see S5 / hooks hzd.tile_robots). Fixed machine sites: 80 groups in the main
+  world (layers/scenes/robot encounters + robot_placement; random world encounters skipped). Vegetation: density map
+  (512^2 RGBA, north up - best correlation with albedo greenness) + up to 6 species per channel from placement.core.
+- Mother's Heart cell (4,-3): 23,093 instances, 768 meshes, 3 campfires, 3.1 s conversion; the first cell writes
+  ~160 MB (13 MB cell + shared meshes 84 MB + textures 60 MB); later cells reuse most meshes.
+- Visual check (dev Godot viewer in scratch): village huts, trees, rock cliffs, snow and the campfire land where they
+  belong on the real terrain.
+
+### Variant B site table (fixed sites, main world; produced by `hzsconv hzd-sites`)
+| original | groups | orig machines (mean) | v1 machine | v1 machines | rule |
+|---|---|---|---|---|---|
+| antelope | 5 | 44 | grazer | 28 | type:antelope |
+| beachlizard | 1 | 3 | watcher | 3 | type:beachlizard |
+| bison | 1 | 5 | strider | 5 | type:bison |
+| cargorhino | 1 | 2 | strider | 2 | type:cargorhino |
+| crab | 2 | 7 | strider | 7 | type:crab |
+| direwolf | 1 | 1 | watcher | 2 | type:direwolf |
+| glider | 1 | 4 | watcher | 3 | type:glider |
+| goat | 12 | 60 | strider | 53 | type:goat |
+| harvester | 4 | 16 | grazer | 17 | type:harvester |
+| horse | 20 | 74 | strider | 76 | type:horse |
+| hyena | 2 | 7 | watcher | 6 | type:hyena |
+| longhorn | 23 | 88 | grazer | 89 | type:longhorn |
+| longleg | 1 | 2 | watcher | 2 | type:longlegbird |
+| mole | 1 | 2 | watcher | 2 | type:mole |
+| scout | 2 | 5 | watcher | 5 | type:scout |
+| spraybot | 3 | 5 | strider | 7 | type:spraybot |
+80 site groups in 360 tiles, 930 ms

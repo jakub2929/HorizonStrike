@@ -40,6 +40,95 @@ public static class CellConverter
             catch (Exception ex) { ctx.Log.Warn($"cell {x},{y}: albedo: {ex.Message}"); }
             progress.Report("terrain", 1, 1);
 
+            // static geometry: placements -> shared meshes
+            var placements = new Placements(res, ctx.Log).ForTile(x, y);
+            var unique = placements.Select(p => (p.MeshFile, p.MeshUuid)).Distinct().ToList();
+            var meshes = Meshes(ctx, res);
+            var ids = new System.Collections.Concurrent.ConcurrentDictionary<(string, Guid), (string Id, string[] Textures)?>();
+            var done = 0;
+            Parallel.ForEach(unique, new ParallelOptions { MaxDegreeOfParallelism = 4, CancellationToken = ctx.Ct }, u =>
+            {
+                ids[u] = meshes.Ensure(u.MeshFile, u.MeshUuid);
+                var d = Interlocked.Increment(ref done);
+                if (d % 50 == 0) progress.Report("meshes", d, unique.Count);
+            });
+            progress.Report("meshes", unique.Count, unique.Count);
+            var instances = new JsonArray();
+            var usedMeshes = new SortedSet<string>(StringComparer.Ordinal);
+            var usedTex = new SortedSet<string>(StringComparer.Ordinal);
+            foreach (var p in placements)
+            {
+                if (ids.GetValueOrDefault((p.MeshFile, p.MeshUuid)) is not { } m) continue;
+                usedMeshes.Add(m.Id);
+                foreach (var t in m.Textures) usedTex.Add(t);
+                var xf = Assets.Space.Xf(Assets.Space.M(p.World));
+                instances.Add(new JsonObject { ["mesh"] = m.Id, ["xf"] = new JsonArray(xf.Select(v => (JsonNode)Math.Round(v, 4)).ToArray()) });
+            }
+
+            // campfires
+            var campfires = new JsonArray(Campfires.Read(res, x, y).Select(c => (JsonNode)new JsonObject
+            {
+                ["id"] = c.Id,
+                ["pos"] = new JsonArray(Math.Round(c.GodotPos.X, 3), Math.Round(c.GodotPos.Y, 3), Math.Round(c.GodotPos.Z, 3)),
+                ["yaw_deg"] = Math.Round(c.YawDeg, 1),
+            }).ToArray());
+
+            // procedural vegetation: density map + species (the game scatters)
+            JsonNode? vegetation = null;
+            try
+            {
+                var veg = new Vegetation(res, ctx.Log);
+                var density = veg.Density(x, y);
+                if (density is not null)
+                {
+                    File.WriteAllBytes(Path.Combine(tmp, "veg_density.png"), density.ToPng());
+                    var species = new JsonArray();
+                    var sp = veg.Species(x, y);
+                    var vids = new System.Collections.Concurrent.ConcurrentDictionary<int, (string Id, string[] Textures)?>();
+                    Parallel.For(0, sp.Count, new ParallelOptions { MaxDegreeOfParallelism = 4, CancellationToken = ctx.Ct }, i => vids[i] = meshes.Ensure(sp[i].MeshFile, sp[i].MeshUuid));
+                    for (var i = 0; i < sp.Count; i++)
+                    {
+                        if (vids.GetValueOrDefault(i) is not { } m) continue;
+                        usedMeshes.Add(m.Id);
+                        foreach (var t in m.Textures) usedTex.Add(t);
+                        species.Add(new JsonObject
+                        {
+                            ["channel"] = sp[i].Channel,
+                            ["mesh"] = m.Id,
+                            ["name"] = sp[i].Name,
+                            ["per_m2"] = Math.Round(1.0 / (sp[i].Footprint * sp[i].Footprint), 5),
+                            ["footprint_m"] = Math.Round(sp[i].Footprint, 3),
+                            ["scale"] = Math.Round(sp[i].Scale, 3),
+                            ["scale_variance"] = Math.Round(sp[i].ScaleVariance, 3),
+                            ["max_slope_deg"] = Math.Round(sp[i].MaxSlope, 1),
+                        });
+                    }
+                    vegetation = new JsonObject
+                    {
+                        ["density"] = "veg_density.png",
+                        ["channels"] = new JsonArray(Vegetation.Channels.Select(c => (JsonNode)c).ToArray()),
+                        ["species"] = species,
+                    };
+                }
+            }
+            catch (Exception ex) { ctx.Log.Warn($"cell {x},{y}: vegetation: {ex.Message}"); }
+
+            // machine sites (variant B)
+            var sites = new RobotSites(res, ctx.Log).ForTile(x, y);
+            JsonObject SpawnJson(Spawn sp) => new()
+            {
+                ["site"] = sp.Site,
+                ["orig_type"] = sp.OrigType,
+                ["orig_count"] = new JsonArray(sp.OrigMin, sp.OrigMax),
+                ["type"] = sp.Type,
+                ["count"] = sp.Count,
+                ["pos"] = new JsonArray(Math.Round(sp.GodotPos.X, 3), Math.Round(sp.GodotPos.Y, 3), Math.Round(sp.GodotPos.Z, 3)),
+                ["radius"] = Math.Round(sp.Radius, 1),
+                ["rule"] = sp.Rule,
+            };
+            var spawns = new JsonArray(sites.Where(sp => sp.Populate && sp.Count > 0).Select(sp => (JsonNode)SpawnJson(sp)).ToArray());
+            var skipped = new JsonArray(sites.Where(sp => !(sp.Populate && sp.Count > 0)).Select(sp => (JsonNode)SpawnJson(sp)).ToArray());
+
             var cell = new JsonObject
             {
                 ["format"] = 1,
@@ -57,11 +146,13 @@ public static class CellConverter
                     ["albedo"] = albedo,
                     ["source"] = terrain.Source,
                 },
-                ["instances"] = new JsonArray(),
-                ["vegetation"] = null,
-                ["campfires"] = new JsonArray(),
-                ["spawns"] = new JsonArray(),
-                ["meshes"] = new JsonArray(),
+                ["instances"] = instances,
+                ["vegetation"] = vegetation,
+                ["campfires"] = campfires,
+                ["spawns"] = spawns,
+                ["spawns_skipped"] = skipped,
+                ["meshes"] = new JsonArray(usedMeshes.Select(m => (JsonNode)m).ToArray()),
+                ["textures"] = new JsonArray(usedTex.Select(t => (JsonNode)t).ToArray()),
             };
             Atomic.WriteJson(Path.Combine(tmp, "cell.json"), cell);
             Atomic.CommitDir(tmp, target);
@@ -71,8 +162,22 @@ public static class CellConverter
             try { Directory.Delete(tmp, true); } catch (IOException) { }
             throw;
         }
-        var bytes = Sizes.DirBytes(target);
-        ctx.Log.Info($"cell {x},{y}: {bytes} bytes, {sw.ElapsedMilliseconds} ms");
+        var bytes = Sizes.DirBytes(target) + Meshes(ctx, res).BytesWritten;
+        ctx.Log.Info($"cell {x},{y}: {bytes} bytes (cell + new shared meshes/textures), {sw.ElapsedMilliseconds} ms");
         return bytes;
+    }
+
+    private static readonly object MeshesLock = new();
+    private static WorldMeshes? _meshes;
+    private static string? _meshesRoot;
+
+    /// <summary>One shared-mesh exporter per cache root (dedupes meshes across cells and workers).</summary>
+    private static WorldMeshes Meshes(ConvContext ctx, Resolver res)
+    {
+        lock (MeshesLock)
+        {
+            if (_meshes is null || _meshesRoot != ctx.Cache.Root) { _meshes = new WorldMeshes(res, ctx.Cache, ctx.Log); _meshesRoot = ctx.Cache.Root; }
+            return _meshes;
+        }
     }
 }
