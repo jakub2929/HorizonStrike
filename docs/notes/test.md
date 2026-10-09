@@ -365,6 +365,12 @@ t04 FAIL (slot key: current stays ak47), t06 FAIL (crouch key: crouched = false;
   1021.6 MiB, 10 cells, 0 engine errors. FAIL: route 1 % low >= 45, no frame > 50 ms while a cell loads (hra H4+).
 - r04: `records-0.2\frametime_0.1_vs_0.2.svg` (0.1.1 run f vs 0.2 run g, route phase). Scenario r04 runs the tool
   from the game (env HZS_BASELINE_CSV, HZS_T15_CSV / <out>/t15, HZS_TOOLS, HZS_PYTHON).
+- t14 after svet's fix (main 4a7cf9b, cache copy of svet's c54 -> `cache-test-02b`, `autotest-dev\v02-i`): PASS.
+  Building 41 096/41 318 instances with a normal map (99.5 % raw), 222 excluded as `hzd_normal: none` -> 100 %; rock
+  14 009/14 019 (10 excluded); terrain 9/9; 0 engine errors. hra's glb reader does not pass the glTF material extras
+  on (no material meta), so t14 reads the flag from the cache glb (`hzd/meshes/<id>.glb`, JSON chunk): an instance
+  is excluded when its surfaces without a normal map are no more than its glb primitives with a flagged material.
+  F8 closed. (Request to hra, optional: keep `extras.hzd_normal` as material meta so the test reads the game's own.)
 
 ## Log
 - 2026-10-09 runner, libs and all 13 scenario scripts written against the documented API; stub verification above.
