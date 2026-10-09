@@ -239,3 +239,8 @@ Full per-site table: `docs/notes/svet.md`. No placement references `ai/groups`, 
 - D53 Perf measured at 1920x1080 without vsync on perf.route_cells; stress = 20 child runs over 30 cells.
 - D54 Before/after shot poses defined anew; "before" shots taken with the 0.1.1 build.
 - D55 Ownership split hra/stroje per docs/PLAN-0.2.md.
+- svet V0–V2 done (branch worktree-agent-a8855f4cacc830f33, 00c8126/72e079a), held until hra H3 (DDS loader):
+  textures: 462, VRAM est 690 MiB uncompressed -> 109 MiB BC (start set); own BC1/BC3/BC5/BC7 encoders (BCnEncoder.Net
+  BC7 6-14 s/MPix too slow; own mode-6 BC7 116 ms/MPix, PSNR 32.7 dB); DDS DX10 headers; normal BC5 + ORM BC1 from HZD
+  texture sets; instances[].kind; start 3x3 textures ~232 MiB incl. normals/ORM; whole world 159 s / 5.15 GB.
+- D56 terrain.albedo_px (converter) is the single source of terrain texture size; cache.terrain_texture_px deprecated.
