@@ -78,6 +78,12 @@ var _rng := RandomNumberGenerator.new()
 var _gravity := 9.8
 var _perc_acc := randf() * 0.1   # perception runs at 10 Hz, staggered
 
+## Dev/bench only: with ai_enabled false these drive the machine through the normal steering (dev/machine_bench.gd).
+## drive_face (when non-zero) turns the machine in place towards that direction.
+var drive_dir := Vector3.ZERO
+var drive_speed := 0.0
+var drive_face := Vector3.ZERO
+
 
 func setup(type: String, machine_meta: Dictionary) -> void:
 	machine_type = type
@@ -455,6 +461,11 @@ func _physics_process(delta: float) -> void:
 		var r := _think(delta)
 		desired = r[0]
 		speed = r[1]
+	else:
+		desired = drive_dir
+		speed = drive_speed
+		if drive_face != Vector3.ZERO:
+			_face(drive_face, delta)
 	_steer(desired, speed, delta)
 	_apply_gravity(delta)
 	move_and_slide()
