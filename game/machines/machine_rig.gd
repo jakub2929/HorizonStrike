@@ -484,7 +484,35 @@ func set_eye_mood(mood: String) -> void:
 		(m as StandardMaterial3D).emission_energy_multiplier = 2.5
 
 
+## Horizon-style awareness marker above the machine: yellow "?" suspicious, red "!" alert/attack/flee.
+var _marker: Label3D
+
+
+func _set_marker(text: String, color: Color) -> void:
+	if _marker == null:
+		_marker = Label3D.new()
+		_marker.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+		_marker.no_depth_test = true
+		_marker.fixed_size = true
+		_marker.pixel_size = 0.0012
+		_marker.font_size = 48
+		_marker.outline_size = 12
+		_marker.outline_modulate = Color(0, 0, 0, 0.8)
+		_marker.position = Vector3(0, body_height + 0.5, 0)
+		add_child(_marker)
+	_marker.text = text
+	_marker.modulate = color
+	_marker.visible = text != ""
+
+
 func on_state(s: String) -> void:
+	match s:
+		"suspicious":
+			_set_marker("?", Color(1.0, 0.82, 0.2))
+		"alert", "attack", "flee":
+			_set_marker("!", Color(1.0, 0.2, 0.15))
+		_:
+			_set_marker("", Color.WHITE)
 	match s:
 		"suspicious":
 			set_eye_mood("suspicious")

@@ -7,6 +7,7 @@ extends RefCounted
 const Log := preload("res://core/log.gd")
 const FsUtil := preload("res://core/fsutil.gd")
 const Campfire := preload("res://world/campfire.gd")
+const TerrainMaterial := preload("res://world/terrain_material.gd")
 
 const MAX_VISUAL_VERTS := 257
 const MAX_COLLISION_VERTS := 1025
@@ -250,16 +251,9 @@ static func instantiate(data: Dictionary, meshes: RefCounted) -> Node3D:
 	var tmesh := ArrayMesh.new()
 	tmesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, data["terrain_arrays"])
 	tm.mesh = tmesh
-	var mat := StandardMaterial3D.new()
-	mat.roughness = 0.95
-	if data.has("albedo_img"):
-		mat.albedo_texture = ImageTexture.create_from_image(data["albedo_img"])
-	else:
-		mat.albedo_color = Color(0.36, 0.45, 0.28)
-	if data.has("normal_img"):
-		mat.normal_enabled = true
-		mat.normal_texture = ImageTexture.create_from_image(data["normal_img"])
-	tm.material_override = mat
+	var alb: Texture2D = ImageTexture.create_from_image(data["albedo_img"]) if data.has("albedo_img") else null
+	var nrm: Texture2D = ImageTexture.create_from_image(data["normal_img"]) if data.has("normal_img") else null
+	tm.material_override = TerrainMaterial.make(alb, nrm)
 	root.add_child(tm)
 	# terrain collision (HeightMapShape3D is centred on its node; uniform scale = grid spacing)
 	var cw: int = data["col_w"]
