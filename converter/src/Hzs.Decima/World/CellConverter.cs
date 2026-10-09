@@ -19,6 +19,7 @@ public static class CellConverter
     {
         var sw = Stopwatch.StartNew();
         var target = ctx.Cache.Cell(x, y);
+        var written = new System.Runtime.CompilerServices.StrongBox<long>(); // shared meshes/textures this job wrote
         var tmp = Atomic.BeginDir(target);
         try
         {
@@ -51,7 +52,7 @@ public static class CellConverter
             var done = 0;
             Parallel.ForEach(unique, new ParallelOptions { MaxDegreeOfParallelism = 4, CancellationToken = ctx.Ct }, u =>
             {
-                ids[u] = meshes.Ensure(u.MeshFile, u.MeshUuid);
+                ids[u] = meshes.Ensure(u.MeshFile, u.MeshUuid, written);
                 var d = Interlocked.Increment(ref done);
                 if (d % 50 == 0) progress.Report("meshes", d, unique.Count);
             });
@@ -88,7 +89,7 @@ public static class CellConverter
                     var species = new JsonArray();
                     var sp = veg.Species(x, y);
                     var vids = new System.Collections.Concurrent.ConcurrentDictionary<int, (string Id, string[] Textures)?>();
-                    Parallel.For(0, sp.Count, new ParallelOptions { MaxDegreeOfParallelism = 4, CancellationToken = ctx.Ct }, i => vids[i] = meshes.Ensure(sp[i].MeshFile, sp[i].MeshUuid));
+                    Parallel.For(0, sp.Count, new ParallelOptions { MaxDegreeOfParallelism = 4, CancellationToken = ctx.Ct }, i => vids[i] = meshes.Ensure(sp[i].MeshFile, sp[i].MeshUuid, written));
                     for (var i = 0; i < sp.Count; i++)
                     {
                         if (vids.GetValueOrDefault(i) is not { } m) continue;
@@ -165,7 +166,7 @@ public static class CellConverter
             try { Directory.Delete(tmp, true); } catch (IOException) { }
             throw;
         }
-        var bytes = Sizes.DirBytes(target) + Meshes(ctx, res).BytesWritten;
+        var bytes = Sizes.DirBytes(target) + Interlocked.Read(ref written.Value);
         ctx.Log.Info($"cell {x},{y}: {bytes} bytes (cell + new shared meshes/textures), {sw.ElapsedMilliseconds} ms");
         return bytes;
     }

@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Runtime.CompilerServices;
 using System.Text.Json.Nodes;
 using Hzs.Common;
 using Hzs.Decima.Archive;
@@ -21,16 +22,18 @@ public sealed class WorldMeshes(Resolver res, CachePaths cache, Log log, int tex
     private readonly ConcurrentDictionary<string, Lazy<bool>> _meshes = new();
     private readonly ConcurrentDictionary<string, Lazy<(string Id, bool Alpha)?>> _textures = new();
     private readonly Materials _mats = new(res, texPx);
-    private long _written;
 
     public string MeshDir => cache.Meshes;
     public string TextureDir => Path.Combine(cache.Hzd, "textures");
-    public long BytesWritten => Interlocked.Read(ref _written);
 
     public static string MeshId(string corePath, int objectIndex) => $"{Murmur3.PathHash(HzdArchive.Normalize(corePath)):x16}_{objectIndex}";
 
-    /// <summary>Exports the mesh if needed. Returns the mesh id and its texture ids, or null when it has no drawable geometry.</summary>
-    public (string Id, string[] Textures)? Ensure(string file, Guid uuid)
+    /// <summary>
+    /// Exports the mesh if needed. Returns the mesh id and its texture ids, or null when it has no drawable geometry.
+    /// Bytes of mesh/texture files this call actually writes are added to <paramref name="written"/> (per job; a mesh
+    /// another job is already exporting is counted by that job only).
+    /// </summary>
+    public (string Id, string[] Textures)? Ensure(string file, Guid uuid, StrongBox<long> written)
     {
         res.TrimIfAbove(MaxResolverBytes);
         var core = res.TryFile(file);
@@ -38,7 +41,7 @@ public sealed class WorldMeshes(Resolver res, CachePaths cache, Log log, int tex
         if (core is null || obj is null) return null;
         var id = MeshId(file, obj.Index);
         var texs = new List<string>();
-        var ok = _meshes.GetOrAdd(id, _ => new Lazy<bool>(() => Export(core, obj, id), LazyThreadSafetyMode.ExecutionAndPublication)).Value;
+        var ok = _meshes.GetOrAdd(id, _ => new Lazy<bool>(() => Export(core, obj, id, written), LazyThreadSafetyMode.ExecutionAndPublication)).Value;
         if (!ok) return null;
         // texture ids are recorded next to the mesh (small sidecar) so cells can list them without re-reading the glb
         var side = Path.Combine(MeshDir, id + ".tex");
@@ -46,7 +49,7 @@ public sealed class WorldMeshes(Resolver res, CachePaths cache, Log log, int tex
         return (id, texs.ToArray());
     }
 
-    private bool Export(CoreFile core, CoreObject obj, string id)
+    private bool Export(CoreFile core, CoreObject obj, string id, StrongBox<long> written)
     {
         var glbPath = Path.Combine(MeshDir, id + ".glb");
         var sidePath = Path.Combine(MeshDir, id + ".tex");
@@ -57,7 +60,7 @@ public sealed class WorldMeshes(Resolver res, CachePaths cache, Log log, int tex
             var (md, lod, lods) = MeshReader.ReadBudget(res, core, obj, maxVertices);
             if (md is null || md.Prims.Count == 0 || md.Prims.All(p => p.Idx.Length == 0))
             {
-                WriteShared(Path.Combine(MeshDir, id + ".empty"), []);
+                WriteShared(Path.Combine(MeshDir, id + ".empty"), [], written);
                 return false;
             }
             var glb = new Glb { Extras = new JsonObject { ["source"] = $"{core.Path}#{obj.Index}", ["lod"] = lod, ["lods"] = lods } };
@@ -71,7 +74,7 @@ public sealed class WorldMeshes(Resolver res, CachePaths cache, Log log, int tex
                 var key = choice?.Key ?? "";
                 if (!matCache.TryGetValue(key, out var mat))
                 {
-                    var tex = choice is null ? null : choice.Color is { } img ? Texture(key, img) : _textures.TryGetValue(key, out var done) ? done.Value : null;
+                    var tex = choice is null ? null : choice.Color is { } img ? Texture(key, img, written) : _textures.TryGetValue(key, out var done) ? done.Value : null;
                     if (tex is { } t)
                     {
                         texIds.Add(t.Id);
@@ -100,8 +103,8 @@ public sealed class WorldMeshes(Resolver res, CachePaths cache, Log log, int tex
             var root = glb.Node(id, mesh: glb.Mesh(md.Name, prims));
             glb.SceneRoot(root);
             var bytes = glb.ToBytes();
-            WriteShared(sidePath, System.Text.Encoding.UTF8.GetBytes(string.Join("\n", texIds.Distinct())));
-            WriteShared(glbPath, bytes);
+            WriteShared(sidePath, System.Text.Encoding.UTF8.GetBytes(string.Join("\n", texIds.Distinct())), written);
+            WriteShared(glbPath, bytes, written);
             return true;
         }
         catch (Exception ex)
@@ -111,13 +114,13 @@ public sealed class WorldMeshes(Resolver res, CachePaths cache, Log log, int tex
         }
     }
 
-    private (string Id, bool Alpha)? Texture(string key, Image img) =>
+    private (string Id, bool Alpha)? Texture(string key, Image img, StrongBox<long> written) =>
         _textures.GetOrAdd(key, k => new Lazy<(string, bool)?>(() =>
         {
             var tid = $"{Murmur3.PathHash(k):x16}";
             var path = Path.Combine(TextureDir, tid + ".png");
             var alpha = img.Channels == 4 && HasCutout(img);
-            if (!File.Exists(path)) WriteShared(path, img.ToPng());
+            if (!File.Exists(path)) WriteShared(path, img.ToPng(), written);
             return (tid, alpha);
         }, LazyThreadSafetyMode.ExecutionAndPublication)).Value;
 
@@ -129,13 +132,13 @@ public sealed class WorldMeshes(Resolver res, CachePaths cache, Log log, int tex
     }
 
     /// <summary>Writes a shared cache file atomically; concurrent writers of identical content are fine.</summary>
-    private void WriteShared(string target, byte[] data)
+    private static void WriteShared(string target, byte[] data, StrongBox<long> written)
     {
         Directory.CreateDirectory(Path.GetDirectoryName(target)!);
         var tmp = $"{target}.{Environment.ProcessId}.{Environment.CurrentManagedThreadId}.tmp";
         File.WriteAllBytes(tmp, data);
         try { File.Move(tmp, target, true); }
         catch (IOException) { try { File.Delete(tmp); } catch (IOException) { } }
-        Interlocked.Add(ref _written, data.Length);
+        Interlocked.Add(ref written.Value, data.Length);
     }
 }
