@@ -47,14 +47,14 @@ public static class BcEncode
         for (var i = 0; i < 16; i++) px[i] = new Vector3(blk[i * 4], blk[i * 4 + 1], blk[i * 4 + 2]);
         var (lo, hi) = Axis3(px);
         Span<int> idx = stackalloc int[16];
+        Span<int> idx2 = stackalloc int[16];
         var (c0, c1) = (To565(hi), To565(lo));
-        Indices1(px, c0, c1, idx);
+        var err = Indices1(px, c0, c1, idx);
         // least-squares refinement of the endpoints for the chosen indices
-        if (Refine1(px, idx, out var e0, out var e1))
+        if (err > 0 && Refine1(px, idx, out var e0, out var e1))
         {
             var (r0, r1) = (To565(e0), To565(e1));
-            Span<int> idx2 = stackalloc int[16];
-            if (Err1(px, r0, r1, idx2) < Err1(px, c0, c1, idx)) { (c0, c1) = (r0, r1); idx2.CopyTo(idx); }
+            if (Indices1(px, r0, r1, idx2) < err) { (c0, c1) = (r0, r1); idx2.CopyTo(idx); }
         }
         if (c0 < c1)
         {
@@ -76,32 +76,22 @@ public static class BcEncode
 
     private static Vector3 From565(int c) => new((c >> 11 & 31) * 255f / 31, (c >> 5 & 63) * 255f / 63, (c & 31) * 255f / 31);
 
-    private static float Err1(ReadOnlySpan<Vector3> px, int c0, int c1, Span<int> idx)
-    {
-        Indices1(px, c0, c1, idx);
-        Span<Vector3> pal = stackalloc Vector3[4];
-        Palette1(c0, c1, pal);
-        float e = 0;
-        for (var i = 0; i < 16; i++) e += Vector3.DistanceSquared(px[i], pal[idx[i]]);
-        return e;
-    }
+    private static readonly int[] Level1 = [0, 2, 3, 1]; // palette level along c0 -> c1 to BC1 index
 
-    private static void Palette1(int c0, int c1, Span<Vector3> pal)
+    /// <summary>Indices by projection onto the (collinear) palette line; returns the squared error.</summary>
+    private static float Indices1(ReadOnlySpan<Vector3> px, int c0, int c1, Span<int> idx)
     {
         var (a, b) = (From565(c0), From565(c1));
-        pal[0] = a; pal[1] = b; pal[2] = (2 * a + b) / 3; pal[3] = (a + 2 * b) / 3;
-    }
-
-    private static void Indices1(ReadOnlySpan<Vector3> px, int c0, int c1, Span<int> idx)
-    {
-        Span<Vector3> pal = stackalloc Vector3[4];
-        Palette1(c0, c1, pal);
+        var d = b - a;
+        var dd = Vector3.Dot(d, d);
+        float err = 0;
         for (var i = 0; i < 16; i++)
         {
-            var best = 0; var bd = float.MaxValue;
-            for (var k = 0; k < 4; k++) { var d = Vector3.DistanceSquared(px[i], pal[k]); if (d < bd) { bd = d; best = k; } }
-            idx[i] = best;
+            var lvl = dd < 1e-6f ? 0 : Math.Clamp((int)MathF.Round(Vector3.Dot(px[i] - a, d) / dd * 3f), 0, 3);
+            idx[i] = Level1[lvl];
+            err += Vector3.DistanceSquared(px[i], a + d * (lvl / 3f));
         }
+        return err;
     }
 
     private static bool Refine1(ReadOnlySpan<Vector3> px, ReadOnlySpan<int> idx, out Vector3 e0, out Vector3 e1)
@@ -245,11 +235,19 @@ public static class BcEncode
                 ((64 - wgt) * e[0] + wgt * e[4] + 32) >> 6, ((64 - wgt) * e[1] + wgt * e[5] + 32) >> 6,
                 ((64 - wgt) * e[2] + wgt * e[6] + 32) >> 6, ((64 - wgt) * e[3] + wgt * e[7] + 32) >> 6);
         }
+        var d = pal[15] - pal[0];
+        var dd = Vector4.Dot(d, d);
         float total = 0;
         for (var i = 0; i < 16; i++)
         {
-            var best = 0; var bd = float.MaxValue;
-            for (var k = 0; k < 16; k++) { var d = Vector4.DistanceSquared(px[i], pal[k]); if (d < bd) { bd = d; best = k; } }
+            // the palette is (nearly) collinear: project, then check the neighbours of the rounded weight
+            var k0 = dd < 1e-6f ? 0 : Math.Clamp((int)MathF.Round(Vector4.Dot(px[i] - pal[0], d) / dd * 15f), 0, 15);
+            var best = k0; var bd = Vector4.DistanceSquared(px[i], pal[k0]);
+            for (var k = Math.Max(0, k0 - 1); k <= Math.Min(15, k0 + 1); k++)
+            {
+                var dk = Vector4.DistanceSquared(px[i], pal[k]);
+                if (dk < bd) { bd = dk; best = k; }
+            }
             idx[i] = best; total += bd;
         }
         return total;

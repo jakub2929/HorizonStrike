@@ -37,8 +37,8 @@ public static class Dds
     public static byte[] Encode(Image img, BcFormat f, bool srgb, MipMode mode)
     {
         var rgba = ToRgba(img);
-        var mips = Mips(rgba, img.Width, img.Height, mode);
-        var blocks = mips.Select(m => BcEncode.Encode(f, m.Px, m.W, m.H)).ToList();
+        var mips = Timers.Time("mips", () => Mips(rgba, img.Width, img.Height, mode));
+        var blocks = Timers.Time("bc_encode", () => mips.Select(m => BcEncode.Encode(f, m.Px, m.W, m.H)).ToList());
         using var ms = new MemoryStream();
         WriteHeader(ms, img.Width, img.Height, mips.Count, f, srgb, blocks[0].Length);
         foreach (var b in blocks) ms.Write(b);

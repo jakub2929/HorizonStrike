@@ -302,3 +302,32 @@ mole = Burrower were wrong. Grazer is `harvester`.
   Own encoders (Assets/BcEncode.cs, no dependency): BC1 249 ms/MPix 30.4 dB, BC3 284 ms 31.7 dB, BC5 115 ms 44.6 dB,
   BC7 (mode 6 only) 304 ms/MPix 32.7 dB. Choice: own encoders; BCnEncoder not kept.
 - Per-cell conversion before V1 (c24, 2 workers, cold): 0.4 - 4.2 s per cell, 9 cells in 13 s.
+
+## 0.2 V1 + V2 (2026-10-09)
+- V1: every image the converter writes for the world is DDS (Assets/Dds.cs): "DDS " + DDS_HEADER (124 bytes; flags
+  CAPS|HEIGHT|WIDTH|PIXELFORMAT|MIPMAPCOUNT|LINEARSIZE = 0xA1007; pitchOrLinearSize = top mip bytes; mipMapCount =
+  full chain to 1x1; ddspf FourCC "DX10"; caps 0x401008) + DDS_HEADER_DXT10 (dxgiFormat, dimension 3 = TEXTURE2D,
+  miscFlag 0, arraySize 1, miscFlags2 0), then mips largest first, ceil(w/4) x ceil(h/4) blocks each, rows top-down.
+  DXGI: BC1 71 / 72 sRGB, BC3 77 / 78 sRGB, BC5 83, BC7 98 / 99 sRGB. Godot 4.7.2 editor (headless)
+  Image.load_dds_from_buffer: BC1 -> FORMAT_DXT1 (17), BC7 -> FORMAT_BPTC_RGBA (22), mipmaps 11 for 2048 (= 12 levels),
+  ImageTexture ok, decompress ok (release template: hra H3).
+  Mesh colour BC1 sRGB / cut-out BC7 sRGB (mip alpha scaled so the 0.5 cut keeps the top mip's coverage); cell
+  albedo.dds BC1 sRGB; veg_density/veg_effect.dds BC7 linear (CPU-side maps, game decompresses).
+  Whole world after V1 (cache-svetwork/c25, 2 workers): 340 cells, 0 failed, 134 s, median 485 ms, p90 1.26 s, max 8.4 s.
+- V2: HZD texture-set channel types per entry (PackingInfo low nibble; high nibble bits 4-5 = source channel):
+  normal X/Y = type 3 source 0/1 (mostly channels 0/1 of a BC7 / BC1 / BC5 / BC6U map, B = AO or roughness);
+  AO = 5, roughness = 6 (often a 1x1 RGBA_8888 constant), no metallic (Reflectance = 4 is not used).
+  Normal maps are +Y up (glTF): integrability test (curl of the implied gradient) prefers +Y up on 59/60 building,
+  40/40 rock and 40/40 eco-asset maps -> stored as-is, BC5 linear. ORM (R AO, G roughness, B 0) BC1 linear at half the
+  colour size; colourised meshes keep occlusion 1 (AO is in the stone colour). BC6U/BC6S decode added (some snow
+  vegetation normal maps).
+  Terrain normal.dds: HZD worlddata_terrain_normal is world space (R east, G north; corr with height gradients
+  -0.87 / +0.71, slope scale 0.96) -> Godot world XZ (G flipped), BC5, 1024^2; fallback from the heights.
+  instances[].kind from hzd_content geometry.kind_rules. 4_-3: normalTexture on rock meshes 100 %, building 98.2 %,
+  vegetation 84 %, props 100 %.
+- Encoder speed after projection indices (palette collinear): BC1 91, BC3 64, BC5 40, BC7 116 ms/MPix (same PSNR).
+- Per-cell after V2 (c31, 3x3, 2 workers, cold): 0.7 - 10.1 s, 9 cells in 22 s (before 0.2: 13 s). Log line now
+  carries cpu ms per phase (bc_encode dominates: 4,-3 = 8.5 s CPU of ~150 MPix colour + normal + ORM incl. mips).
+- VRAM start 3x3 (sum of DDS = GPU bytes): mesh BC1 707 / 52.9 MiB, BC5 414 / 110.5 MiB, BC7 119 / 32.3 MiB, cell
+  albedo 24 MiB, cell normal 12 MiB -> 232 MiB GPU textures (+ ~7 MiB machines, still PNG in model.glb). Before
+  (V0 audit): 690 MiB if uploaded as RGBA8 + mips, without any normal / ORM maps.
