@@ -215,3 +215,13 @@ Full per-site table: `docs/notes/svet.md`. No placement references `ai/groups`, 
   user; melty.json carries no listing reference (format has none).
 - Hotfix 0.1.1 started: buy wheel cannot buy anything for players; t03 passed via Game.buy() (bypassed input).
   hra reproduces/fixes through real input; test rewrites t03 (and audits others) to use Input.parse_input_event.
+- Hotfix root causes: (1) full-screen wheel Control MOUSE_FILTER_STOP swallowed mouse before _unhandled_input ->
+  selection via gui_input; hold B + release over item buys; (2) gameplay input gated on mouse capture -> now gated on
+  UI state + window focus, mouse re-captured when wheel/menu closes; (3) Grazer/Strider canisters unhittable (weak
+  sphere inside a body box) -> weak geometry from skeleton structure, weak wins inside an enclosing body box;
+  (4) quit paths stop the converter with time limits. t03/s01/t02/t04/t06 now drive real input via
+  Input.parse_input_event.
+- D47 Gameplay input = UI state + focus, never mouse capture; full-screen UI handles mouse in its root gui_input.
+- 0.1.1 release: build CLEAN, autotest on release 14/14, 0 engine errors (t03 buys p250/ak47/hegrenade/kevlar/deagle
+  via input, AWP refused). Melty: upload 73d9058a-0214-46ff-86e7-39c79d92f5e7, release 0.1.1 =
+  544104e6-b3f9-404e-ade4-4aadf27346e8 (draft, publishable, one click yes). Waiting for the user's yes.
