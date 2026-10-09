@@ -200,6 +200,19 @@ func _build_real_materials() -> void:
 
 
 func _build_terrain_variants() -> void:
+	# HLOD proxy: positions, normals, vertex colours
+	var arrays := []
+	arrays.resize(Mesh.ARRAY_MAX)
+	arrays[Mesh.ARRAY_VERTEX] = PackedVector3Array([Vector3(-0.03, -0.03, 0), Vector3(0.03, -0.03, 0), Vector3(0.03, 0.03, 0)])
+	arrays[Mesh.ARRAY_NORMAL] = PackedVector3Array([Vector3(0, 0, 1), Vector3(0, 0, 1), Vector3(0, 0, 1)])
+	arrays[Mesh.ARRAY_COLOR] = PackedColorArray([Color.WHITE, Color.WHITE, Color.WHITE])
+	arrays[Mesh.ARRAY_INDEX] = PackedInt32Array([0, 1, 2])
+	var hm := ArrayMesh.new()
+	hm.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+	hm.surface_set_material(0, load("res://world/cell_builder.gd").hlod_material())
+	var hq := MeshInstance3D.new()
+	hq.mesh = hm
+	_place(hq)
 	var wq := MeshInstance3D.new()
 	wq.mesh = _quad_plain
 	wq.material_override = load("res://world/water_material.gd").get_material()

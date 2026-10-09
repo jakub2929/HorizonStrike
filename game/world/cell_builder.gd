@@ -285,6 +285,16 @@ static func prepare_far(cell_dir: String) -> Dictionary:
 static var _hlod_mat: StandardMaterial3D
 
 
+## The HLOD proxies' material (vertex colour albedo); shared, also drawn by world/precompile.gd.
+static func hlod_material() -> StandardMaterial3D:
+	if _hlod_mat == null:
+		_hlod_mat = StandardMaterial3D.new()
+		_hlod_mat.vertex_color_use_as_albedo = true
+		_hlod_mat.vertex_color_is_srgb = false
+		_hlod_mat.roughness = 0.9
+	return _hlod_mat
+
+
 ## Main thread: the far cell node (terrain + HLOD proxy), no collision, no shadows.
 static func make_far(d: Dictionary) -> Node3D:
 	var root := Node3D.new()
@@ -297,15 +307,10 @@ static func make_far(d: Dictionary) -> Node3D:
 	tm.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	root.add_child(tm)
 	if d.has("hlod_surfaces"):
-		if _hlod_mat == null:
-			_hlod_mat = StandardMaterial3D.new()
-			_hlod_mat.vertex_color_use_as_albedo = true
-			_hlod_mat.vertex_color_is_srgb = false
-			_hlod_mat.roughness = 0.9
 		var hm := ArrayMesh.new()
 		for s in d["hlod_surfaces"]:
 			hm.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, s["arrays"])
-			hm.surface_set_material(hm.get_surface_count() - 1, _hlod_mat)
+			hm.surface_set_material(hm.get_surface_count() - 1, hlod_material())
 		var hi := MeshInstance3D.new()
 		hi.mesh = hm
 		hi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
