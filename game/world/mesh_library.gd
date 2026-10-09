@@ -283,13 +283,21 @@ func _material(m: Dictionary) -> Material:
 		m.get("normal", ""), m.get("orm", ""), m.get("occlusion", ""), m["roughness"], m["metallic"]]
 	if _materials.has(key):
 		return _materials[key]
+	var mat := build_material(m, _texture)
+	_materials[key] = mat
+	return mat
+
+
+## The one place world materials are made (also used by world/precompile.gd for every feature variant, so the
+## shader variants compiled on the loading screen are exactly the ones the cells use). tex(name) -> Texture2D.
+static func build_material(m: Dictionary, tex: Callable) -> StandardMaterial3D:
 	var mat := StandardMaterial3D.new()
 	mat.albedo_color = m["color"]
 	# per-instance tint (cell.json instances[].tint) arrives as the MultiMesh instance colour; meshes carry no vertex
 	# colours, so untinted instances multiply by white
 	mat.vertex_color_use_as_albedo = true
 	if str(m["image"]) != "":
-		mat.albedo_texture = _texture(str(m["image"]))
+		mat.albedo_texture = tex.call(str(m["image"]))
 	# alpha only where the glTF material says so (alphaMode MASK/BLEND, alphaCutoff, doubleSided)
 	if m["alpha"]:
 		if m["blend"]:
@@ -303,13 +311,13 @@ func _material(m: Dictionary) -> Material:
 	mat.metallic = float(m["metallic"])
 	var nrm := str(m.get("normal", ""))
 	if nrm != "":
-		var nt := _texture(nrm)
+		var nt: Texture2D = tex.call(nrm)
 		if nt:
 			mat.normal_enabled = true
 			mat.normal_texture = nt
 	var orm := str(m.get("orm", ""))
 	if orm != "":
-		var ot := _texture(orm)
+		var ot: Texture2D = tex.call(orm)
 		if ot:
 			# glTF metallicRoughness: G = roughness, B = metallic (factors multiply)
 			mat.roughness_texture = ot
@@ -318,13 +326,27 @@ func _material(m: Dictionary) -> Material:
 			mat.metallic_texture_channel = BaseMaterial3D.TEXTURE_CHANNEL_BLUE
 	var occ := str(m.get("occlusion", ""))
 	if occ != "":
-		var at := _texture(occ)
+		var at: Texture2D = tex.call(occ)
 		if at:
 			mat.ao_enabled = true
 			mat.ao_texture = at
 			mat.ao_texture_channel = BaseMaterial3D.TEXTURE_CHANNEL_RED
-	_materials[key] = mat
 	return mat
+
+
+## Main thread: every world material made so far (precompile draws them once).
+func all_materials() -> Array:
+	return _materials.values()
+
+
+## Materials kept alive for the whole session: StandardMaterial3D shares one compiled shader per feature set and
+## drops it when the last material of that set is freed, so the precompile variants must outlive the loading screen
+## or the first real material of a set compiles again (a 20 ms surface_set_material).
+var _kept: Array = []
+
+
+func keep_alive(mats: Array) -> void:
+	_kept.append_array(mats)
 
 
 func _texture(tex_name: String) -> Texture2D:

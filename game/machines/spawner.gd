@@ -81,10 +81,29 @@ func warm_up() -> void:
 		Log.info("spawner: warmed up %s in %d ms" % [type, Time.get_ticks_msec() - t0])
 
 
+## One machine of every type at `pos` (AI off), kept until the caller frees them: drawn once on the loading screen
+## so their shaders and skinned pipelines compile there (world/precompile.gd).
+func warm_up_visible(pos: Vector3) -> Array:
+	var out: Array = []
+	var i := 0
+	for type in Sheets.machine_ids():
+		var meta := meta_for(type)
+		if meta.get("mock", false):
+			continue
+		var m := Machine.new()
+		m.setup(type, meta)
+		world.add_child(m)
+		m.global_position = pos + Vector3((i - 2.5) * 3.0, 0.0, 0.0)
+		m.set("ai_enabled", false)
+		out.append(m)
+		i += 1
+	return out
+
+
 func _process(delta: float) -> void:
 	for m in _warm:
 		if is_instance_valid(m):
-			m.queue_free()
+			_remove(m)
 	_warm.clear()
 	# herd members enter one per frame (a whole herd in one frame was a 100+ ms hitch)
 	if not _queue.is_empty():
@@ -206,8 +225,18 @@ func _deactivate(s: Dictionary) -> void:
 	_queue = _queue.filter(func(q): return q[0] != s)
 	for m in s["members"]:
 		if is_instance_valid(m) and not m.is_dead():
-			m.queue_free()
+			_remove(m)
 	s["members"] = []
+
+
+## A machine leaves play at once (no longer in Game.machines, no collision, hidden) and is freed a few nodes per
+## frame by the world (freeing several skinned machines in one frame was an 80 ms hitch).
+func _remove(m: Node) -> void:
+	Game.unregister_machine(m)
+	if world and world.has_method("bury"):
+		world.bury(m, true)
+	else:
+		m.queue_free()
 
 
 func _on_member_died(s: Dictionary) -> void:

@@ -373,9 +373,18 @@ func _main_thread_work(delta: float) -> void:
 	var freed := 0
 	while not _graveyard.is_empty() and Time.get_ticks_usec() < deadline:
 		var n: Node = _graveyard.pop_back()
-		if is_instance_valid(n):
-			n.free()
-			freed += 1
+		if not is_instance_valid(n):
+			continue
+		if n.get_child_count() > 0:
+			# children first (expanded lazily: walking a whole cell tree at unload time was a 60 ms frame); the node
+			# stops processing so it never touches a child that is already gone
+			n.set_process(false)
+			n.set_physics_process(false)
+			_graveyard.append(n)
+			_graveyard.append_array(n.get_children())
+			continue
+		n.free()
+		freed += 1
 	last_work += "free %d %.1f | total %.1f" % [freed, (Time.get_ticks_usec() - tc) / 1000.0, (Time.get_ticks_usec() - t_start) / 1000.0]
 
 
@@ -539,20 +548,30 @@ func _plan_collision_ops() -> void:
 	_col_ops = keep + adds + _col_ops
 
 
-## Frees a node tree a few nodes per frame (leaves first) instead of all at once.
-func _bury(node: Node) -> void:
+## Frees a node tree a few nodes per frame (leaves first) instead of all at once. disable_collision: every
+## collision object in the (small) tree stops colliding at once (machines: body and hitboxes).
+func bury(node: Node, disable_collision: bool = false) -> void:
+	if disable_collision and is_instance_valid(node):
+		var stack: Array = [node]
+		while not stack.is_empty():
+			var n: Node = stack.pop_back()
+			if n is CollisionObject3D:
+				(n as CollisionObject3D).collision_layer = 0
+				(n as CollisionObject3D).collision_mask = 0
+			stack.append_array(n.get_children())
+	_bury(node, disable_collision)
+
+
+## Cells stay as they are until freed (hiding or disabling a whole cell tree notifies every node: ~20 ms per cell);
+## small trees (machines) are hidden and stopped at once.
+func _bury(node: Node, small: bool = false) -> void:
 	if node == null or not is_instance_valid(node):
 		return
-	if node is Node3D:
-		(node as Node3D).visible = false
-	node.process_mode = Node.PROCESS_MODE_DISABLED   # children freed first must not be touched by their parents
+	if small:
+		if node is Node3D:
+			(node as Node3D).visible = false
+		node.process_mode = Node.PROCESS_MODE_DISABLED
 	_graveyard.append(node)
-	var stack: Array = [node]
-	while not stack.is_empty():
-		var n: Node = stack.pop_back()
-		for ch in n.get_children():
-			_graveyard.append(ch)
-			stack.append(ch)
 
 
 static func _veg_count(veg: Dictionary) -> int:
@@ -566,15 +585,19 @@ static func _veg_count(veg: Dictionary) -> int:
 func _unload(c: Vector2i) -> void:
 	var node: Node = loaded.get(c)
 	loaded.erase(c)
-	cell_data.erase(c)
 	_ground.erase(c)
+	var drop: Array = [cell_data.get(c)]
+	cell_data.erase(c)
 	if _col.has(c):
 		# bodies built but not attached yet are not under the cell node
 		for key in _col[c]["bodies"]:
 			for b in _col[c]["bodies"][key]:
 				if is_instance_valid(b) and not (b as Node).is_inside_tree():
 					_graveyard.append(b)
+		drop.append(_col[c])
 	_col.erase(c)
+	# collision buckets (tens of thousands of transforms) and heights: a worker drops the last reference (~15 ms here)
+	_free_tasks.append(WorkerThreadPool.add_task(func(): drop.clear(), false, "free unloaded cell data"))
 	spawner.on_cell_unloaded(c)
 	if node:
 		_bury(node)

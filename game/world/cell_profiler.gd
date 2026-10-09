@@ -72,6 +72,7 @@ func _process(_delta: float) -> void:
 	if profile and dt > float(Sheets.sys_num("perf.max_load_frame_ms", 50.0)) and Game.is_world_ready:
 		Log.info("slow frame %.1f ms; machines %d; previous streaming work: %s; physics %.1f ms, process %.1f ms" % [dt, Game.machines.size(), world.last_work,
 			Performance.get_monitor(Performance.TIME_PHYSICS_PROCESS) * 1000.0, Performance.get_monitor(Performance.TIME_PROCESS) * 1000.0])
+		Log.info("  pipelines compiled so far: %s" % pipelines())
 	for c in _active.keys():
 		var r: Dictionary = _active[c]
 		r["worst_frame_ms"] = maxf(float(r["worst_frame_ms"]), dt)
@@ -126,6 +127,14 @@ func write_csv() -> String:
 		worst = maxf(worst, float(r["worst_frame_ms"]))
 	Log.info("cell phases: top=%s %.1f ms (worst frame %.1f ms over %d cells, vram at start %.0f MB) -> %s" % [top, top_ms, worst, rows.size(), vram_start_mb, path])
 	return path
+
+
+## Godot's pipeline compilation counters (draw = compiled while drawing, i.e. a stall).
+static func pipelines() -> String:
+	return "canvas %d, mesh %d, surface %d, draw %d, specialization %d" % [
+		Performance.get_monitor(Performance.PIPELINE_COMPILATIONS_CANVAS), Performance.get_monitor(Performance.PIPELINE_COMPILATIONS_MESH),
+		Performance.get_monitor(Performance.PIPELINE_COMPILATIONS_SURFACE), Performance.get_monitor(Performance.PIPELINE_COMPILATIONS_DRAW),
+		Performance.get_monitor(Performance.PIPELINE_COMPILATIONS_SPECIALIZATION)]
 
 
 # ------------------------------------------------------------------ route walk (--profile-cells)

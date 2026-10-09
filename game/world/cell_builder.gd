@@ -638,7 +638,8 @@ static func make_chunk(spec: Dictionary, meshes: RefCounted) -> MultiMeshInstanc
 	return mmi
 
 
-const SHAPES_PER_BODY := 64           # shapes per object collision body (one body is one budgeted insertion step)
+const SHAPES_PER_BODY := 16           # shapes per object collision body (one body is one budgeted insertion step;
+                                      # a 64-shape Jolt compound took 10-30 ms to add)
 
 
 ## Static bodies (<= SHAPES_PER_BODY shapes each, shape owners, no node per shape) for one collision bucket.

@@ -19,6 +19,7 @@ const Player := preload("res://player/player.gd")
 const Hud := preload("res://ui/hud.gd")
 const BuyWheel := preload("res://ui/buy_wheel.gd")
 const LoadingScreen := preload("res://ui/loading_screen.gd")
+const Precompile := preload("res://world/precompile.gd")
 const MessageScreen := preload("res://ui/message_screen.gd")
 const SettingsMenu := preload("res://ui/settings_menu.gd")
 const AudioDirector := preload("res://audio/audio_director.gd")
@@ -271,13 +272,24 @@ func _spawn_player(pos: Vector3) -> void:
 	var ad := AudioDirector.new()
 	ad.name = "AudioDirector"
 	add_child(ad)
-	Game.bootstrap_seconds = Time.get_ticks_msec() / 1000.0 - _t_start
-	if loading:
-		loading.queue_free()
-		loading = null
 	Log.info("player spawned at %s; money $%d; inventory %s" % [pos, Game.money, player.inventory])
-	capture_mouse()
-	Game.mark_world_ready()
+	# shaders and pipelines compile under the loading screen, then the world is ready (H8)
+	var pre := Precompile.new()
+	pre.name = "Precompile"
+	pre.camera = player.camera
+	pre.meshes = world.meshes
+	pre.spawner = world.spawner
+	pre.viewmodel = player.weapons.viewmodel if player.get("weapons") else null
+	pre.loading = loading
+	world.add_child(pre)
+	pre.finished.connect(func() -> void:
+		Game.bootstrap_seconds = Time.get_ticks_msec() / 1000.0 - _t_start
+		if loading:
+			loading.queue_free()
+			loading = null
+		capture_mouse()
+		Game.mark_world_ready())
+	pre.start()
 
 
 # ------------------------------------------------------------------ death / respawn
