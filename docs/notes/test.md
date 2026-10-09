@@ -89,7 +89,7 @@ Aligned with hra's in-progress code (read-only look at the hra worktree, not mer
   (same cache dir as the parent -> same `<cache>/../logs`) and any second game instance. Fix: FileShare.ReadWrite or a
   per-process `--log-dir` from the game. Reproduced with two `hzsconv serve` processes (scratch build of the skeleton).
   Lower priority now: hra's game does not start the converter when HZD is missing (t08 log: "converter not started"),
-  so the autotest no longer hits it; a second game instance still would.
+  so the autotest no longer hits it. Fixed on main 216d757 (per-process log fallback) – closed.
 - F3 (hra) t04, real data: spawned Watchers have health 140 (sheet design value); expected = resolved hzd_health 90 x
   `combat.machine_health_scale` (1.0) per the svet merge decision. `setup: watchers at full health 90.0: A 140.0
   B 140.0`. Damage numbers themselves match (weak 107.76 vs expected 107.58 +-1.09 at 8.5 m; body 12.66 vs 12.50).
