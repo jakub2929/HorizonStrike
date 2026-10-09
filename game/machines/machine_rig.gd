@@ -109,7 +109,7 @@ func _build_from_glb(path: String, meta: Dictionary) -> bool:
 				"part": str(pts[pn].get("part", pn))}
 	head_bone = int(roles.get("head", -1))
 	var sense := _sense_point()
-	eye_bone = int(sense["bone"]) if not sense.is_empty() else head_bone
+	eye_bone = int(sense["bone"]) if not sense.is_empty() else int(roles.get("eye", head_bone))
 	var weak_bones := {}
 	for pn in points:
 		if points[pn]["kind"] == "weak_spot":
@@ -507,6 +507,19 @@ func trunk_bounds() -> AABB:
 		aabb = AABB(p, Vector3.ZERO) if first else aabb.expand(p)
 		first = false
 	return aabb.grow(0.2)
+
+
+## World position of a named point (follows the animation), or `fallback` when the point does not exist.
+func point_global(point_name: String, fallback: Vector3) -> Vector3:
+	if not points.has(point_name):
+		return fallback
+	var pt: Dictionary = points[point_name]
+	if not pt.has("_node"):
+		var n := Node3D.new()
+		n.position = pt["offset"]
+		_attach(int(pt["bone"])).add_child(n)
+		pt["_node"] = n
+	return (pt["_node"] as Node3D).global_position
 
 
 func eye_global() -> Vector3:

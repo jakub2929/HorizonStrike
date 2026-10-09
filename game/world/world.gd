@@ -486,6 +486,7 @@ func _query_status() -> void:
 func _mesh_gc() -> void:
 	_gc_needed = false
 	var used := {}
+	var used_tex := {}
 	for c in on_disk:
 		var info = FsUtil.read_json(cell_dir(c).path_join("cell.json"))
 		if typeof(info) != TYPE_DICTIONARY:
@@ -498,6 +499,8 @@ func _mesh_gc() -> void:
 		if typeof(veg) == TYPE_DICTIONARY:
 			for sp in veg.get("species", []):
 				used[str(sp.get("mesh", ""))] = true
+		for t in info.get("textures", []):
+			used_tex[str(t)] = true
 	var mdir := cache_root.path_join("hzd/meshes")
 	var d := DirAccess.open(mdir)
 	if d == null:
@@ -521,5 +524,21 @@ func _mesh_gc() -> void:
 			freed += sz
 			meshes.forget(id)
 	_add_bytes(-freed)
+	# textures referenced by meshes: keep the ones any remaining cell.json lists in `textures`
+	var tdir := cache_root.path_join("hzd/textures")
+	var td := DirAccess.open(tdir)
+	if td and not used_tex.is_empty():
+		for f in td.get_files():
+			if used_tex.has(f.get_basename()) or used_tex.has(f):
+				continue
+			var tp := tdir.path_join(f)
+			var fa2 := FileAccess.open(tp, FileAccess.READ)
+			var sz2 := fa2.get_length() if fa2 else 0
+			if fa2:
+				fa2.close()
+			if DirAccess.remove_absolute(tp) == OK:
+				removed += 1
+				freed += sz2
+				_add_bytes(-sz2)
 	if removed > 0:
-		Log.info("mesh gc: removed %d unreferenced meshes (%d bytes)" % [removed, freed])
+		Log.info("mesh gc: removed %d unreferenced meshes/textures (%d bytes)" % [removed, freed])

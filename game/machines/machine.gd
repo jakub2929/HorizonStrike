@@ -83,7 +83,9 @@ func setup(type: String, machine_meta: Dictionary) -> void:
 	machine_type = type
 	meta = machine_meta
 	archetype = str(Sheets.machine(type, "archetype"))
-	max_health = Sheets.machine_num(type, "health", 200.0)
+	# D36: real HZD InitialHealth x combat.machine_health_scale; the design `health` only when unresolved
+	var hzd_hp := Sheets.machine_num(type, "hzd_health", 0.0)
+	max_health = hzd_hp * Sheets.sys_num("combat.machine_health_scale", 1.0) if hzd_hp > 0.0 else Sheets.machine_num(type, "health", 200.0)
 	health = max_health
 	armor = Sheets.machine_num(type, "armor_points", 0.0)
 	walk_speed = Sheets.machine_num(type, "walk_speed_mps", 1.6)
@@ -589,7 +591,9 @@ func _fire_projectile(a: Dictionary) -> void:
 	proj.attack = a
 	proj.source = self
 	get_parent().add_child(proj)
-	var from := eye_position() + forward() * 0.5
+	# attack origin point: "attack_<attack id>" or "attack_<id without the machine prefix>", else the eye
+	var aid := str(a["id"])
+	var from: Vector3 = rig.point_global("attack_" + aid, rig.point_global("attack_" + aid.substr(aid.find("_") + 1), eye_position() + forward() * 0.5))
 	proj.global_position = from
 	var aim: Vector3 = p.head_position() - Vector3(0, 0.3, 0)
 	proj.velocity = (aim - from).normalized() * maxf(float(a["projectile_speed_mps"]), 1.0)

@@ -6,6 +6,8 @@ var campfire_id := ""
 var _light: OmniLight3D
 var _flame: MeshInstance3D
 var _t := 0.0
+var _sound_tries := 5
+var _sound_wait := 0.0
 
 
 func _ready() -> void:
@@ -57,8 +59,37 @@ func _exit_tree() -> void:
 
 func _process(delta: float) -> void:
 	_t += delta
+	if _sound_tries > 0:
+		_sound_wait -= delta
+		if _sound_wait <= 0.0:
+			_sound_wait = 1.0
+			_sound_tries -= 1
+			_try_sound()
 	_light.light_energy = 1.4 + 0.3 * sin(_t * 11.0) * sin(_t * 3.7)
 	_flame.scale = Vector3(1, 0.9 + 0.15 * sin(_t * 9.0), 1)
+
+
+## Crackling loop from the audio contract (ambience kind "campfire"), once the audio director exists.
+func _try_sound() -> void:
+	var ad: Node = Game.main.get_node_or_null("AudioDirector") if Game.main else null
+	if ad == null:
+		return
+	_sound_tries = 0
+	var f: String = ad.loop_for("campfire")
+	if f == "":
+		return
+	var s: AudioStream = load("res://audio/sound_lib.gd").load_stream(f)
+	if s == null:
+		return
+	if s is AudioStreamMP3:
+		(s as AudioStreamMP3).loop = true
+	var p := AudioStreamPlayer3D.new()
+	p.stream = s
+	p.unit_size = 3.0
+	p.max_distance = 25.0
+	p.position = Vector3(0, 0.5, 0)
+	add_child(p)
+	p.play()
 
 
 ## Where the player is placed on respawn (inside the activation radius, beside the fire).
