@@ -180,3 +180,19 @@ Autoload `Game` (`res://core/game.gd`). The boot code instances `res://autotest/
 - Autotest: the exported exe is a GUI app – get its exit code with `Start-Process -Wait -PassThru`; screenshots
   need a real window (not `--headless`).
 - Dev-only tools (never packaged): `tools/glb_info.py`, `tools/cell_info.py`, `tools/proto_smoke.py`.
+
+## Content contract (2026-10-09; rule in CLAUDE.md)
+Code is content-agnostic. Per asset the converter writes `meta.json` next to the model:
+```json
+{"model": "model.glb", "up": "y", "forward": "-z", "scale_m": 1.0,
+ "bone_roles": {"root": "...", "head": "...", "spine": "...", "tail": "...",
+                "leg_fl_upper": "...", "leg_fl_lower": "...", "leg_fl_foot": "..."},
+ "points": {"weak_eye": {"bone": "...", "offset": [0,0,0], "radius": 0.15, "kind": "weak_spot"},
+            "muzzle":   {"bone": "...", "offset": [0,0,0], "kind": "fx"}},
+ "leg_chains": [["leg_fl_upper","leg_fl_lower","leg_fl_foot"]]}
+```
+Sheet columns (machines and weapons): `content_model` (cache-relative path), `bone_roles` (object role -> bone),
+`points` (object name -> {bone, offset, radius?, kind}). Sheet values are the source of truth; `meta.json` is what the
+converter found (sheet cells reference roles/points by name; the game reads names, never bone strings in code).
+World cells: `cell.json` (above) is the contract; the game must work with any producer of that format (own terrain
+included). Weak spots, attack origins, hit FX and muzzle flashes are always looked up by point name.
