@@ -74,6 +74,12 @@ public sealed class HzdArchive : IDisposable
 
     public byte[] Read(string path) => TryRead(path) ?? throw new FileNotFoundException($"not in the HZD archives: {Normalize(path)}");
 
+    /// <summary>Part of a file (e.g. one mip or one vertex stream of a .core.stream) without decompressing the rest.</summary>
+    public byte[] ReadRange(string path, long offset, long length) =>
+        _files.TryGetValue(Murmur3.PathHash(Normalize(path)), out var f)
+            ? f.Pack.ReadRange(f.Entry, offset, length)
+            : throw new FileNotFoundException($"not in the HZD archives: {Normalize(path)}");
+
     public CoreFile ReadCore(string path) => new(Normalize(path), Read(path));
 
     public CoreFile? TryReadCore(string path) => TryRead(path) is { } d ? new CoreFile(Normalize(path), d) : null;

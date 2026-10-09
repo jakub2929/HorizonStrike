@@ -88,11 +88,16 @@ public sealed class Packfile : IDisposable
     }
 
     /// <summary>Reads and decompresses one file.</summary>
-    public byte[] Read(in FileEntry f)
+    public byte[] Read(in FileEntry f) => ReadRange(f, 0, f.Size);
+
+    /// <summary>Reads <paramref name="length"/> bytes at <paramref name="offset"/> inside one file (only the chunks needed).</summary>
+    public byte[] ReadRange(in FileEntry f, long offset, long length)
     {
-        var result = new byte[f.Size];
-        var pos = f.Offset;
-        var end = f.Offset + f.Size;
+        if (offset < 0 || length < 0 || offset + length > f.Size)
+            throw new ArgumentOutOfRangeException(nameof(offset), $"{Name}: range {offset}+{length} outside file of {f.Size} bytes");
+        var result = new byte[length];
+        var pos = f.Offset + (ulong)offset;
+        var end = pos + (ulong)length;
         var ci = ChunkAt(pos);
         var written = 0;
         while (pos < end)

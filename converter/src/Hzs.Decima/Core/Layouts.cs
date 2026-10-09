@@ -13,7 +13,33 @@ public static partial class Layouts
     {
         RegisterBasic();
         RegisterGame();
+        RegisterAssets();
     }
+
+    /// <summary>Structs with handler-defined (MsgReadBinary) payloads embedded inside other objects.</summary>
+    private static readonly Dictionary<string, Func<BinReader, object?>> Custom = new(StringComparer.Ordinal)
+    {
+        // Pose: Ref Skeleton, then u8 present; if present: u32 n, n x Mat34 (per joint local rotation quat xyzw,
+        // translation xyz_, scale xyz_), n x Mat44 (model-space matrices), u32 m, m x u32.
+        ["Pose"] = r =>
+        {
+            var o = new Obj("Pose");
+            o.Fields["Skeleton"] = r.Ref();
+            if (r.U8() != 0)
+            {
+                var n = r.Count();
+                var local = new float[n * 12];
+                for (var i = 0; i < local.Length; i++) local[i] = r.F32();
+                var model = new float[n * 16];
+                for (var i = 0; i < model.Length; i++) model[i] = r.F32();
+                var m = r.Count();
+                r.Skip(m * 4);
+                o.Fields["Local"] = local;
+                o.Fields["Model"] = model;
+            }
+            return o;
+        },
+    };
 
     private static void L(ulong id, string name, string members, string? lead = null, bool binary = false, bool partial = false)
     {
@@ -124,6 +150,7 @@ public static partial class Layouts
                 }
             case "Struct":
                 {
+                    if (Custom.TryGetValue(t.Struct!, out var custom)) return custom(r);
                     var l = Get(t.Struct!) ?? throw new NotSupportedException($"no layout for struct {t.Struct}");
                     return ReadStruct(l, r);
                 }
