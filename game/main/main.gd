@@ -57,6 +57,10 @@ func _ready() -> void:
 	_make_environment()
 	if args.autotest:
 		_start_runner()
+	if args.exit_after > 0.0:
+		get_tree().create_timer(args.exit_after, true, false, true).timeout.connect(func(): quit_game(0))
+	if args.screenshot_at > 0.0:
+		get_tree().create_timer(args.screenshot_at, true, false, true).timeout.connect(func(): Game.screenshot(args.screenshot_path))
 	if not args.mock_data or args.hzd_given:
 		var det := HzdDetect.detect(args.hzd_given, args.hzd_dir)
 		if not det["found"]:

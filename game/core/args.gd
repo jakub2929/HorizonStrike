@@ -10,6 +10,9 @@ var autotest_ids := PackedStringArray()
 var out_dir := ""             ## --out <dir>
 var mock_data := false        ## --mock-data: synthetic content (dev/test only)
 var converter_exe := ""       ## --converter <exe>: dev override of the converter path
+var exit_after := -1.0        ## --exit-after <s>: dev, quit cleanly after s seconds
+var screenshot_at := -1.0     ## --screenshot-at <s> <png>: dev, save a screenshot after s seconds
+var screenshot_path := ""
 var all := PackedStringArray()
 
 
@@ -58,6 +61,15 @@ static func parse(list: PackedStringArray) -> RefCounted:
 					i += 1
 			"--mock-data":
 				a.mock_data = true
+			"--exit-after":
+				if has_value:
+					a.exit_after = float(nxt)
+					i += 1
+			"--screenshot-at":
+				if has_value and i + 2 < list.size():
+					a.screenshot_at = float(nxt)
+					a.screenshot_path = list[i + 2]
+					i += 2
 		i += 1
 	return a
 
