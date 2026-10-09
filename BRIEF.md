@@ -43,7 +43,10 @@ publikováním (shrnutí + čekat na „ano“).
 - Žádné soubory her se nedistribuují. Assety se konvertují z hráčových instalací do lokální cache.
   oo2core se načítá z instalace HZD, nikdy se nekopíruje do balíčku.
 - Preflight před každým buildem ověřuje, že v exportu není žádný soubor odvozený ze hry.
-- Godot 4.7.2 (GDScript) + konvertor v .NET (ValveResourceFormat pro CS2, vlastní čtečka Decima .bin pro HZD).
+- Godot 4.7.2 (GDScript) + konvertor v .NET 10 (ValveResourceFormat 20 vyžaduje .NET 10), publikovaný jako
+  self-contained win-x64 (hráč nepotřebuje .NET runtime). Hra s konvertorem mluví přes stdio; žádný TCP listener
+  (kdyby byl, jen 127.0.0.1).
+- „Horizon Strike“ je pracovní název; finální název, tagline a popis až podle hotového buildu.
 - Svět po buňkách: konvertovat až když se hráč přibližuje, s předstihem, aby nečekal. První spuštění převede jen
   zbraně, stroje a oblast kolem startu, nesmí čekat na celý svět. Cache má rozumný výchozí strop nastavitelný
   v menu; vzdálené buňky se při překročení mažou a při návratu znovu převedou. Hra ukazuje, kolik místa cache zabírá.
@@ -66,6 +69,7 @@ publikováním (shrnutí + čekat na „ano“).
 8. hláška ve hře, když chybí HZD
 9. první spuštění nepřevádí celý svět
 10. cache nepřekročí strop
+11. konvertor neposlouchá na žádné jiné adrese než loopback (komunikace je přes stdio)
 
 Screenshoty ze hry (aspoň 3): buy wheel, poplach Watchera, stádo v krajině.
 

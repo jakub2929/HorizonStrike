@@ -42,8 +42,13 @@ Journal and decision log (orchestrator-owned). Newest entries at the bottom of e
   area; cache cap with eviction of distant cells; cache size shown in game.
 - D9 In-game UI language: English (Melty audience is international). Listing in English.
 - D10 Credits "EM", licence MIT, remix allowed.
-- D11 Converter targets .NET 10 (ValveResourceFormat 20.0.6980 NuGet only ships net10.0); published self-contained win-x64.
-- D12 Converter runs as a JSON-lines server child process of the game (`hzsconv serve`), bootstrap first, then cells by priority; the game owns eviction.
+- D11 Converter targets .NET 10 instead of .NET 8 (ValveResourceFormat 20.0.6980 NuGet only ships net10.0); confirmed by
+  the user. Published self-contained win-x64 so players need no .NET runtime installed.
+- D12 Converter runs as a JSON-lines server child process of the game (`hzsconv serve`) over **stdio only** (no TCP,
+  no named pipe needed, so no firewall prompt); bootstrap first, then cells by priority; the game owns eviction.
+  If a socket is ever added it binds 127.0.0.1 only. Autotest checks the converter process listens on no
+  non-loopback address.
+- D13 "Horizon Strike" is a working title; final title, tagline and description are written from the finished build.
 
 ## Site mapping (variant B)
 (to be filled when spawn sites are decoded)
