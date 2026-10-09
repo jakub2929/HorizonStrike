@@ -130,3 +130,12 @@ anim/speeds/perception thresholds/attacks/herd/flee, machine_attacks.json. Newes
   alert -> flee 0.41-0.42 s after the shot; Broadhead: suspicious -> alert, holds).
   Second real autotest run (t05,t06): t05 PASS (suspicious 2.4 s at 39.7 m -> alert 6.4 s -> attack 7.0 s),
   t06 PASS (12/12 checks).
+- 2026-10-10 game/dev/machine_showcase.gd (recordings for test): boots the real game, finds a flat open spot 24-60 m
+  from the start (Mother's Heart) with free lines of sight (body height, 0.35 m and above), spawns the machine with
+  AI off, hides all CanvasLayers (HUD, viewmodel, loading screen), films with its own camera (three-quarter view
+  35 deg off the side, fixed offset to the machine, machine ~50 % of the frame height, whole skeleton inside 75 % of
+  the width), runs walk (7 s) / attack (first two attacks, ~6.5-8 s) / death (6 s) and quits. Boot + loading frames
+  are written too (~580-610 frames on a warm cache); it prints `SHOWCASE start frame <n>` for trimming.
+  Verified (copy of c48 = C:\meshy\_tools\stroje\cache-t05a, 1280x720, --fixed-fps 30): watcher walk (frames
+  601..814), attack (608..804), death (579..760), grazer walk (603..816); check frames not blank (Y mean 115-133),
+  watcher_walk.mp4 trimmed to 7.1 s. Files in C:\meshy\_tools\stroje\showcase\.
