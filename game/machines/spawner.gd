@@ -188,7 +188,7 @@ func _live_members(s: Dictionary) -> int:
 
 func _engaged(s: Dictionary) -> bool:
 	for m in s["members"]:
-		if is_instance_valid(m) and m.state in ["alert", "attack", "flee", "suspicious"]:
+		if is_instance_valid(m) and m.state in ["alert", "attack", "flee", "suspicious", "stalk"]:
 			return true
 	return false
 

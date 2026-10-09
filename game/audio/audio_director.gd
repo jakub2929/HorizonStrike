@@ -115,7 +115,7 @@ func _process(delta: float) -> void:
 			continue
 		if m.state == "attack":
 			fighting = true
-		elif m.state in ["suspicious", "alert"]:
+		elif m.state in ["suspicious", "alert", "stalk"]:
 			wary = true
 	if fighting:
 		_calm_t = 0.0

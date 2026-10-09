@@ -104,7 +104,7 @@ func in_combat() -> bool:
 	for m in machines:
 		if not is_instance_valid(m):
 			continue
-		if (m.state == "alert" or m.state == "attack") and m.targets_player() and m.global_position.distance_to(player.global_position) <= 60.0:
+		if m.state in ["alert", "attack", "stalk"] and m.targets_player() and m.global_position.distance_to(player.global_position) <= 60.0:
 			return true
 	return false
 
