@@ -199,3 +199,8 @@ Full per-site table: `docs/notes/svet.md`. No placement references `ai/groups`, 
   82,462,465 B, sha256 c9919d5b...ce06); release 0.1.0 = a59fbb25-0e99-4374-a5bf-1251e18ff67a (draft, publishable,
   findings: review-level only); screenshots buy_wheel (cover), watcher_alert, herd_landscape from the rc5 autotest.
   Not published – waiting for the user's yes.
+- 2026-10-09 GitHub: origin = https://github.com/jakub2929/HorizonStrike (empty, not pushed). melty.json committed
+  (d9ad69b, fileName HorizonStrike-*.zip, validated). create_mod with githubRepo created a SEPARATE empty draft
+  6dff49e8-b36e-4d0d-b9df-7960ebc8ccbc (slug horizon-strike-2) instead of linking the existing listing; the tools
+  cannot delete drafts or attach a repo to an existing listing (user can delete the empty one in Studio).
+- 2026-10-09 User approved publishing; publish(6e2ecdda...) -> in_review.
