@@ -331,3 +331,5 @@ mole = Burrower were wrong. Grazer is `harvester`.
 - VRAM start 3x3 (sum of DDS = GPU bytes): mesh BC1 707 / 52.9 MiB, BC5 414 / 110.5 MiB, BC7 119 / 32.3 MiB, cell
   albedo 24 MiB, cell normal 12 MiB -> 232 MiB GPU textures (+ ~7 MiB machines, still PNG in model.glb). Before
   (V0 audit): 690 MiB if uploaded as RGBA8 + mips, without any normal / ORM maps.
+- Whole world after V2 (c33, 2 workers): 340 cells, 0 failed, 159 s, median 518 ms, p90 1.72 s, max 10.6 s,
+  cache hzd 5.15 GB (after V1 134 s / 4.36 GB).
