@@ -389,3 +389,15 @@ Sites of the new machines (svet 0.2 V3, hzsconv hzd-sites after site_map type:di
 | direwolf | 1 | 1 | sawtooth | 1 | type:direwolf |
 | hyena | 2 | 7 | scrapper | 7 | type:hyena |
 | longhorn | 23 | 88 | broadhead | 86 | type:longhorn |
+
+## 0.2 V4 terrain layers (2026-10-09)
+- HZD's terrain material per ecotope (shaders/ecotope/<eco>/terrain/terrainmaterial_*) = RenderEffectResource + compiled
+  ShaderResource sampling texturesetarrays/terrain_texture_array (TextureList); layer choice and weights live in shader
+  code -> not readable. Only shaders/ecotope/21-southernrockies/terrain/textures (start region) and two single sets
+  (19 soil_deep_03, 20 soil_sand_02) are per-layer sets. Fallback (plan V4): sheet terrain.layers = snow_heavyfresh_01,
+  soil_grassy_02, soil_dry_02, rock_sedimentary_04 (colour BC1, normal BC5, ORM from AO / roughness), shared
+  hzd/terrain_layers/<name>_{albedo,normal,orm}.dds 1024^2.
+- masks.dds per cell (BC7 512^2, R snow, G grass, B dirt, A rock): rock = smoothstep(32, 48 deg) of the height slope,
+  snow = (1 - rock) x smoothstep(0.50, 0.62) of the ecotope effect (frost 0.54-0.6 / snow > 0.6 like the placement
+  curves), grass = rest x clamp(undergrowth density x 1.5 - roads), dirt = rest. 4_-3: snow 0.48, grass 0.13,
+  dirt 0.02, rock 0.37; after BC7 |sum - 1| mean 0.005, 0.5 % of pixels > 0.05 (max 0.19) -> the shader normalises.

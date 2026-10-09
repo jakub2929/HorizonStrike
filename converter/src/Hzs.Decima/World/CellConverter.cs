@@ -15,7 +15,7 @@ namespace Hzs.Decima.World;
 public static class CellConverter
 {
     /// <summary>cell.json "format"; bump when the cell layout changes so old cells are converted again.</summary>
-    public const int Format = 5;
+    public const int Format = 6;
 
     public static long Convert(ConvContext ctx, Resolver res, int x, int y, IProgressSink progress)
     {
@@ -151,6 +151,26 @@ public static class CellConverter
             }
             catch (Exception ex) { ctx.Log.Warn($"cell {x},{y}: vegetation: {ex.Message}"); }
 
+            // terrain material layers: shared layer textures + per-cell blend masks (fallback from HZD world data)
+            JsonObject? layers = null;
+            try
+            {
+                var mpx = HzdNames.Int("terrain.mask_px");
+                var veg2 = new Vegetation(res, ctx.Log);
+                var roads = WorldData.Channel(res, x, y, HzdNames.Str("terrain.roads_map"), HzdNames.Str("terrain.roads_type"), mpx);
+                var masks = TerrainLayers.Masks(terrain, veg2.Effect(x, y, mpx), veg2.Density(x, y),
+                    Array.IndexOf(Vegetation.Channels, HzdNames.Str("terrain.grass_channel")), roads, mpx);
+                File.WriteAllBytes(Path.Combine(tmp, "masks.dds"), Dds.Encode(masks, Dds.Parse(Hzs.Generated.SystemsSheet.RenderTextureFormatMasks.Value), false, MipMode.Data));
+                layers = new JsonObject
+                {
+                    ["masks"] = "masks.dds",
+                    ["channels"] = new JsonArray(TerrainLayers.MaskChannels.Select(c => (JsonNode)c).ToArray()),
+                    ["layers"] = TerrainLayers.EnsureShared(ctx.Cache, res, written),
+                    ["source"] = "fallback: snow = ecotope effect, rock = slope, grass = undergrowth density, dirt = roads + rest",
+                };
+            }
+            catch (Exception ex) { ctx.Log.Warn($"cell {x},{y}: terrain layers: {ex.Message}"); }
+
             // machine sites (variant B)
             var sites = new RobotSites(res, ctx.Log).ForTile(x, y);
             JsonObject SpawnJson(Spawn sp) => new()
@@ -185,6 +205,7 @@ public static class CellConverter
                     ["normal"] = normal,
                     ["normal_space"] = normal is null ? null : "world_xz",
                     ["normal_source"] = normalSource,
+                    ["layers"] = layers,
                     ["source"] = terrain.Source,
                 },
                 ["instances"] = instances,

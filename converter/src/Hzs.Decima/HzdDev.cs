@@ -364,6 +364,26 @@ public static partial class HzdDev
                     Console.WriteLine($"normal maps {maps}: +Y up (OpenGL) {up}, +Y down (DirectX) {down}");
                     return 0;
                 }
+            case "hzd-maskcheck":
+                {
+                    // dev only: decode the top mip of a cell masks.dds and report channel coverage and the per-pixel sum
+                    var path = Get("--file") ?? throw new ArgumentException("--file <masks.dds>");
+                    var d = File.ReadAllBytes(path);
+                    var h = Assets.Dds.ReadHeader(d) ?? throw new InvalidDataException("not a converter DDS");
+                    var fmt = h.Dxgi is 98 or 99 ? Assets.BcFormat.BC7 : h.Dxgi is 83 ? Assets.BcFormat.BC5 : h.Dxgi is 77 or 78 ? Assets.BcFormat.BC3 : Assets.BcFormat.BC1;
+                    var top = Math.Max(1, (h.W + 3) / 4) * Math.Max(1, (h.H + 3) / 4) * Assets.Dds.BlockBytes(fmt);
+                    var px = Assets.Dds.DecodeBlocks(fmt, d.AsSpan(148, top).ToArray(), h.W, h.H);
+                    long n = (long)h.W * h.H; double[] mean = new double[4]; double maxDev = 0, sumDev = 0; long over = 0;
+                    for (long i = 0; i < n; i++)
+                    {
+                        var s = 0;
+                        for (var c = 0; c < 4; c++) { mean[c] += px[i * 4 + c]; s += px[i * 4 + c]; }
+                        var dev = Math.Abs(s - 255) / 255.0;
+                        maxDev = Math.Max(maxDev, dev); sumDev += dev; if (dev > 0.05) over++;
+                    }
+                    Console.WriteLine($"{h.W}x{h.H} mips {h.Mips} dxgi {h.Dxgi}: mean R {mean[0] / n / 255:F3} G {mean[1] / n / 255:F3} B {mean[2] / n / 255:F3} A {mean[3] / n / 255:F3}; sum-1 mean {sumDev / n:F4} max {maxDev:F3}, pixels off by > 0.05: {100.0 * over / n:F2} %");
+                    return 0;
+                }
             case "hzd-veg":
                 {
                     // dev only: placement layers of a tile -> density channel and placement target type
