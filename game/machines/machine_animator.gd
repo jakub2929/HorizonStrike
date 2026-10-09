@@ -54,6 +54,7 @@ var _legs: Array = []
 var _biped := false
 var _touched := PackedInt32Array()
 var _trunk_boxes: Array = []           # [bone, Transform3D in bone space, half extents]
+var _trunk_bones := PackedInt32Array()  # non-helper trunk bones (death settling probes besides the boxes)
 var _turn_r := 0.5
 var _travel_max := 1.0
 var _head_rest_h := 1.0
@@ -67,6 +68,7 @@ var _idle_actions: Array = []
 var _graze_pose := "none"
 var _hit_react := "flinch_back"
 var _death_fall := "side"
+var _neck_rest := 0.0                  # anim.neck_rest_pitch_deg: neutral neck pitch (+ down) for heads raised in the bind pose
 var _walk_speed := 1.6
 var _run_speed := 8.0
 var _step_h := 0.35
@@ -237,6 +239,7 @@ func _init_rig(sk: Skeleton3D) -> void:
 	_graze_pose = str(anim.get("graze_pose", "none"))
 	_hit_react = str(anim.get("hit_react", "flinch_back"))
 	_death_fall = str(anim.get("death_fall", "side"))
+	_neck_rest = deg_to_rad(float(anim.get("neck_rest_pitch_deg", 0.0)))
 	_m_from_s = m.global_transform.affine_inverse() * sk.global_transform
 	_s_from_m = _m_from_s.affine_inverse()
 	var helpers: Dictionary = rig.helper_bones
@@ -319,11 +322,11 @@ func _init_rig(sk: Skeleton3D) -> void:
 	_pivot_m.y = _body_rest_m.origin.y
 	_body_len = maxf(absf(_front_pivot_m.z - _rear_pivot_m.z), 0.4)
 	_body_w = maxf(maxx - minx, 0.3)
-	_turn_r = 0.0
+	# foot speed when turning in place: the farthest foot from the turning axis (the machine origin) sets the cadence
+	_turn_r = 0.2
 	for l in _legs:
 		var hm3: Vector3 = l["home_m"]
-		_turn_r += Vector2(hm3.x, hm3.z).length()
-	_turn_r = maxf(_turn_r / maxf(_legs.size(), 1), 0.2)
+		_turn_r = maxf(_turn_r, Vector2(hm3.x, hm3.z).length())
 	# while moving, a foot's stance is centred halfway between its bind-pose contact and the hip's projection (legs
 	# raked back in the bind pose, like the Grazer's hind legs, would otherwise run out of reach behind the hip);
 	# how far a foot can travel under its hip while planted: reach with a 10 % crouch and toe roll
@@ -374,16 +377,34 @@ func _init_rig(sk: Skeleton3D) -> void:
 		_touch(_head)
 	_head_rest_h = _rest_m(sk, _head).y if _head >= 0 else _hip_h
 	# trunk boxes (death settling): body hitboxes not on legs, neck, head or tail
+	# (whole subtrees of legs, neck/head and tail are excluded: plates hanging on a leg are not trunk)
 	var skip := {}
+	var roots_skip := []
 	for l in _legs:
-		for b in l["chain"]:
-			skip[b] = true
-	for b in _tail:
-		skip[b] = true
-	for b in _neck:
-		skip[b] = true
+		roots_skip.append(int(l["hip"]))
+	if not _tail.is_empty():
+		roots_skip.append(_tail[0])
+	if not _neck.is_empty():
+		roots_skip.append(_neck[0])
 	if _head >= 0:
-		skip[_head] = true
+		roots_skip.append(_head)
+	for r0 in roots_skip:
+		for b in _subtree(sk, r0, {}, 100000):
+			skip[b] = true
+	if _body >= 0:
+		var tb_all := PackedInt32Array()
+		for b in _subtree(sk, _body, helpers, 100000):
+			if not skip.has(b):
+				tb_all.append(b)
+		# plates on a leg root (above the knee) move with the trunk, not with the foot
+		for l in _legs:
+			var below_knee := {}
+			for b in _subtree(sk, int(l["knee"]), {}, 100000):
+				below_knee[b] = true
+			for b in _subtree(sk, int(l["hip"]), helpers, 100000):
+				if not below_knee.has(b):
+					tb_all.append(b)
+		_trunk_bones = tb_all if tb_all.size() <= 64 else _subtree_sample(tb_all, 64)
 	for h in rig.hitboxes:
 		var area := h as Area3D
 		if area == null or area.get_meta("weak", false):
@@ -400,9 +421,9 @@ func _init_rig(sk: Skeleton3D) -> void:
 			half = Vector3(r, r, r)
 		_trunk_boxes.append([ba.bone_idx, area.transform, half])
 	if not _neck.is_empty():
-		_grp_head = _subtree(sk, _neck[0], helpers)
+		_grp_head = _subtree(sk, _neck[0], helpers, 128)
 	elif _head >= 0:
-		_grp_head = _subtree(sk, _head, helpers)
+		_grp_head = _subtree(sk, _head, helpers, 128)
 	if not _tail.is_empty():
 		_grp_tail = _subtree(sk, _tail[0], helpers)
 	for l in _legs:
@@ -418,7 +439,7 @@ func _init_rig(sk: Skeleton3D) -> void:
 
 
 ## Non-helper bones of the subtree under `b` (evenly sampled down to 32): ground-clearance probes.
-func _subtree(sk: Skeleton3D, b: int, helpers: Dictionary) -> PackedInt32Array:
+func _subtree(sk: Skeleton3D, b: int, helpers: Dictionary, cap: int = 32) -> PackedInt32Array:
 	var all := PackedInt32Array()
 	var stack := [b]
 	while not stack.is_empty():
@@ -427,11 +448,18 @@ func _subtree(sk: Skeleton3D, b: int, helpers: Dictionary) -> PackedInt32Array:
 			all.append(x)
 		for c in sk.get_bone_children(x):
 			stack.append(c)
-	if all.size() <= 32:
+	if all.size() <= cap:
 		return all
 	var out := PackedInt32Array()
-	for i in 32:
-		out.append(all[int(float(i) * all.size() / 32.0)])
+	for i in cap:
+		out.append(all[int(float(i) * all.size() / float(cap))])
+	return out
+
+
+static func _subtree_sample(all: PackedInt32Array, cap: int) -> PackedInt32Array:
+	var out := PackedInt32Array()
+	for i in cap:
+		out.append(all[int(float(i) * all.size() / float(cap))])
 	return out
 
 
@@ -963,8 +991,13 @@ func _solve_legs(sk: Skeleton3D, M: Transform3D) -> void:
 		if st == "free":
 			target = l["free_target"]
 		if target == null:
-			# free leg without a target: keeps its rest shape relative to the body
-			l["cur"] = S * sk.get_bone_global_pose(int(l["end"])).origin
+			# free leg without a target keeps its rest shape relative to the body, but never reaches into the ground
+			var rel: Vector3 = S * sk.get_bone_global_pose(int(l["end"])).origin
+			var floor_y := _ground(rel) + float(l["c0"])
+			if rel.y < floor_y:
+				rel.y = floor_y
+				_ik_leg(sk, l, Sinv * rel, M)
+			l["cur"] = rel
 			l["over"] = 0.0
 			continue
 		var over := _ik_leg(sk, l, Sinv * (target as Vector3), M)
@@ -974,7 +1007,9 @@ func _solve_legs(sk: Skeleton3D, M: Transform3D) -> void:
 			var err := (S * sk.get_bone_global_pose(int(l["end"])).origin).distance_to(target)
 			if err > float(debug_info.get("ik_err_max", 0.0)):
 				debug_info["ik_err_max"] = err
-				debug_info["ik_err_ctx"] = "leg %s gait %s speed %.1f over %.3f reach_f %.3f reach_r %.3f T %.3f duty %.2f" % [l["group"], _gait, _speed, over, _reach_f, _reach_r, _period, _duty]
+				var Hm: Vector3 = M.affine_inverse() * (S * sk.get_bone_global_pose(int(l["hip"])).origin)
+				var Tm: Vector3 = M.affine_inverse() * (target as Vector3)
+				debug_info["ik_err_ctx"] = "leg %s gait %s speed %.1f over %.3f reach_f %.3f reach_r %.3f T %.3f duty %.2f age %.3f hip_m %s target_m %s L %.2f" % [l["group"], _gait, _speed, over, _reach_f, _reach_r, _period, _duty, float(l["age"]), Hm, Tm, float(l["L"])]
 		if st == "free":
 			l["cur"] = S * sk.get_bone_global_pose(int(l["end"])).origin
 
@@ -1108,7 +1143,7 @@ func _pose_upper(sk: Skeleton3D, M: Transform3D, delta: float) -> void:
 	var run_k := clampf((_speed - _walk_speed) / maxf(_run_speed - _walk_speed, 0.1), 0.0, 1.0)
 	var move_k := clampf(_speed / maxf(_walk_speed, 0.3), 0.0, 1.0)
 	# neck: posture by state + pose channels + grazing + gait nod
-	var neck_pitch := float(_ch.get("neck_pitch", 0.0)) + 0.12 * run_k
+	var neck_pitch := _neck_rest + float(_ch.get("neck_pitch", 0.0)) + 0.12 * run_k
 	if _state in ["alert", "suspicious"]:
 		neck_pitch -= 0.12
 	neck_pitch += _graze_angle * _graze_w
@@ -1195,6 +1230,8 @@ func _process_death(sk: Skeleton3D, M: Transform3D, delta: float) -> void:
 	_apply_death_pose(sk, M, buckle, fall, true)
 	if t > 2.4:
 		_death_frozen = true
+		if debug_measure:
+			print("DEATH side %.0f neck %.2f tail %.2f corr %.2f head_clear %.2f n %s" % [_death_side, _death_neck, _death_tail, _death_corr, _min_clear(sk, _grp_head), _death_n])
 		for b in _touched:
 			_frozen_poses[b] = sk.get_bone_pose(b)
 
@@ -1236,6 +1273,9 @@ func _apply_death_pose(sk: Skeleton3D, M: Transform3D, buckle: float, fall: floa
 				+ absf(_death_n.dot(g.basis.y.normalized() * h.y * g.basis.y.length())) \
 				+ absf(_death_n.dot(g.basis.z.normalized() * h.z * g.basis.z.length()))
 			low = minf(low, cdist - ext)
+		for b in _trunk_bones:
+			var bp: Vector3 = _m_from_s * sk.get_bone_global_pose(b).origin
+			low = minf(low, _death_n.dot(bp) - _death_d - 0.02)
 		if low < INF:
 			var want := -low if fall >= 1.0 else maxf(-low, 0.0)
 			_death_corr += want if fall >= 1.0 else maxf(want, 0.0)
@@ -1268,7 +1308,9 @@ func _apply_death_pose(sk: Skeleton3D, M: Transform3D, buckle: float, fall: floa
 		if settle and fall >= 1.0:
 			# the head sinks until its lowest bone (horns, antennas, jaw) rests just above the ground
 			var clear := _min_clear(sk, _grp_head)
-			_death_neck = clampf(_death_neck + clampf((clear - 0.04) * 0.8, -0.15, 0.08), -1.2, 1.2)
+			_death_neck = clampf(_death_neck + clampf((clear - 0.04) * 0.8, -0.15, 0.08), -1.6, 1.2)
+			if _death_neck <= -1.6 and clear < 0.0:
+				_death_corr += -clear   # horns/antennas still in the ground with the neck turned away: lift the corpse
 	if not _tail.is_empty():
 		_rot_chain(sk, _tail, down_axis, (0.35 + _death_tail) * fall)
 		if settle and fall >= 1.0:
