@@ -188,3 +188,4 @@ Full per-site table: `docs/notes/svet.md`. No placement references `ai/groups`, 
   mock world load (hra investigating).
 - D45 A site activates only when its whole herd fits under spawning.max_active_machines; nearest sites first, far
   idle sites yield.
+- 2026-10-09 svet 6074fe1 merged: WorldMeshes.Ensure re-exports missing glb/.tex/textures; CellUpToDate requires all referenced files (GC regen verified in one serve session).
