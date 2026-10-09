@@ -1,7 +1,10 @@
 extends CanvasLayer
 ## Radial buy wheel (D6/D14: weapons rows with buy_wheel_index >= 0, max economy.buy_wheel_max_items) with resolved
 ## prices and icons (cache cs2/weapons/<id>/icon.svg via Image.load_svg_from_buffer). Buying goes through Game.buy
-## (refused in combat, D19). B toggles, mouse direction selects, left click buys.
+## (refused in combat, D19). B tap toggles, the mouse direction selects, left click buys; holding B and releasing it
+## over an item buys that item and closes the wheel (released with nothing selected, the wheel stays open).
+## Mouse events arrive through the full-screen root Control's gui_input: the root stops mouse events (so clicks never
+## reach the game behind the wheel), which means they never get to _unhandled_input.
 
 const Sheets := preload("res://core/sheets.gd")
 const Log := preload("res://core/log.gd")
@@ -11,6 +14,8 @@ const Content := preload("res://core/content.gd")
 const RADIUS := 330.0
 const INNER := 105.0
 const ICON_BOX := Vector2(84, 32)
+const HOLD_MS := 250        # B held at least this long, then released = "release to buy"
+const NOTE_MS := 2000       # how long a refusal reason stays in the centre
 
 var _root: Control
 var _wheel: Control
@@ -21,6 +26,10 @@ var _sel := -1
 var _open := false
 var _status: Label
 var _sfx: AudioStreamPlayer
+var _opened_ms := 0
+var _b_held := false        # the B press that opened the wheel is still down
+var _note := ""
+var _note_until := 0
 
 
 func _ready() -> void:
@@ -31,6 +40,7 @@ func _ready() -> void:
 	_root.set_anchors_preset(Control.PRESET_FULL_RECT)
 	_root.mouse_filter = Control.MOUSE_FILTER_STOP
 	_root.visible = false
+	_root.gui_input.connect(_on_root_gui_input)
 	add_child(_root)
 	var dim := ColorRect.new()
 	dim.color = Color(0, 0, 0, 0.35)
@@ -124,23 +134,26 @@ func open() -> void:
 	_open = true
 	_root.visible = true
 	_sel = -1
+	_note = ""
+	_opened_ms = Time.get_ticks_msec()
 	# centre the cursor only when a human was playing (mouse captured); automated runs never move the mouse
 	var was_captured := Input.mouse_mode == Input.MOUSE_MODE_CAPTURED
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 	if was_captured:
-		Input.warp_mouse(_root.get_viewport_rect().size * 0.5)
+		_root.get_viewport().warp_mouse(_root.get_viewport_rect().size * 0.5)   # viewport coordinates
 	_layout()
-	Log.info("buy wheel opened (%d items)" % _items.size())
+	Log.info("buywheel: open (%d items, money $%d, in combat %s)" % [_items.size(), Game.money, Game.in_combat()])
 
 
 func close() -> void:
 	if not _open:
 		return
 	_open = false
+	_b_held = false
 	_root.visible = false
 	if Game.main and Game.main.has_method("capture_mouse"):
 		Game.main.capture_mouse()
-	Log.info("buy wheel closed")
+	Log.info("buywheel: close")
 
 
 func on_bought(_id: String) -> void:
@@ -164,41 +177,77 @@ func _layout() -> void:
 	_wheel.queue_redraw()
 
 
+## Keys (B, Esc). Mouse events are handled in _on_root_gui_input.
 func _unhandled_input(event: InputEvent) -> void:
-	if Game.args and Game.args.automated():
-		return
 	if event.is_action_pressed("buy"):
 		if _open:
 			close()
 		elif Game.player and Game.player.is_alive() and Game.is_world_ready:
 			open()
+			_b_held = true
+		else:
+			Log.info("buywheel: denied open (%s)" % ("world not ready" if not Game.is_world_ready else "player dead"))
 		get_viewport().set_input_as_handled()
 		return
-	if not _open:
+	if event.is_action_released("buy"):
+		# hold B, point at an item, let go: buy it and close. A tap (or a release with nothing selected) leaves the
+		# wheel open for clicking - a slow frame must not turn a tap into "close".
+		if _open and _b_held and _sel >= 0 and Time.get_ticks_msec() - _opened_ms >= HOLD_MS:
+			_try_buy(_sel)
+			close()
+		_b_held = false
+		get_viewport().set_input_as_handled()
 		return
-	if event.is_action_pressed("menu"):
+	if _open and event.is_action_pressed("menu"):
 		close()
 		get_viewport().set_input_as_handled()
-	elif event is InputEventMouseMotion:
+
+
+func _on_root_gui_input(event: InputEvent) -> void:
+	if not _open:
+		return
+	# the root Control covers the whole viewport at (0, 0): local positions are viewport positions
+	if event is InputEventMouseMotion:
 		_update_sel((event as InputEventMouseMotion).position)
 	elif event is InputEventMouseButton and (event as InputEventMouseButton).pressed and (event as InputEventMouseButton).button_index == MOUSE_BUTTON_LEFT:
 		_update_sel((event as InputEventMouseButton).position)
-		if _sel >= 0:
-			Game.buy(_items[_sel])
-		get_viewport().set_input_as_handled()
+		_try_buy(_sel)
+	_root.accept_event()
+
+
+func _try_buy(i: int) -> void:
+	if i < 0 or i >= _items.size():
+		Log.info("buywheel: denied (no item under the cursor)")
+		return
+	var id := _items[i]
+	Log.info("buywheel: select %s" % id)
+	var reason: String = Game.player.can_buy(id) if Game.player else "no player"
+	if reason != "":
+		Log.info("buywheel: denied %s (%s)" % [id, reason])
+		_note = reason
+		_note_until = Time.get_ticks_msec() + NOTE_MS
+		Game.hud_message.emit(reason)
+		return
+	var price := Sheets.price(id)
+	if Game.buy(id):
+		Log.info("buywheel: bought %s $%d (money $%d)" % [id, price, Game.money])
+	else:
+		Log.info("buywheel: denied %s (Game.buy refused)" % id)
 
 
 func _update_sel(pos: Vector2) -> void:
 	var c := _root.get_viewport_rect().size * 0.5
 	var d := pos - c
 	var old := _sel
-	if d.length() < INNER * 0.6:
+	if d.length() < INNER * 0.6 or _items.is_empty():
 		_sel = -1
 	else:
 		var a := fposmod(d.angle() + PI * 0.5, TAU)
 		_sel = int(a / TAU * _items.size()) % _items.size()
 	if old != _sel:
 		_wheel.queue_redraw()
+		if _sel >= 0:
+			Log.info("buywheel: hover %s" % _items[_sel])
 
 
 func _process(_delta: float) -> void:
@@ -208,6 +257,8 @@ func _process(_delta: float) -> void:
 	var txt := "$%d" % Game.money
 	if combat:
 		txt += "\nCan't buy during combat"
+	elif _note != "" and Time.get_ticks_msec() < _note_until:
+		txt += "\n" + _note
 	elif _sel >= 0:
 		var id := _items[_sel]
 		txt = "%s  $%d\n$%d left" % [Sheets.weapon_row(id).get("display_name", id), Sheets.price(id), Game.money]
