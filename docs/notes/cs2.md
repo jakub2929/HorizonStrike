@@ -75,3 +75,8 @@
   cs2/ = 115 MiB. cs2/ui: armor.svg, kevlar.svg, snd/buy_0..2.wav. Godot 4.7.2: 16 SVGs load
   (Image.load_svg_from_buffer), 288 sounds load (AudioStreamWAV/MP3.load_from_file), all 12 viewmodels render
   holding their weapon (contact sheets in C:\meshy\_tools\cache-cs2work\shots).
+- C4 2026-10-09: manifest.json gets `cs2_build` (appmanifest_730.acf buildid, fallback steam.inf ClientVersion) and
+  `cs2_format` (= Cs2Converter.Format, bump on output changes); merged through Hzs.Common ManifestFile (lock +
+  atomic write, other fields kept: checked with a pre-seeded hzd_build). A full conversion first removes the cs2
+  stamp, so an interrupted run is redone. 2nd run: `cs2 up to date (25815307)`, `done: 0 bytes`, 350 files unchanged.
+  serve bootstrap during a full CS2 conversion: 0 non-JSON stdout lines (StdoutGuard).
