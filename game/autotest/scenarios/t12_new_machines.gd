@@ -47,6 +47,9 @@ func _run(ctx):
 	await ctx.wait(2.0)
 	var gy: Variant = await ctx.ground_y(SITE.x, SITE.z)
 	var center := Vector3(SITE.x, float(gy) if gy != null else SITE.y, SITE.z)
+	var spot: Dictionary = await ctx.clear_spot(center, 8.0)
+	center = spot.pos
+	data.spot = {"pos": str(spot.pos), "clear": spot.clear}
 	var per := {}
 	for mt in MACHINES:
 		per[mt] = await _machine(ctx, inp, g, mt, center)
@@ -56,6 +59,12 @@ func _run(ctx):
 
 func _machine(ctx, inp, g: Node, mt: String, center: Vector3) -> Dictionary:
 	var info := {}
+	# spawned while the player is 80 m away, so the machine starts calm
+	var far := center + Vector3(0, 0, 80.0)
+	var fy: Variant = await ctx.ground_y(far.x, far.z)
+	far.y = float(fy) + 0.05 if fy != null else center.y + 3.0
+	await ctx.call_api(g, "teleport", [far])
+	await ctx.physics_frames(4)
 	var m: Variant = await ctx.call_api(g, "spawn_machine", [mt, center])
 	if not (m is Node):
 		check("%s: spawn_machine works in this build" % mt, false, str(m))
@@ -175,8 +184,7 @@ func _machine(ctx, inp, g: Node, mt: String, center: Vector3) -> Dictionary:
 			check("broadhead: a second Broadhead of the herd leaves graze (defend)", not mates.is_empty() and not left.is_empty(), str(mate_states.values()))
 	rec.events.clear()
 	for x in [m] + mates:
-		if is_instance_valid(x):
-			ctx.set_ai(x, false)
+		ctx.despawn(x)
 	await ctx.wait(1.0)
 	return info
 

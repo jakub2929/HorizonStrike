@@ -47,6 +47,11 @@ func _run(ctx):
 	await ctx.wait(2.0)
 	var gy: Variant = await ctx.ground_y(SITE.x, SITE.z)
 	var center := Vector3(SITE.x, float(gy) if gy != null else SITE.y, SITE.z)
+	var spot: Dictionary = await ctx.clear_spot(center, RING_M)
+	data.spot = {"pos": str(spot.pos), "clear": spot.clear, "tried": spot.tried}
+	if not spot.clear:
+		note("no spot with a clear 8-direction ring within 160 m of %s; using it anyway" % str(center))
+	center = spot.pos
 	var per := {}
 	for mt in MachinesSheet.ROWS:
 		per[mt] = await _machine(ctx, inp, g, o, mt, center)
@@ -54,8 +59,17 @@ func _run(ctx):
 	return true
 
 
+static func _refill(ctx) -> void:
+	## setup: full magazine + reserve (8 directions x up to 4 shots empty a Desert Eagle)
+	var w: Variant = ctx.player.get("weapons") if "weapons" in ctx.player else null
+	if w is Object and (w as Object).has_method("give"):
+		(w as Object).call("give", WEAPON)
+
+
 func _machine(ctx, inp, g: Node, o, mt: String, center: Vector3) -> Dictionary:
 	var info := {"directions": [], "hittable": 0}
+	# the player away from the spot while the machine appears (AI off right after, but no alert carried over)
+	await ctx.call_api(g, "teleport", [center + Vector3(0, 2.0, 40.0)])
 	var m: Variant = await ctx.call_api(g, "spawn_machine", [mt, center])
 	if not (m is Node):
 		check("%s: spawn_machine works in this build" % mt, false, str(m))
@@ -85,6 +99,7 @@ func _machine(ctx, inp, g: Node, o, mt: String, center: Vector3) -> Dictionary:
 		pos.y = float(gy) + 0.05 if gy != null else pos.y
 		await ctx.call_api(g, "teleport", [pos])
 		await ctx.physics_frames(4)
+		_refill(ctx)
 		var d := {"deg": 45 * k}
 		# which weak point (of which part) is the first hit from here
 		var target := {}
@@ -109,8 +124,12 @@ func _machine(ctx, inp, g: Node, o, mt: String, center: Vector3) -> Dictionary:
 			info.directions.append(d)
 			continue
 		d.part = target.part
-		var cam: Camera3D = ctx.camera()
-		var dist: float = cam.global_position.distance_to(target.point) if cam != null else RING_M
+		var cam: Camera3D = ctx.player_camera()
+		var dist: float = HitCheck.weak_distance(ctx, m, target.point, target.part)
+		d.falloff_at = "weak hitbox surface"
+		if dist < 0.0:
+			dist = cam.global_position.distance_to(target.point) if cam != null else RING_M
+			d.falloff_at = "aim point"
 		var exp_w: float = dmg * hs * f.call(dist)
 		var tol: float = absf(dmg * hs * (f.call(maxf(0.0, dist - 0.75)) - f.call(dist + 0.75))) * 0.5 + 0.05
 		# weak shot; a miss or a spread hit on the body (well below the weak value) is retried, 3 shots max
@@ -124,7 +143,7 @@ func _machine(ctx, inp, g: Node, o, mt: String, center: Vector3) -> Dictionary:
 			shot = await Combat.shoot(ctx, inp, m)
 			if shot.hit and float(shot.damage) >= 0.6 * exp_w:
 				break
-			spread.append(snappedf(float(shot.get("damage", 0.0)), 0.01))
+			spread.append([snappedf(float(shot.get("damage", 0.0)), 0.01), "fired" if shot.get("fired", false) else "not fired " + str(shot.get("ammo"))])
 			await ctx.wait(Combat.shot_interval(ctx, WEAPON))
 		d.spread_shots = spread
 		d.weak_damage = snappedf(float(shot.get("damage", 0.0)), 0.01)
@@ -135,7 +154,16 @@ func _machine(ctx, inp, g: Node, o, mt: String, center: Vector3) -> Dictionary:
 		m.set("health", BIG_HP)
 		if "armor" in m:
 			m.set("armor", armor0)
+		# a body point whose first hit is a body hitbox (on some machines the default body point lies on the weak spot)
 		var bp: Vector3 = HitCheck.target_point(m, "body")
+		d.body_point = "none clear: default"
+		for cand in HitCheck.body_points(m):
+			await inp.aim_at_point(cand)
+			await ctx.physics_frames(2)
+			if HitCheck.first_hit(ctx, m, cand, "body").clear:
+				bp = cand
+				d.body_point = "first hit body"
+				break
 		await inp.aim_at_point(bp)
 		var body: Dictionary = await Combat.shoot(ctx, inp, m)
 		d.body_damage = snappedf(float(body.get("damage", 0.0)), 0.01)
@@ -152,4 +180,6 @@ func _machine(ctx, inp, g: Node, o, mt: String, center: Vector3) -> Dictionary:
 	note("%s: weak spot first hit and beating the body from %d/8 directions" % [mt, good])
 	check("%s: >= 1 direction where the weak spot is the first hit and weak > body (%d/8)" % [mt, good], good >= 1, str(info.directions.map(func(x): return [x.deg, x.get("part", "blocked"), x.get("weak_damage", "-"), x.get("body_damage", "-")])))
 	check("%s: weak damage == deagle.damage * headshot_mult * falloff on every hit direction" % mt, formula_bad.is_empty() and formula_ok >= 1, "; ".join(formula_bad) if not formula_bad.is_empty() else "%d ok" % formula_ok)
+	ctx.despawn(m)
+	await ctx.physics_frames(3)
 	return info

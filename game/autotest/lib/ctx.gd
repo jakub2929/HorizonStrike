@@ -370,6 +370,48 @@ func spawn_ahead(machine_type: String, dist_m: float, angle_deg: float = 0.0, ai
 	return null
 
 
+func despawn(m: Variant) -> void:
+	## frees a machine this scenario spawned (setup between sub-tests; cleanup() would free it at the end anyway)
+	if m is Node and is_instance_valid(m):
+		spawned.erase(m)
+		(m as Node).queue_free()
+
+
+func clear_spot(base: Vector3, ring_m: float, max_m: float = 160.0, step_m: float = 16.0) -> Dictionary:
+	## nearest ground point to base from which eye-height rays from 8 points on a ring_m ring to 1 m above the centre
+	## meet no world geometry (an open, flat-enough spot for ring tests); {pos, tried, clear}
+	var world := runner.get_viewport().get_world_3d()
+	var tried := 0
+	var r := 0.0
+	while r <= max_m:
+		var n := 1 if r == 0.0 else int(ceil(TAU * r / step_m))
+		for k in n:
+			var a := TAU * k / n
+			var c := base + Vector3(sin(a), 0.0, cos(a)) * r
+			var gy: Variant = await ground_y(c.x, c.z)
+			if gy == null:
+				continue
+			c.y = float(gy)
+			tried += 1
+			var ok := true
+			for j in 8:
+				var b := deg_to_rad(45.0 * j)
+				var p := c + Vector3(sin(b), 0.0, cos(b)) * ring_m
+				var py: Variant = await ground_y(p.x, p.z)
+				if py == null or absf(float(py) - c.y) > ring_m * 0.35:
+					ok = false
+					break
+				var q := PhysicsRayQueryParameters3D.create(Vector3(p.x, float(py) + 1.6, p.z), c + Vector3(0, 1.0, 0))
+				q.exclude = player_rids()
+				if not world.direct_space_state.intersect_ray(q).is_empty():
+					ok = false
+					break
+			if ok:
+				return {"pos": c, "tried": tried, "clear": true}
+		r += step_m
+	return {"pos": base, "tried": tried, "clear": false}
+
+
 func set_ai(m: Node, on: bool) -> void:
 	## switch a machine's AI for test setup; world machines get their original flag back after the scenario
 	if not is_instance_valid(m) or not ("ai_enabled" in m):
@@ -465,7 +507,7 @@ func line_of_sight_to(m: Node, part: String = "body") -> Dictionary:
 	if hit.is_empty():
 		return {"clear": true, "by": ""}
 	var col: Variant = hit.get("collider")
-	if col is Node and (col == m or m.is_ancestor_of(col) or (col as Node).get_meta("machine", null) == m):
+	if col is Node and (col == m or m.is_ancestor_of(col) or ((col as Node).has_meta("machine") and (col as Node).get_meta("machine") == m)):
 		return {"clear": true, "by": str((col as Node).name)}
 	return {"clear": false, "by": str((col as Node).name) if col is Node else str(col)}
 

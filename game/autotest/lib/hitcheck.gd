@@ -43,7 +43,7 @@ static func first_hit(ctx, m: Node, to: Vector3, part: String = "body") -> Dicti
 	if not (col is Node):
 		return {"clear": false, "by": str(col)}
 	var n := col as Node
-	var owner_m: Variant = n.get_meta("machine", null)
+	var owner_m: Variant = (n.get_meta("machine") if n.has_meta("machine") else null)
 	var mine: bool = owner_m == m or n == m or m.is_ancestor_of(n)
 	var hit_part := str(n.get_meta("part", ""))
 	var hit_weak: bool = bool(n.get_meta("weak", false))
@@ -62,11 +62,50 @@ static func first_hit(ctx, m: Node, to: Vector3, part: String = "body") -> Dicti
 		q2.collide_with_areas = true
 		var hit2: Dictionary = ctx.runner.get_viewport().get_world_3d().direct_space_state.intersect_ray(q2)
 		var n2: Variant = hit2.get("collider")
-		if n2 is Node and str((n2 as Node).get_meta("part", "")) == part and (n2 as Node).get_meta("machine", null) == m:
+		if n2 is Node and str((n2 as Node).get_meta("part", "")) == part and (n2 as Node).has_meta("machine") and (n2 as Node).get_meta("machine") == m:
 			var inside := inside_shapes(n as CollisionObject3D, hit2.position)
 			label += "; next: %s at %.2f m further, %s it" % [(n2 as Node).name, (hit2.position as Vector3).distance_to(hit.position), "inside" if inside else "behind"]
 			ok = inside
 	return {"clear": ok, "by": label}
+
+
+static func body_points(m: Node) -> Array:
+	## aim points for a body shot: the default body point, then the centre of every body (non-weak) hitbox shape
+	var out := [target_point(m, "body")]
+	for co in m.find_children("*", "CollisionObject3D", true, false):
+		var n := co as Node
+		if not n.has_meta("part") or bool(n.get_meta("weak", false)):
+			continue
+		for c in n.get_children():
+			if c is CollisionShape3D:
+				out.append((c as CollisionShape3D).global_position)
+	return out
+
+
+static func weak_distance(ctx, m: Node, to: Vector3, part: String) -> float:
+	## camera -> the first hitbox area of m's part along the ray to `to` (where the game measures the falloff when the
+	## weak spot wins); -1 when the ray never meets it
+	var cam: Camera3D = ctx.player_camera()
+	if cam == null:
+		return -1.0
+	var space: PhysicsDirectSpaceState3D = ctx.runner.get_viewport().get_world_3d().direct_space_state
+	var from := cam.global_position
+	var q := PhysicsRayQueryParameters3D.create(from, to + (to - from).normalized() * 2.0)
+	q.collide_with_areas = true
+	q.collide_with_bodies = false
+	var ex: Array[RID] = []
+	for i in 24:
+		q.exclude = ex
+		var hit: Dictionary = space.intersect_ray(q)
+		if hit.is_empty():
+			return -1.0
+		var n: Variant = hit.get("collider")
+		if n is Node and (n as Node).has_meta("machine") and (n as Node).get_meta("machine") == m and str((n as Node).get_meta("part", "")) == part:
+			return from.distance_to(hit.position)
+		if not (n is CollisionObject3D):
+			return -1.0
+		ex.append((n as CollisionObject3D).get_rid())
+	return -1.0
 
 
 static func inside_shapes(co: CollisionObject3D, p: Vector3) -> bool:

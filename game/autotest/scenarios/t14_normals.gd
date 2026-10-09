@@ -25,12 +25,16 @@ func _run(ctx):
 			for dx in range(-1, 2):
 				want.append((start as Vector2i) + Vector2i(dx, dy))
 		check("start 3x3 loaded", await ctx.wait_until(func(): return want.all(func(c): return bool(w.call("is_cell_loaded", c))), 900.0))
-	# mesh id -> kind from the loaded cells' cell.json
+	# mesh id -> kind from the cell.json of every loaded cell (streaming keeps a 5x5+ ring, not only the 3x3)
 	var kind_of := {}
 	var kinds_present := false
-	for dy in range(-1, 2):
-		for dx in range(-1, 2):
-			var cj: Dictionary = ctx.oracle.cell_json((start as Vector2i) + Vector2i(dx, dy))
+	for dy in range(-3, 4):
+		for dx in range(-3, 4):
+			var cc: Vector2i = (start as Vector2i) + Vector2i(dx, dy)
+			if absi(dx) > 1 or absi(dy) > 1:
+				if not (w is Object and w.has_method("is_cell_loaded") and bool(w.call("is_cell_loaded", cc))):
+					continue
+			var cj: Dictionary = ctx.oracle.cell_json(cc)
 			for inst in cj.get("instances", []):
 				if inst is Dictionary and inst.has("kind"):
 					kinds_present = true
@@ -96,6 +100,8 @@ static func _kind(gi: GeometryInstance3D, kind_of: Dictionary) -> String:
 	var nm := str(gi.name).to_lower()
 	if nm.contains("terrain"):
 		return "terrain"
+	if nm.begins_with("mm_undergrowth") or nm.begins_with("mm_veg") or nm.contains("vegetation"):
+		return "vegetation"
 	for id in kind_of:
 		if nm.contains(str(id).to_lower()):
 			return kind_of[id]
