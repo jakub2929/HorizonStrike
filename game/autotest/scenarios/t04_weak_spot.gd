@@ -29,8 +29,10 @@ func _run(ctx):
 	if not api_check(ctx.missing_api(a, ["health", "state"], ["weak_spots"])):
 		return false
 	await ctx.physics_frames(3)
-	var full: float = o.f(o.machine("watcher", "health"))
-	check("setup: watchers at full health %s" % str(full), is_equal_approx(float(a.get("health")), full) and is_equal_approx(float(b.get("health")), full), "A %s B %s" % [str(a.get("health")), str(b.get("health"))])
+	var fh: Dictionary = o.machine_health("watcher")
+	var full: float = fh.value
+	data.full_health = fh
+	check("setup: watchers at full health %s (%s)" % [str(full), fh.source], is_equal_approx(float(a.get("health")), full) and is_equal_approx(float(b.get("health")), full), "A %s B %s" % [str(a.get("health")), str(b.get("health"))])
 	if "armor" in a:
 		data.armor_before = [a.get("armor"), b.get("armor")]
 

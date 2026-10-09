@@ -5,15 +5,23 @@ const SITE_CELLS := [Vector2i(5, -2), Vector2i(3, -2)]  # sheet t05/t06/s03: rea
 
 
 static func find_site(ctx, machine_type: String, min_count: int = 1) -> Dictionary:
-	## first spawn of machine_type (count >= min_count) in the site cells; {} when the cache has none (mock data)
+	## a spawn of machine_type (count >= min_count) in the site cells, preferring sites whose original HZD machine is
+	## this machine itself (e.g. a Grazer herd at an antelope site, not at a variant-B site); {} when the cache has none
+	var own := str(MachinesSheet.ROWS.get(machine_type, {}).get("hzd_internal_name", ""))
+	var best := {}
 	for cell in SITE_CELLS:
 		var cj: Dictionary = ctx.oracle.cell_json(cell)
 		for s in cj.get("spawns", []):
 			if s is Dictionary and str(s.get("type")) == machine_type and int(s.get("count", 1)) >= min_count:
 				var pos: Vector3 = ctx.v3(s.get("pos"))
-				if pos != Vector3.INF:
-					return {"cell": cell, "pos": pos, "site": str(s.get("site")), "orig_type": str(s.get("orig_type")), "count": int(s.get("count", 1)), "radius": float(s.get("radius", 30.0))}
-	return {}
+				if pos == Vector3.INF:
+					continue
+				var site := {"cell": cell, "pos": pos, "site": str(s.get("site")), "orig_type": str(s.get("orig_type")), "count": int(s.get("count", 1)), "radius": float(s.get("radius", 30.0))}
+				if site.orig_type == own:
+					return site
+				if best.is_empty():
+					best = site
+	return best
 
 
 static func go_near_site(ctx, site: Dictionary, machine_type: String, need: int, timeout_s: float = 240.0) -> Array:

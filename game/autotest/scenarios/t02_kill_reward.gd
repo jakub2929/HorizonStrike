@@ -25,7 +25,7 @@ func _run(ctx):
 
 	# setup: own an ak47 (bought through the normal buy path if not owned yet)
 	if not Array(p.get("inventory")).has("ak47"):
-		g.set("money", 3500)
+		g.set("money", maxi(3500, o.i(o.weapon("ak47", "price"))))  # 3500 per sheet; enough for any price table
 		await ctx.frames(1)
 		check("setup: buy(ak47)", (await ctx.call_api(g, "buy", ["ak47"])) == true)
 	var cases := [

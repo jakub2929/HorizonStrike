@@ -1,6 +1,7 @@
 extends "res://autotest/lib/scenario.gd"
-## t03 Buying subtracts the price: money 3000 -> buy ak47 -> buy hegrenade -> buy awp (refused). Prices come from the
-## resolved cache; the wheel must list exactly the weapons rows with buy_wheel_index >= 0 at those prices.
+## t03 Buying subtracts the price: money = ak47.price + hegrenade.price (= 3000 on CS2 b25815307) -> buy ak47 ->
+## buy hegrenade (money 0) -> buy awp (refused). Prices come from the resolved cache (synthetic ones with --mock-data);
+## the wheel must list exactly the weapons rows with buy_wheel_index >= 0 at those prices.
 
 
 func _init() -> void:
@@ -24,17 +25,18 @@ func _run(ctx):
 	data.inventory_start = inv0
 	check("setup: ak47 and hegrenade not owned yet", not inv0.has("ak47") and not inv0.has("hegrenade"), str(inv0))
 
-	var start := 3000
+	var p_ak: int = o.i(o.weapon("ak47", "price"))
+	var p_he: int = o.i(o.weapon("hegrenade", "price"))
+	var p_awp: int = o.i(o.weapon("awp", "price"))
+	data.prices = {"ak47": p_ak, "hegrenade": p_he, "awp": p_awp}
+	var start := p_ak + p_he
+	data.start_money = start
+	check("setup: awp is dearer than nothing (awp.price > 0)", p_awp > 0, str(p_awp))
 	g.set("money", start)
 	await ctx.frames(1)
 	await ctx.call_api(g, "open_buy_wheel")
 	await ctx.wait(0.3)
 	await _check_wheel(ctx, g, o)
-
-	var p_ak: int = o.i(o.weapon("ak47", "price"))
-	var p_he: int = o.i(o.weapon("hegrenade", "price"))
-	var p_awp: int = o.i(o.weapon("awp", "price"))
-	data.prices = {"ak47": p_ak, "hegrenade": p_he, "awp": p_awp}
 	var money_rec = ctx.record(g, "money_changed")
 
 	var ok_ak: Variant = await ctx.call_api(g, "buy", ["ak47"])
@@ -42,7 +44,7 @@ func _run(ctx):
 	var m1 := int(g.get("money"))
 	var inv1: Array = Array(p.get("inventory")).map(func(x): return str(x))
 	check("buy(ak47) returns true", ok_ak == true, str(ok_ak))
-	check("after ak47: money == 3000 - ak47.price (%d)" % (start - p_ak), m1 == start - p_ak, "money %d" % m1)
+	check("after ak47: money == %d - ak47.price (%d)" % [start, start - p_ak], m1 == start - p_ak, "money %d" % m1)
 	check("after ak47: inventory contains ak47", inv1.has("ak47"), str(inv1))
 
 	var ok_he: Variant = await ctx.call_api(g, "buy", ["hegrenade"])

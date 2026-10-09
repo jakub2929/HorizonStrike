@@ -30,11 +30,36 @@ static func read_json(path: String) -> Variant:
 
 
 func weapon(id: String, col: String) -> Variant:
-	return _cell("weapons", WeaponsSheet.ROWS, WeaponsSheet.COLUMNS, id, col)
+	var v: Variant = _cell("weapons", WeaponsSheet.ROWS, WeaponsSheet.COLUMNS, id, col)
+	if v == null and col == "kill_award":
+		# weapons sheet: kill_award_class = "HUD label + fallback award" (systems kill_award.<class>)
+		var cls := str(WeaponsSheet.ROWS.get(id, {}).get("kill_award_class", ""))
+		if cls != "" and SystemsSheet.ROWS.has(cls):
+			v = system(cls)
+			var key := "weapons.%s.kill_award" % id
+			used[key] = {"value": v, "source": "kill_award_class " + cls}
+			missing.erase(key)
+	return v
 
 
 func machine(id: String, col: String) -> Variant:
 	return _cell("machines", MachinesSheet.ROWS, MachinesSheet.COLUMNS, id, col)
+
+
+func machine_health(id: String) -> Dictionary:
+	## full health of a machine: resolved HZD InitialHealth (hzd/machines.json hzd_health) x systems
+	## combat.machine_health_scale (1.0 while that row does not exist); the sheet's design health when unresolved
+	var t: Variant = resolved.get("hzd/machines", {})
+	if t is Dictionary and t.is_empty():
+		t = read_json(cache_dir.path_join("hzd/machines.json"))
+		resolved["hzd/machines"] = t
+	var hzd: Variant = t.get(id, {}).get("hzd_health") if t is Dictionary and t.get(id) is Dictionary else null
+	if hzd is int or hzd is float:
+		var scale := 1.0
+		if SystemsSheet.ROWS.has("combat.machine_health_scale"):
+			scale = f(system("combat.machine_health_scale"))
+		return {"value": float(hzd) * scale, "source": "hzd_health %s x machine_health_scale %s" % [str(hzd), str(scale)]}
+	return {"value": f(machine(id, "health")), "source": "sheet health (hzd_health unresolved)"}
 
 
 func system(id: String) -> Variant:

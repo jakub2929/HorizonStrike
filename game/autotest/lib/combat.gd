@@ -14,12 +14,15 @@ static func equip(ctx, weapon_id: String) -> void:
 
 
 static func shot_interval(ctx, weapon_id: String) -> float:
+	## time between test shots: the cycle time, and long enough for the CS inaccuracy to recover (tapping, like a
+	## player aiming at a still target; a spray would test recoil, not the reward/damage path)
 	if weapon_id == "knife":
 		return float(ctx.oracle.system("combat.knife_primary_interval_s")) + 0.05
 	var o = ctx.oracle
 	var mode := int(WeaponsSheet.ROWS.get(weapon_id, {}).get("default_mode", 0))
 	var c: float = o.num(o.weapon(weapon_id, "cycle_time"), mode)
-	return (c if not is_nan(c) else 0.3) + 0.05
+	var rec: float = o.num(o.weapon(weapon_id, "recovery_time_stand"))
+	return maxf(c if not is_nan(c) else 0.3, rec if not is_nan(rec) else 0.0) + 0.05
 
 
 static func kill(ctx, m: Node, weapon_id: String, part: String = "body", max_shots: int = 80, timeout_s: float = 40.0) -> Dictionary:
@@ -33,7 +36,10 @@ static func kill(ctx, m: Node, weapon_id: String, part: String = "body", max_sho
 		await ctx.physics_frames(1)
 		var r: Variant = await ctx.call_api(ctx.game, "fire")
 		var d: Dictionary = r if r is Dictionary else {}
-		shots.append({"hit": d.get("hit"), "on_target": d.get("target") == m, "part": d.get("part"), "damage": d.get("damage")})
+		var shot := {"hit": d.get("hit"), "on_target": d.get("target") == m, "part": d.get("part"), "damage": d.get("damage")}
+		if d.has("reason"):
+			shot.reason = d.reason
+		shots.append(shot)
 		if weapon_id == "knife" and not d.get("hit", false):
 			# out of reach: step toward the machine (setup move, not part of the system under test)
 			var pp: Vector3 = ctx.player_pos()
@@ -49,4 +55,12 @@ static func kill(ctx, m: Node, weapon_id: String, part: String = "body", max_sho
 		await ctx.wait(interval)
 	var hits := shots.filter(func(s): return s.hit == true and s.on_target).size()
 	var other := shots.filter(func(s): return s.hit == true and not s.on_target).size()
-	return {"dead": is_dead(m), "shots": shots.size(), "hits": hits, "hits_on_other_targets": other}
+	var reasons := {}
+	for s in shots:
+		if s.has("reason"):
+			reasons[s.reason] = int(reasons.get(s.reason, 0)) + 1
+	var ammo_end: Variant = ctx.player.call("ammo", weapon_id) if ctx.player != null and ctx.player.has_method("ammo") else null
+	if not is_dead(m):
+		await ctx.physics_frames(1)
+		reasons["line_of_sight_at_end"] = ctx.line_of_sight_to(m, part)
+	return {"dead": is_dead(m), "shots": shots.size(), "hits": hits, "hits_on_other_targets": other, "miss_reasons": reasons, "ammo_end": str(ammo_end), "interval_s": snappedf(interval, 0.001)}

@@ -306,9 +306,25 @@ func player_pos() -> Vector3:
 func spawn_ahead(machine_type: String, dist_m: float, angle_deg: float = 0.0, ai: bool = false, base_dir: Vector3 = Vector3.ZERO) -> Node:
 	## spawns dist_m from the player, angle_deg off base_dir (default: current view). Scenarios that spawn several
 	## machines pass one base_dir so a later spawn never lands on an earlier (dead) one after aim_at turned the view.
+	## The spot must be visible from the camera (a tree or a hill between would make every shot miss): the requested
+	## angle first, then up to +-90 deg around it in 15 deg steps; the first spot with a clear line of sight wins.
 	var base := base_dir if base_dir.length() > 0.001 else forward()
-	var dir := base.rotated(Vector3.UP, deg_to_rad(angle_deg))
-	var pos := player_pos() + dir * dist_m
+	var pos := player_pos() + base.rotated(Vector3.UP, deg_to_rad(angle_deg)) * dist_m
+	var cam := camera()
+	if cam != null:
+		var world := runner.get_viewport().get_world_3d()
+		for k in [0, 1, -1, 2, -2, 3, -3, 4, -4, 5, -5, 6, -6]:
+			var p := player_pos() + base.rotated(Vector3.UP, deg_to_rad(angle_deg + 15.0 * k)) * dist_m
+			var gy: Variant = await ground_y(p.x, p.z, p.y + 200.0)
+			if gy != null:
+				p.y = float(gy)
+			var q := PhysicsRayQueryParameters3D.create(cam.global_position, p + Vector3(0, 1.0, 0))
+			q.exclude = player_rids()
+			if world.direct_space_state.intersect_ray(q).is_empty():
+				pos = p
+				if k != 0:
+					note("spawn %s: %d deg blocked, used %d deg" % [machine_type, int(angle_deg), int(angle_deg + 15.0 * k)])
+				break
 	var m: Variant = await call_api(game, "spawn_machine", [machine_type, pos])
 	if m is Node:
 		if "ai_enabled" in m:
@@ -317,6 +333,24 @@ func spawn_ahead(machine_type: String, dist_m: float, angle_deg: float = 0.0, ai
 		return m
 	note("spawn_machine(%s) returned %s" % [machine_type, str(m)])
 	return null
+
+
+func line_of_sight_to(m: Node, part: String = "body") -> Dictionary:
+	## camera -> the machine's aim point for `part` (or its origin + 1 m): {clear, by}
+	var cam := camera()
+	if cam == null or not is_instance_valid(m):
+		return {"clear": false, "by": "no camera / machine"}
+	var to: Vector3 = m.call("aim_point", part) if m.has_method("aim_point") else (m as Node3D).global_position + Vector3(0, 1.0, 0)
+	var q := PhysicsRayQueryParameters3D.create(cam.global_position, to)
+	q.exclude = player_rids()
+	q.collide_with_areas = true
+	var hit := runner.get_viewport().get_world_3d().direct_space_state.intersect_ray(q)
+	if hit.is_empty():
+		return {"clear": true, "by": ""}
+	var col: Variant = hit.get("collider")
+	if col is Node and (col == m or m.is_ancestor_of(col) or (col as Node).get_meta("machine", null) == m):
+		return {"clear": true, "by": str((col as Node).name)}
+	return {"clear": false, "by": str((col as Node).name) if col is Node else str(col)}
 
 
 func ground_y(x: float, z: float, from_y: float = 3000.0) -> Variant:

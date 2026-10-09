@@ -40,8 +40,8 @@ func _run(ctx):
 	for m in herd:
 		center += (m as Node3D).global_position
 	center /= herd.size()
-	var view: Dictionary = await _raised_point(ctx, center)
-	data.view_point = {"pos": str(view.get("pos")), "height_above_herd_m": view.get("rise"), "distance_m": view.get("dist"), "los": view.get("los")}
+	var view: Dictionary = await _raised_point(ctx, center, herd)
+	data.view_point = {"pos": str(view.get("pos")), "height_above_herd_m": view.get("rise"), "distance_m": view.get("dist"), "members_visible_when_chosen": view.get("seen")}
 	await ctx.call_api(g, "teleport", [view.pos])
 	var marker := Node3D.new()
 	marker.name = "AutotestHerdMarker"
@@ -95,8 +95,9 @@ func _run(ctx):
 	return true
 
 
-func _raised_point(ctx, center: Vector3) -> Dictionary:
-	## highest ground 40-60 m from the herd with a clear line of sight to it (loaded collision only)
+func _raised_point(ctx, center: Vector3, herd: Array) -> Dictionary:
+	## ground 40-60 m from the herd (loaded collision only) from which the most herd members are unoccluded (one ray
+	## from eye height to each member's centre); ties go to the higher point
 	var world: World3D = ctx.runner.get_viewport().get_world_3d()
 	var best := {}
 	for r in [40.0, 50.0, 60.0]:
@@ -107,13 +108,17 @@ func _raised_point(ctx, center: Vector3) -> Dictionary:
 			if gy == null:
 				continue
 			p.y = float(gy) + 0.05
-			var q := PhysicsRayQueryParameters3D.create(p + Vector3(0, 1.6, 0), center + Vector3(0, 1.0, 0))
-			q.exclude = ctx.player_rids()
-			var hit := world.direct_space_state.intersect_ray(q)
-			var clear := hit.is_empty() or (hit.position as Vector3).distance_to(center) < 6.0
-			if clear and (best.is_empty() or p.y > float(best.pos.y)):
-				best = {"pos": p, "rise": snappedf(p.y - center.y, 0.1), "dist": r, "los": true}
+			var eye := p + Vector3(0, 1.6, 0)
+			var seen := 0
+			for m in herd:
+				if not is_instance_valid(m):
+					continue
+				var los: Dictionary = Frame.line_of_sight(world, eye, Frame.global_aabb(m).get_center(), m, ctx.player_rids())
+				if los.clear:
+					seen += 1
+			if seen > 0 and (best.is_empty() or seen > int(best.seen) or (seen == int(best.seen) and p.y > float(best.pos.y))):
+				best = {"pos": p, "rise": snappedf(p.y - center.y, 0.1), "dist": r, "seen": seen}
 	if best.is_empty():
-		best = {"pos": center + Vector3(50.0, 10.0, 0.0), "rise": 10.0, "dist": 50.0, "los": false}
-		note("no loaded ground with line of sight around the herd; used +50 m east, +10 m up")
+		best = {"pos": center + Vector3(50.0, 10.0, 0.0), "rise": 10.0, "dist": 50.0, "seen": 0}
+		note("no loaded ground with a view of the herd; used +50 m east, +10 m up")
 	return best

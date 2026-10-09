@@ -58,23 +58,28 @@ func _run(ctx):
 		evictions.append({"cell": "%d_%d" % [cell.x, cell.y], "player_cell": "%d_%d" % [pc.x, pc.y], "ring": ctx.chebyshev(cell, pc), "t": Time.get_ticks_msec()})
 	g.connect("cell_evicted", on_evict)
 	var loaded_rec = ctx.record(g, "cell_loaded")
+	var evict_rec = ctx.record(g, "cell_evicted")
+	var initially_loaded: Array = _loaded_now(ctx, start, load_ring)
+	data.loaded_at_start = initially_loaded.map(func(c): return "%d_%d" % [c.x, c.y])
 	p.set("invulnerable", true)
 	var p0: Vector3 = ctx.player_pos()
 	var steps := []
 	for k in range(1, STEPS + 1):
-		var target := p0 + Vector3(cell_size * k, 30.0, 0.0)
+		var target := p0 + Vector3(cell_size * k, 0.0, 0.0)
+		var gy: Variant = await ctx.ground_y(target.x, target.z)
+		target.y = float(gy) + 0.5 if gy != null else p0.y + 30.0
 		var want := start + Vector2i(k, 0)
 		cur.cell = want
 		var t0 := Time.get_ticks_msec()
 		await ctx.call_api(g, "teleport", [target])
-		var ok: bool = await ctx.wait_until(func(): return loaded_rec.events.any(func(e): return ctx.v2i(e.args[0]) == want and e.t * 1000.0 >= t0 - loaded_rec.t0), 900.0)
+		var ok: bool = await ctx.wait_until(func(): return _is_loaded(ctx, want, loaded_rec, evict_rec, initially_loaded), 900.0)
 		await ctx.wait(3.0)
 		steps.append({"cell": "%d_%d" % [want.x, want.y], "loaded": ok, "seconds": snappedf((Time.get_ticks_msec() - t0) / 1000.0, 0.1), "evictions_so_far": evictions.size()})
 		ctx.note("t10 step %d: cell %s loaded=%s, %d evictions, cache %s MiB" % [k, str(want), str(ok), evictions.size(), str(snappedf(int(g.call("cache_bytes")) / 1048576.0, 0.1))])
 	# back to the start: evicted cells near the start must come back
 	cur.cell = start
 	var back_t0 := Time.get_ticks_msec()
-	await ctx.call_api(g, "teleport", [p0 + Vector3(0, 30.0, 0)])
+	await ctx.call_api(g, "teleport", [p0 + Vector3(0, 0.5, 0)])
 	var revisit := []
 	for e in evictions:
 		var parts: PackedStringArray = str(e.cell).split("_")
@@ -109,3 +114,33 @@ func _run(ctx):
 	if ctx.cell_of(ctx.player_pos()) == null:
 		note("Game.cell_of / Game.world.cell_of missing: player cell at eviction time taken from the teleport target")
 	return true
+
+
+static func _is_loaded(ctx, c: Vector2i, loaded_rec, evict_rec, initially: Array) -> bool:
+	## loaded = the game says so (Game.world.is_cell_loaded), else: the last cell_loaded / cell_evicted event for the
+	## cell is a load, or it was loaded before the run and never evicted
+	var w: Variant = ctx.game.get("world") if "world" in ctx.game else null
+	if w is Object and w.has_method("is_cell_loaded"):
+		return bool(w.call("is_cell_loaded", c))
+	var last_load := -1.0
+	var last_evict := -1.0
+	for e in loaded_rec.events:
+		if ctx.v2i(e.args[0]) == c:
+			last_load = e.t
+	for e in evict_rec.events:
+		if ctx.v2i(e.args[0]) == c:
+			last_evict = e.t
+	if last_load >= 0.0:
+		return last_load > last_evict
+	return initially.has(c) and last_evict < 0.0
+
+
+static func _loaded_now(ctx, start: Vector2i, ring: int) -> Array:
+	var out := []
+	var w: Variant = ctx.game.get("world") if "world" in ctx.game else null
+	if w is Object and w.has_method("is_cell_loaded"):
+		for dy in range(-ring, ring + 1):
+			for dx in range(-ring, ring + 1):
+				if bool(w.call("is_cell_loaded", start + Vector2i(dx, dy))):
+					out.append(start + Vector2i(dx, dy))
+	return out
