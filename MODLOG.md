@@ -132,3 +132,14 @@ Full per-site table: `docs/notes/svet.md`. No placement references `ai/groups`, 
 - 2026-10-09 svet merged (S1-S8 accepted; Watcher bind-pose height 1.45 m is real data, below the planned 1.5-4 m guess).
 - 2026-10-09 cs2 content contract merged (b9b827c): weapons content_model/bone_roles/points, meta.json for 14 items, 0 mismatches; attach bone read from viewmodel skeleton (no hard-coded wpn).
 - 2026-10-09 svet D32 follow-up merged (f90c947): new sheet hzd_content.json (52 rows) holds all HZD paths/names; output byte-identical; PROTO OK (bootstrap 70.6 s). Orchestrator fix: converter log falls back to converter-<pid>.log when another converter holds converter.log (autotest children).
+- 2026-10-09 hra merged (c0ec0cd): game runs end-to-end on real content (CS2 weapons with real viewmodel clips, 3 HZD
+  machines on real skeletons with procedural IK animation, real terrain + 37k instances/cell, vegetation, campfires,
+  music). Dev checks: t05/t06/t07 pass in real mode, t10 pass on mock only (cap formula), first start world_ready
+  ~88 s, 64.6 fps at start. Orchestrator ran tools/build.ps1 into dist/ (converter 96.6 MB + game 104.4 MB) and
+  `preflight package dist` -> CLEAN.
+- D39 (hra) Wider request ring only while moving; ring cells requested after world_ready; vision cone = 2x HZD half
+  angle, instant detection only inside it, peripheral builds suspicion at 0.3x; herds flee on shots/explosions;
+  weak spot wins within 15 cm behind the body hitbox; per-bone vertex-fitted box hitboxes; static mesh LODs via
+  Godot's built-in mesh LOD generation; shadows only from objects >= 12 m; a failed bootstrap with a playable cache
+  continues; automated runs never capture the mouse. Movement constants + kevlar armor points remain unverified
+  (CS2 defaults live only in server.dll binaries) -> design values with evidence "CS2 cvar defaults".
