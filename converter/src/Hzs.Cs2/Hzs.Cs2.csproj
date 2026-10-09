@@ -2,6 +2,11 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Hzs.Common\Hzs.Common.csproj" />
+    <ProjectReference Include="..\Hzs.Generated\Hzs.Generated.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="ValveResourceFormat" Version="20.0.6980" />
   </ItemGroup>
 
   <PropertyGroup>
