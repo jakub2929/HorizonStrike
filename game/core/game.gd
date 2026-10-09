@@ -165,10 +165,33 @@ func aim_at(target: Node3D, part: String) -> void:
 		return
 	var p: Vector3
 	if target.has_method("aim_point"):
-		p = target.aim_point(part)
+		p = target.aim_point(part, player.camera.global_position)
+		if part != "body" and target.has_method("weak_points"):
+			p = _reachable_point(target, part, p)
 	else:
 		p = target.global_position
 	player.look_at_point(p)
+
+
+## Among a part's hitboxes and points on them (nearest first) the first one that the weapon's own trace from the
+## camera hits as that part (a canister on the far side is behind the body); `fallback` when none is reachable.
+func _reachable_point(target: Node3D, part: String, fallback: Vector3) -> Vector3:
+	var eye: Vector3 = player.camera.global_position
+	# hitbox centres first (most margin for the weapon's spread), then points towards their surfaces; nearest first
+	var centres: Array = target.weak_points(part)
+	var near := func(a, b): return eye.distance_squared_to(a) < eye.distance_squared_to(b)
+	centres.sort_custom(near)
+	var rest: Array = target.weak_points(part, true).filter(func(q): return not centres.has(q))
+	rest.sort_custom(near)
+	var pts: Array = centres + rest
+	for pt in pts:
+		var h: Dictionary = player.weapons._trace(eye, ((pt as Vector3) - eye).normalized(), eye.distance_to(pt) + 5.0)
+		if h.is_empty():
+			continue
+		var col: Object = h["collider"]
+		if col.has_meta("machine") and col.get_meta("machine") == target and str(col.get_meta("part", "")) == part:
+			return pt
+	return fallback
 
 
 func fire() -> Dictionary:

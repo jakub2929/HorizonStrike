@@ -133,9 +133,11 @@ Rules I follow: no class_name lookups across files (everything via preload, so a
   buttons / error screen, main.quit_game for WM close); converter_client.stop() is bounded (quit 3 s, kill, readers
   joined at most 1 s each) and suppresses the expected "exit" event. Hang not reproduced (dev/quit_probe.gd, bare
   quit after a t10-like walk: exit 1 s, converter gone); a hard-killed game's converter exits within ~1 s (EOF).
-- Found, not changed (scope): Grazer canisters are hit as body - the canister mesh is skinned to the PARENT of the
-  weak-spot bone (rbcannister vs rbcannisterHelper) so it became a body box around the weak sphere, and
-  Machine.aim_point(part) returns the first of four canisters even when it is on the far side.
+- Weak spots (0.1.1): a bone whose only children are weak-spot bones is the weak part's own geometry (Grazer canister
+  mesh) -> its box is a weak hitbox, not body; a weak hit wins when it lies within WEAK_SLACK_M behind the body
+  surface or inside any body box of the same machine; Game.aim_at picks among the part's hitboxes (and points
+  towards their surfaces) the nearest one the weapon's own trace reaches. dev/weak_spots.gd (8 directions, 12 m):
+  before watcher eye 7/8, strider 0/8, grazer 0/8; after 7/8, 5/8, 8/8 (the rest: world or body really in front).
 
 ## Notes for teammates (relay via main)
 - test (t10): real cells outside the start area are ~11 MB (meshes/textures shared), 5 steps east add ~164 MB, so
