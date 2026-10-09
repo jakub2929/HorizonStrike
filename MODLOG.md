@@ -82,9 +82,45 @@ Journal and decision log (orchestrator-owned). Newest entries at the bottom of e
 - D31 Teammate agents cannot message each other (executor/tester tool sets lack SendMessage); the orchestrator relays.
 - D32 Content contract: code is content-agnostic; machines/weapons carry content_model, bone_roles, points in sheets
   and meta.json; world via cell.json; content swappable by files + sheets (rule in CLAUDE.md).
+- D33 (svet) Axes: HZD X=east, Y=north, Z=up, right-handed; `godot=(x, z, -y)`, north = Godot -Z (landmarks Meridian
+  (-1,-3) west of Nora (4,-3), Sunfall (-3,0) NW of Meridian). Cell = 512 m tile, origin = NW corner, heights raw/32 m,
+  1024^2 samples at 512/1023 m, shared edge samples (seam delta 0.0 m).
+- D34 (svet) Start = 3 m from campfire `Campfire_x04_y-03_01` towards the village centre, Godot (2489.1, 216.1, 1347.8);
+  start campfire = that campfire.
+- D35 (svet) Internal names: Watcher=scout, Strider=horse, Grazer=harvester (planning guess antelope was wrong:
+  antelope=Lancehorn); longhorn=Broadhead, bison=Trampler, raptor=Thunderjaw, direwolf=Sawtooth, greywolf=Ravager,
+  mole=Rockbreaker.
+- D36 Machine health = real HZD InitialHealth (Watcher 90, Strider 105, Grazer 150) x `combat.machine_health_scale`
+  (default 1.0, tuned by test); machine armor stays a design value via the CS armor rule. HZD sight angles are half
+  cone angles (game doubles them for FOV). Watcher real perception: sight 45 m, peripheral 96 m, hearing 100 m,
+  suspicious 30 m, alert 15 m.
+- D37 (svet) Whole world converts: 340/340 cells with real terrain, 52 s for the whole world with 2 workers (median
+  0.1 s/cell, max 5.7 s); 131 cells with placed objects (1.63 M instances), 167 campfires, 80 machine sites; whole world
+  4.2 GB. Bootstrap (incl. CS2) 69.6 s on an empty cache; cache after bootstrap ~762 MB (hzd 646 + cs2 116).
+- D38 (svet) Not in v1: machine animations from HZD (no decoder; procedural), normal maps, GPU-procedural wilderness
+  rocks, random world encounters (fixed sites only), outdoor wind/rain ambience (6-ch ATRAC9; ambience = birds + fire).
+  New dependency TinyBCSharp 0.1.2 (MIT, already pulled in by ValveResourceFormat).
 
 ## Site mapping (variant B)
-(to be filled when spawn sites are decoded)
+Full per-site table: `docs/notes/svet.md`. No placement references `ai/groups`, so the "type" rows apply.
+| original | sites | machines orig | populated with | machines now |
+|---|---|---|---|---|
+| horse | 20 | 74 | strider | 76 |
+| longhorn (Broadhead) | 23 | 88 | grazer | 89 |
+| goat | 12 | 60 | strider | 53 |
+| antelope (Lancehorn) | 5 | 44 | grazer | 28 |
+| harvester (Grazer) | 4 | 16 | grazer | 17 |
+| spraybot | 3 | 5 | strider | 7 |
+| crab | 2 | 7 | strider | 7 |
+| hyena (Scrapper) | 2 | 7 | watcher | 6 |
+| scout (Watcher) | 2 | 5 | watcher | 5 |
+| bison (Trampler) | 1 | 5 | strider | 5 |
+| beachlizard | 1 | 3 | watcher | 3 |
+| glider (Glinthawk) | 1 | 4 | watcher | 3 |
+| cargorhino | 1 | 2 | strider | 2 |
+| direwolf (Sawtooth) | 1 | 1 | watcher | 2 |
+| longleg | 1 | 2 | watcher | 2 |
+| mole (Rockbreaker) | 1 | 2 | watcher | 2 |
 
 ## Log
 - 2026-10-09 Melty draft created: modId `6e2ecdda-6217-40c2-b016-e6940db6aee4`, slug `horizon-strike`,
@@ -93,3 +129,4 @@ Journal and decision log (orchestrator-owned). Newest entries at the bottom of e
   and conversions from now on refer to build 25815307.
 - 2026-10-09 cs2 merged (C1-C5 accepted): 14 items, 27 glb, cache/cs2 115 MiB, ~60 s full conversion; second run
   `cs2 up to date (25815307)`; Build-Converter publish verified by the orchestrator (96.3 MB, hzsconv --help ok).
+- 2026-10-09 svet merged (S1-S8 accepted; Watcher bind-pose height 1.45 m is real data, below the planned 1.5-4 m guess).
