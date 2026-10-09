@@ -69,6 +69,9 @@ func _process(_delta: float) -> void:
 	var now := Time.get_ticks_usec()
 	var dt := (now - _last_usec) / 1000.0 if _last_usec > 0 else 0.0
 	_last_usec = now
+	if profile and dt > float(Sheets.sys_num("perf.max_load_frame_ms", 50.0)) and Game.is_world_ready:
+		Log.info("slow frame %.1f ms; machines %d; previous streaming work: %s; physics %.1f ms, process %.1f ms" % [dt, Game.machines.size(), world.last_work,
+			Performance.get_monitor(Performance.TIME_PHYSICS_PROCESS) * 1000.0, Performance.get_monitor(Performance.TIME_PROCESS) * 1000.0])
 	for c in _active.keys():
 		var r: Dictionary = _active[c]
 		r["worst_frame_ms"] = maxf(float(r["worst_frame_ms"]), dt)

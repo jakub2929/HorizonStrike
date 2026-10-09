@@ -12,6 +12,7 @@ const Machine := preload("res://machines/machine.gd")
 const Spawner := preload("res://machines/spawner.gd")
 const Campfire := preload("res://world/campfire.gd")
 const CellProfiler := preload("res://world/cell_profiler.gd")
+const CellInserter := preload("res://world/cell_inserter.gd")
 
 var cache_root := ""
 var index := {}
@@ -25,7 +26,7 @@ var valid_cells := {}          # Vector2i -> true (from index.json)
 var on_disk := {}              # Vector2i -> true
 var loaded := {}               # Vector2i -> Node3D
 var cell_data := {}            # Vector2i -> {real, veg, heights...} kept for queries
-var building := {}             # Vector2i -> {task, result}
+var building := {}             # Vector2i -> {task, result, stage: prepare (worker) | ready | insert}
 var requested := {}            # Vector2i -> prio last sent
 var request_ids := {}          # request id -> Vector2i
 var failed := {}               # Vector2i -> retry time (ticks ms)
@@ -51,6 +52,15 @@ var _gc_timer := 0.0
 # leave a later re-conversion of that cell (or any cell sharing it) with a missing mesh.
 var _pinned_meshes := {}
 var _pinned_tex := {}
+var _inserter: RefCounted = null   # the one cell being inserted (world/cell_inserter.gd)
+var _ground := {}                  # Vector2i -> true once the cell's terrain collision is complete
+var _col := {}                     # Vector2i -> {buckets, origin, bodies: key -> Array[StaticBody3D], parent}
+var _col_ops: Array = []           # [cell, bucket key, "add"|"remove", distance]
+var _col_timer := 0.0
+var _graveyard: Array = []         # nodes of unloaded cells, freed a few per frame (leaves first)
+var last_work := ""                # --profile-cells: what the streaming main-thread work did last frame (steps > 1 ms)
+var _finish_detail := ""
+var _free_tasks: Array = []        # worker tasks dropping finished cells' prepared data
 
 
 func setup(root: String, idx: Dictionary, conv: Node) -> void:
@@ -70,6 +80,7 @@ func setup(root: String, idx: Dictionary, conv: Node) -> void:
 	spawner.name = "Spawner"
 	spawner.world = self
 	add_child(spawner)
+	spawner.warm_up()
 	profiler = CellProfiler.new()
 	profiler.name = "CellProfiler"
 	profiler.world = self
@@ -113,7 +124,7 @@ func is_cell_loaded(c: Vector2i) -> bool:
 
 
 func has_ground_at(pos: Vector3) -> bool:
-	return loaded.has(cell_of(pos))
+	return _ground.has(cell_of(pos))
 
 
 func height_at(pos: Vector3) -> float:
@@ -158,6 +169,7 @@ func player_vel() -> Vector3:
 
 func _process(delta: float) -> void:
 	_poll_builds()
+	_main_thread_work(delta)
 	_stream_timer -= delta
 	if _stream_timer <= 0.0:
 		_stream_timer = 0.25
@@ -301,96 +313,246 @@ func _start_build(c: Vector2i) -> void:
 	profiler.begin(c)
 
 
-## Main-thread budget per frame for glTF mesh loading (RenderingServer resources are created on the main thread).
-const MESH_BUDGET_MS := 8
-
-
+## Worker results: a finished prepare makes the cell "ready" for insertion (cells that drifted out of range are dropped).
 func _poll_builds() -> void:
-	var t_frame := Time.get_ticks_msec()
 	for c in building.keys():
 		var job: Dictionary = building[c]
-		if job["stage"] == "prepare":
-			if not WorkerThreadPool.is_task_completed(job["task"]):
-				continue
-			WorkerThreadPool.wait_for_task_completion(job["task"])
-			job["result"] = job["out"][0]
-			job["stage"] = "meshes"
-			var res: Dictionary = job["result"]
-			job["pending"] = (res.get("mesh_ids", []) as Array).duplicate()
+		if job["stage"] != "prepare":
+			continue
+		if not WorkerThreadPool.is_task_completed(job["task"]):
+			continue
+		WorkerThreadPool.wait_for_task_completion(job["task"])
+		job["result"] = job["out"][0]
+		job["stage"] = "ready"
 		var data: Dictionary = job["result"]
 		if not data.has("info"):
 			building.erase(c)
 			Log.error("cell %s build failed: %s" % [c, data.get("error", "?")])
 			on_disk.erase(c)
+
+
+## All streaming work on the main thread shares one per-frame budget (streaming.main_thread_budget_ms): inserting the
+## current cell step by step (one cell at a time), object collision around the player, freeing unloaded cells.
+func _main_thread_work(delta: float) -> void:
+	var budget_us := int(Sheets.sys_num("streaming.main_thread_budget_ms", 6.0) * 1000.0)
+	var t_start := Time.get_ticks_usec()
+	var deadline := t_start + budget_us
+	last_work = ""
+	var pc := cell_of(player_pos())
+	var unload_r := int(Sheets.sys_num("streaming.unload_ring", 3))
+	if _inserter and cheb(_inserter.cell, pc) > unload_r:
+		Log.info("cell %s insertion dropped (out of range)" % _inserter.cell)
+		_bury(_inserter.root)
+		building.erase(_inserter.cell)
+		cell_data.erase(_inserter.cell)
+		_ground.erase(_inserter.cell)
+		_inserter = null
+	if _inserter == null:
+		var tb := Time.get_ticks_usec()
+		_begin_insert(pc, unload_r)
+		if _inserter:
+			last_work += "begin %.1f | " % ((Time.get_ticks_usec() - tb) / 1000.0)
+	if _inserter:
+		var ins: RefCounted = _inserter
+		var ts := Time.get_ticks_usec()
+		var done: bool = ins.step(deadline)
+		last_work += "insert %s (step() %.1f ms): %s| " % [ins.cell, (Time.get_ticks_usec() - ts) / 1000.0, ins.last_steps]
+		if ins.ground_ready:
+			_ground[ins.cell] = true
+		if done:
+			_inserter = null
+			var tf := Time.get_ticks_usec()
+			_finish_insert(ins)
+			last_work += "finish %.1f (%s) | " % [(Time.get_ticks_usec() - tf) / 1000.0, _finish_detail]
+	var tc := Time.get_ticks_usec()
+	_collision_ring(delta, deadline)
+	last_work += "collision %.1f | " % ((Time.get_ticks_usec() - tc) / 1000.0)
+	while not _free_tasks.is_empty() and WorkerThreadPool.is_task_completed(_free_tasks[0]):
+		WorkerThreadPool.wait_for_task_completion(_free_tasks.pop_front())
+	tc = Time.get_ticks_usec()
+	var freed := 0
+	while not _graveyard.is_empty() and Time.get_ticks_usec() < deadline:
+		var n: Node = _graveyard.pop_back()
+		if is_instance_valid(n):
+			n.free()
+			freed += 1
+	last_work += "free %d %.1f | total %.1f" % [freed, (Time.get_ticks_usec() - tc) / 1000.0, (Time.get_ticks_usec() - t_start) / 1000.0]
+
+
+## Starts inserting the nearest ready cell.
+func _begin_insert(pc: Vector2i, unload_r: int) -> void:
+	var best := Vector2i.ZERO
+	var best_d := 1 << 30
+	for c in building.keys():
+		var job: Dictionary = building[c]
+		if job["stage"] != "ready":
 			continue
-		if cheb(c, cell_of(player_pos())) > int(Sheets.sys_num("streaming.unload_ring", 3)):
+		var d := cheb(c, pc)
+		if d > unload_r:
 			building.erase(c)
 			continue
-		var pending: Array = job["pending"]
-		var waiting: Array = []
-		var tu := Time.get_ticks_usec()
-		var tex0: float = meshes.stat_tex_upload_ms
-		while not pending.is_empty() and Time.get_ticks_msec() - t_frame < MESH_BUDGET_MS:
-			var mid := str(pending.pop_back())
-			if meshes.is_pending(mid):
-				waiting.append(mid)   # another cell's worker is still parsing it
-			else:
-				meshes.get_entry(mid)
-		var tex_d: float = meshes.stat_tex_upload_ms - tex0
-		profiler.add_main(c, "tex_upload", tex_d)
-		profiler.add_main(c, "mesh_upload", maxf((Time.get_ticks_usec() - tu) / 1000.0 - tex_d, 0.0))
-		pending.append_array(waiting)
-		if not pending.is_empty():
-			if waiting.size() == pending.size() and Time.get_ticks_msec() - t_frame < MESH_BUDGET_MS:
-				continue
-			return
-		building.erase(c)
-		var ti := Time.get_ticks_usec()
-		var tex1: float = meshes.stat_tex_upload_ms
-		var node := CellBuilder.instantiate(data, meshes)
-		var inst_ms := (Time.get_ticks_usec() - ti) / 1000.0
-		var tex_i: float = meshes.stat_tex_upload_ms - tex1
-		ti = Time.get_ticks_usec()
-		add_child(node)
-		var add_ms := (Time.get_ticks_usec() - ti) / 1000.0
-		var ph: Dictionary = (node.get_meta("phases", {}) as Dictionary).duplicate()
-		ph["mesh_upload"] = maxf(float(ph.get("mesh_upload", 0.0)) - tex_i, 0.0)
-		profiler.add_main(c, "tex_upload", tex_i)
-		profiler.inserted(c, ph, data.get("t", {}), float(data.get("prepare_wall_ms", 0.0)), inst_ms - tex_i, add_ms,
-			{"instances": (data["info"].get("instances", []) as Array).size(), "vegetation": _veg_count(data.get("vegetation", {})),
-			"shapes": int(node.get_meta("collision_shapes", 0)), "bodies": int(node.get_meta("collision_bodies", 0))})
-		loaded[c] = node
-		loaded_at[c] = Time.get_ticks_msec()
-		var veg: Dictionary = data.get("vegetation", {})
-		cell_data[c] = {"heights": data["heights"], "w": data["w"], "h": data["h"], "origin": data["origin"],
-			"size": data["size"], "real": data.get("real", false), "density": veg.get("_density"),
-			"channels": veg.get("_channels", []), "veg_count": _veg_count(veg),
-			"instances": (data["info"].get("instances", []) as Array).size()}
-		var has_start_cf := false
-		var start_cf := str(index.get("start_campfire", ""))
-		for cf in data["info"].get("campfires", []):
-			var p: Array = cf.get("pos", [0, 0, 0])
-			campfire_positions[str(cf.get("id", ""))] = Vector3(float(p[0]), float(p[1]), float(p[2]))
-			has_start_cf = has_start_cf or str(cf.get("id", "")) == start_cf
-		# the index names the start campfire (respawn before any other is activated, D27); place it when the
-		# cell itself does not list it
-		var scp: Array = index.get("start_campfire_pos", [])
-		if not has_start_cf and start_cf != "" and scp.size() == 3:
-			var sp := Vector3(float(scp[0]), float(scp[1]), float(scp[2]))
-			if cell_of(sp) == c:
-				var cf_node := Campfire.new()
-				cf_node.campfire_id = start_cf
-				cf_node.name = "Campfire_" + start_cf.validate_node_name()
-				cf_node.position = sp
-				loaded[c].add_child(cf_node)
-				campfire_positions[start_cf] = sp
-		site_records[c] = data["info"].get("spawns", [])
-		spawner.on_cell_loaded(c, site_records[c])
-		Log.info("cell %s loaded in %d ms (real terrain %s, %d instances, %d vegetation, %d collision shapes in %d static bodies of <= %d)" % [c,
-			Time.get_ticks_msec() - int(job["t0"]), data.get("real", false), cell_data[c]["instances"], cell_data[c]["veg_count"],
-			int(node.get_meta("collision_shapes", 0)), int(node.get_meta("collision_bodies", 0)), CellBuilder.SHAPES_PER_BODY])
-		Game.cell_loaded.emit(c)
-		return  # at most one cell instantiated per frame
+		if d < best_d:
+			best_d = d
+			best = c
+	if best_d == 1 << 30:
+		return
+	var job2: Dictionary = building[best]
+	job2["stage"] = "insert"
+	var data: Dictionary = job2["result"]
+	var veg: Dictionary = data.get("vegetation", {})
+	# queries (height, stealth) work from the data at once; the ground counts once its collision tiles are in
+	cell_data[best] = {"heights": data["heights"], "w": data["w"], "h": data["h"], "origin": data["origin"],
+		"size": data["size"], "real": data.get("real", false), "density": veg.get("_density"),
+		"channels": veg.get("_channels", []), "veg_count": _veg_count(veg),
+		"instances": (data["info"].get("instances", []) as Array).size()}
+	_inserter = CellInserter.new(best, data, meshes, self, player_pos())
+	_inserter.trace = profiler.profile
+	Game.cell_insert_started.emit(best)
+
+
+func _finish_insert(ins: RefCounted) -> void:
+	var c: Vector2i = ins.cell
+	var job: Dictionary = building.get(c, {})
+	building.erase(c)
+	var data: Dictionary = ins.data
+	var node: Node3D = ins.root
+	loaded[c] = node
+	loaded_at[c] = Time.get_ticks_msec()
+	_ground[c] = true
+	_col[c] = {"buckets": data.get("col_buckets", {}), "origin": data["origin"], "bodies": {},
+		"parent": node.get_node("ObjectBodies")}
+	_col_timer = 0.0
+	var has_start_cf := false
+	var start_cf := str(index.get("start_campfire", ""))
+	for cf in data["info"].get("campfires", []):
+		var p: Array = cf.get("pos", [0, 0, 0])
+		campfire_positions[str(cf.get("id", ""))] = Vector3(float(p[0]), float(p[1]), float(p[2]))
+		has_start_cf = has_start_cf or str(cf.get("id", "")) == start_cf
+	# the index names the start campfire (respawn before any other is activated, D27); place it when the
+	# cell itself does not list it
+	var scp: Array = index.get("start_campfire_pos", [])
+	if not has_start_cf and start_cf != "" and scp.size() == 3:
+		var sp := Vector3(float(scp[0]), float(scp[1]), float(scp[2]))
+		if cell_of(sp) == c:
+			var cf_node := Campfire.new()
+			cf_node.campfire_id = start_cf
+			cf_node.name = "Campfire_" + start_cf.validate_node_name()
+			cf_node.position = sp
+			node.add_child(cf_node)
+			campfire_positions[start_cf] = sp
+	var tf := Time.get_ticks_usec()
+	site_records[c] = data["info"].get("spawns", [])
+	spawner.on_cell_loaded(c, site_records[c])
+	_finish_detail = "spawner %.1f" % ((Time.get_ticks_usec() - tf) / 1000.0)
+	tf = Time.get_ticks_usec()
+	profiler.inserted(c, ins.phases, data.get("t", {}), float(data.get("prepare_wall_ms", 0.0)), 0.0, float(ins.phases["add_child"]),
+		{"instances": cell_data[c]["instances"], "vegetation": cell_data[c]["veg_count"], "shapes": int(data.get("col_items", 0)),
+		"bodies": (data.get("col_buckets", {}) as Dictionary).size()})
+	Log.info("cell %s loaded in %d ms (real terrain %s, %d instances, %d vegetation, %d steps, %d collision items in %d buckets near the player only)" % [c,
+		Time.get_ticks_msec() - int(job.get("t0", Time.get_ticks_msec())), data.get("real", false), cell_data[c]["instances"], cell_data[c]["veg_count"],
+		ins.steps_done, int(data.get("col_items", 0)), (data.get("col_buckets", {}) as Dictionary).size()])
+	_finish_detail += ", log %.1f" % ((Time.get_ticks_usec() - tf) / 1000.0)
+	tf = Time.get_ticks_usec()
+	Game.cell_loaded.emit(c)
+	_finish_detail += ", cell_loaded %.1f" % ((Time.get_ticks_usec() - tf) / 1000.0)
+	# the prepared data (instance transforms, chunk buffers, terrain arrays) is large: dropping the last reference on
+	# the main thread cost ~50 ms of destructor work, so a worker drops it
+	var holder: Array = [ins.data]
+	ins.data = {}
+	data = {}
+	job.clear()
+	_free_tasks.append(WorkerThreadPool.add_task(func(): holder.clear(), false, "free cell data"))
+
+
+## Object collision exists only within streaming.collision_radius_m of the player: buckets (CellBuilder
+## COLLISION_BUCKET_M) are re-evaluated every streaming.collision_update_s; bodies are added one per step (nearest
+## first) and removed beyond the radius plus one bucket (hysteresis).
+func _collision_ring(delta: float, deadline: int) -> void:
+	_col_timer -= delta
+	if _col_timer <= 0.0:
+		_col_timer = Sheets.sys_num("streaming.collision_update_s", 0.5)
+		_plan_collision_ops()
+	while not _col_ops.is_empty() and Time.get_ticks_usec() < deadline:
+		var op: Array = _col_ops[0]
+		var c: Vector2i = op[0]
+		if not _col.has(c):
+			_col_ops.pop_front()
+			continue
+		var cc: Dictionary = _col[c]
+		var key: Vector2i = op[1]
+		var t0 := Time.get_ticks_usec()
+		match str(op[2]):
+			"add":
+				if (cc["bodies"] as Dictionary).has(key):
+					_col_ops.pop_front()
+					continue
+				# first every missing collision shape of the bucket, one per step (a trimesh build is the slow part)
+				var missing := ""
+				for it in cc["buckets"][key]:
+					if not meshes.has_shape(str(it[0])):
+						missing = str(it[0])
+						break
+				if missing != "":
+					meshes.get_shape(missing)
+				else:
+					_col_ops.pop_front()
+					var bodies: Array = CellBuilder.make_bucket_bodies(cc["buckets"][key], meshes)
+					cc["bodies"][key] = bodies
+					var attach: Array = []
+					for b in bodies:
+						attach.append([c, key, "attach", 0.0, b])
+					_col_ops = attach + _col_ops
+			"attach":
+				_col_ops.pop_front()
+				if is_instance_valid(op[4]) and (cc["bodies"] as Dictionary).has(key):
+					(cc["parent"] as Node).add_child(op[4])
+			_:
+				_col_ops.pop_front()
+				for b in cc["bodies"].get(key, []):
+					if is_instance_valid(b):
+						_graveyard.append(b)
+				cc["bodies"].erase(key)
+		profiler.add_main(c, "collision", (Time.get_ticks_usec() - t0) / 1000.0)
+
+
+func _plan_collision_ops() -> void:
+	var p := player_pos()
+	var p2 := Vector2(p.x, p.z)
+	var r := Sheets.sys_num("streaming.collision_radius_m", 150.0)
+	var b: float = CellBuilder.COLLISION_BUCKET_M
+	var adds: Array = []
+	# keep pending attaches of bodies already built; everything else is re-planned
+	var keep: Array = _col_ops.filter(func(o): return str(o[2]) == "attach")
+	_col_ops.clear()
+	for c in _col:
+		var cc: Dictionary = _col[c]
+		var o: Vector3 = cc["origin"]
+		for key in cc["buckets"]:
+			var k: Vector2i = key
+			var d := p2.distance_to(Vector2(o.x + (k.x + 0.5) * b, o.z + (k.y + 0.5) * b))
+			var has: bool = (cc["bodies"] as Dictionary).has(k)
+			if not has and d <= r + b * 0.71:
+				adds.append([c, k, "add", d])
+			elif has and d > r + b * 1.71:
+				_col_ops.append([c, k, "remove", d])
+	adds.sort_custom(func(x, y): return x[3] < y[3])
+	_col_ops = keep + adds + _col_ops
+
+
+## Frees a node tree a few nodes per frame (leaves first) instead of all at once.
+func _bury(node: Node) -> void:
+	if node == null or not is_instance_valid(node):
+		return
+	if node is Node3D:
+		(node as Node3D).visible = false
+	node.process_mode = Node.PROCESS_MODE_DISABLED   # children freed first must not be touched by their parents
+	_graveyard.append(node)
+	var stack: Array = [node]
+	while not stack.is_empty():
+		var n: Node = stack.pop_back()
+		for ch in n.get_children():
+			_graveyard.append(ch)
+			stack.append(ch)
 
 
 static func _veg_count(veg: Dictionary) -> int:
@@ -405,9 +567,17 @@ func _unload(c: Vector2i) -> void:
 	var node: Node = loaded.get(c)
 	loaded.erase(c)
 	cell_data.erase(c)
+	_ground.erase(c)
+	if _col.has(c):
+		# bodies built but not attached yet are not under the cell node
+		for key in _col[c]["bodies"]:
+			for b in _col[c]["bodies"][key]:
+				if is_instance_valid(b) and not (b as Node).is_inside_tree():
+					_graveyard.append(b)
+	_col.erase(c)
 	spawner.on_cell_unloaded(c)
 	if node:
-		node.queue_free()
+		_bury(node)
 	Log.info("cell %s unloaded" % c)
 
 
@@ -423,6 +593,7 @@ func _exit_tree() -> void:
 			tasks.append(building[c]["task"])
 	if _size_task >= 0:
 		tasks.append(_size_task)
+	tasks.append_array(_free_tasks)
 	for t in tasks:
 		while not WorkerThreadPool.is_task_completed(t) and Time.get_ticks_msec() - t0 < 10000:
 			OS.delay_msec(5)
