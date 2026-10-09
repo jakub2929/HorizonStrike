@@ -175,3 +175,4 @@ Full per-site table: `docs/notes/svet.md`. No placement references `ai/groups`, 
   `streaming.vegetation_tree_cap` 1800 + rest of 14000; small plants fade at 45 m, shadows 100 m, LOD threshold 6 px,
   alpha-to-coverage off. 71.9 fps at start (worst 31.1 ms); runner t05,t06,s01-s03 PASS; export includes autotest/
   (runs only with --autotest), excludes dev/.
+- D44 CS2 movement/combat engine constants (not in CS2 data files) verified against the public CS2 command reference; sv_accelerate 5.5 kept (reference table value). Sheet preflight: 2871/2871 cells verified, CLEAN.
