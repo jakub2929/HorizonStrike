@@ -46,6 +46,13 @@ everything on Melty. Report decisions you make in your final report so the orche
 - universal-modder toolkit: `C:\meshy\_tools\universal-modder` (`bin/um`, needs `uv` from
   `C:\Users\bezdo\AppData\Roaming\Python\Python312\Scripts`).
 
+## Tests drive the player's input
+- Every autotest exercises the behaviour under test through the player's input path (Input.parse_input_event: keys,
+  mouse motion, buttons; helper game/autotest/lib/inputsim.gd). The Game API is only for setup (teleport, spawn,
+  money, AI on/off) and for reading state. A test that calls a gameplay function instead of sending input is a bug.
+- Weak spots are tested with a real shot through input, after checking that the first thing along the shot is the
+  weak spot; report from how many of 8 directions it can be hit.
+
 ## Verification
 Done means demonstrated: run it and quote the actual output (converter exit + files written + sizes, Godot headless
 run log, screenshot path). Keep heavy logs in files and grep them.

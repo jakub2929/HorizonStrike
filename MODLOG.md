@@ -225,3 +225,5 @@ Full per-site table: `docs/notes/svet.md`. No placement references `ai/groups`, 
 - 0.1.1 release: build CLEAN, autotest on release 14/14, 0 engine errors (t03 buys p250/ak47/hegrenade/kevlar/deagle
   via input, AWP refused). Melty: upload 73d9058a-0214-46ff-86e7-39c79d92f5e7, release 0.1.1 =
   544104e6-b3f9-404e-ade4-4aadf27346e8 (draft, publishable, one click yes). Waiting for the user's yes.
+- 0.1.1: user approved; Controls line updated in the listing; publish -> in_review.
+- Phase 2 (0.2) started: docs/BRIEF-0.2.md; rule "tests drive the player's input" added to CLAUDE.md (D48).

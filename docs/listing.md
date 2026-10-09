@@ -18,7 +18,7 @@ Walk out of Mother's Heart into **Horizon Zero Dawn's own world** and hunt its m
 
 **Needs:** Counter-Strike 2 and Horizon Zero Dawn Complete Edition (Steam, original 2020 PC version) installed. If Horizon isn't found, the game tells you on screen. Counter-Strike 2 is never started or modified – only its files are read.
 
-**Controls:** WASD move, Shift walk, Ctrl crouch, Space jump, mouse aim/fire, R reload, 1-4 weapons, B buy wheel, F inspect, Esc menu.
+**Controls:** WASD move, Shift walk, Ctrl crouch, Space jump, mouse aim/fire, R reload, 1-4 weapons, B buy wheel (click an item, or hold B and release over it), F inspect, Esc menu.
 
 **Version 0.1 limits:** solo only; machines move with our own procedural animation on their real skeletons (Horizon's animation format can't be read); no people, quests or loot; no Frozen Wilds area.
 
