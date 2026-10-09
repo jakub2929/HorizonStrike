@@ -1,8 +1,11 @@
 extends RefCounted
 ## Builds one world cell from hzd/cells/<x>_<y>/ (docs/ARCHITECTURE.md cell.json).
-## prepare() runs on a worker thread (file IO, terrain arrays, scatter, glTF), instantiate() on the main thread.
+## prepare() runs on a worker thread (file IO, terrain arrays, vegetation scatter, glb parsing + texture decoding
+## through the mesh library), instantiate() on the main thread (resources and nodes).
 ## Conventions: all positions in cell.json are world positions (Godot space); `origin` is the cell's min corner;
 ## height.r32 rows run along +Z, columns along +X, `res` = [columns, rows].
+## Instances are drawn per mesh in spatial chunks (frustum culling + a visibility range that grows with the
+## object's size; only big objects cast shadows); collision only for objects big enough to matter.
 
 const Log := preload("res://core/log.gd")
 const FsUtil := preload("res://core/fsutil.gd")
@@ -11,13 +14,14 @@ const TerrainMaterial := preload("res://world/terrain_material.gd")
 
 const MAX_VISUAL_VERTS := 257
 const MAX_COLLISION_VERTS := 1025
-const SPECIES_CAP := {"trees": 2500, "blockbush": 5000, "undergrowth": 6000, "stealthplants": 6000}
-const SPECIES_RANGE := {"trees": 900.0, "blockbush": 260.0, "undergrowth": 140.0, "stealthplants": 160.0}
+## Vegetation budget per cell and channel (HZD scatters on the GPU; we place a capped sample of its density map).
+const CHANNEL_CAP := {"trees": 1600, "blockbush": 2500, "undergrowth": 3000, "stealthplants": 3000}
+const MIN_COLLISION_SIZE_M := 1.0
 
 const LAYER_WORLD := 1
 
 
-static func prepare(cell_dir: String) -> Dictionary:
+static func prepare(cell_dir: String, meshes: RefCounted) -> Dictionary:
 	var out := {"ok": false, "dir": cell_dir}
 	var info = FsUtil.read_json(cell_dir.path_join("cell.json"))
 	if typeof(info) != TYPE_DICTIONARY:
@@ -30,7 +34,7 @@ static func prepare(cell_dir: String) -> Dictionary:
 	out["origin"] = origin
 	out["size"] = size
 	# ---- terrain
-	var terr: Dictionary = info.get("terrain", {})
+	var terr: Dictionary = info.get("terrain", {}) if typeof(info.get("terrain")) == TYPE_DICTIONARY else {}
 	var res: Array = terr.get("res", [0, 0])
 	var w := int(res[0])
 	var h := int(res[1])
@@ -45,7 +49,6 @@ static func prepare(cell_dir: String) -> Dictionary:
 		h = 2
 		heights = PackedFloat32Array([0.0, 0.0, 0.0, 0.0])
 		out["terrain_missing"] = true
-	# sanitize NaN/inf
 	for i in heights.size():
 		if is_nan(heights[i]) or is_inf(heights[i]):
 			heights[i] = 0.0
@@ -85,6 +88,9 @@ static func prepare(cell_dir: String) -> Dictionary:
 		if not str(key).begins_with("_"):
 			ids[out["vegetation"][key]["mesh"]] = true
 	out["mesh_ids"] = ids.keys()
+	# parse meshes + decode their textures here, on the worker thread
+	meshes.prepare(out["mesh_ids"])
+	out["ok"] = true
 	return out
 
 
@@ -138,11 +144,11 @@ static func _terrain_arrays(heights: PackedFloat32Array, w: int, h: int, origin:
 			var cc := cols[ix]
 			var y := heights[rr * w + cc]
 			verts[iz * nx + ix] = Vector3(origin.x + cc * dx, y, origin.z + rr * dz)
-			var hl := heights[rr * w + maxi(cc - 1, 0)]
-			var hr := heights[rr * w + mini(cc + 1, w - 1)]
-			var hd := heights[maxi(rr - 1, 0) * w + cc]
-			var hu := heights[mini(rr + 1, h - 1) * w + cc]
-			normals[iz * nx + ix] = Vector3((hl - hr) / (2.0 * dx), 1.0, (hd - hu) / (2.0 * dz)).normalized()
+			var hl := heights[rr * w + maxi(cc - step, 0)]
+			var hr := heights[rr * w + mini(cc + step, w - 1)]
+			var hd := heights[maxi(rr - step, 0) * w + cc]
+			var hu := heights[mini(rr + step, h - 1) * w + cc]
+			normals[iz * nx + ix] = Vector3((hl - hr) / (2.0 * dx * step), 1.0, (hd - hu) / (2.0 * dz * step)).normalized()
 			uvs[iz * nx + ix] = Vector2(float(cc) / (w - 1), float(rr) / (h - 1))
 	var idx := PackedInt32Array()
 	idx.resize((nx - 1) * (nz - 1) * 6)
@@ -204,8 +210,15 @@ static func _scatter(cell_dir: String, info: Dictionary, heights: PackedFloat32A
 	var iw := img.get_width()
 	var ih := img.get_height()
 	var cell: Array = info.get("cell", [0, 0])
+	var species: Array = veg.get("species", [])
+	# split each channel's budget between its species by their density weight
+	var weight := {}
+	for sp in species:
+		var ch := str(sp.get("channel", ""))
+		weight[ch] = float(weight.get(ch, 0.0)) + float(sp.get("per_m2", 0.0))
 	var rng := RandomNumberGenerator.new()
-	for sp in veg.get("species", []):
+	var dx := size / float(w - 1)
+	for sp in species:
 		var ch := str(sp.get("channel", ""))
 		var ci := channels.find(ch)
 		var mid := str(sp.get("mesh", ""))
@@ -213,23 +226,30 @@ static func _scatter(cell_dir: String, info: Dictionary, heights: PackedFloat32A
 		if ci < 0 or ci > 3 or mid == "" or per_m2 <= 0.0:
 			continue
 		rng.seed = hash([int(cell[0]), int(cell[1]), mid])
-		var cap := int(SPECIES_CAP.get(ch, 4000))
-		var attempts := mini(int(per_m2 * size * size), cap * 3)
+		var cap := int(float(CHANNEL_CAP.get(ch, 2000)) * per_m2 / maxf(float(weight.get(ch, per_m2)), 0.000001))
+		cap = mini(cap, int(per_m2 * size * size))
+		var max_slope := deg_to_rad(float(sp.get("max_slope_deg", 90.0)))
+		var base_scale := float(sp.get("scale", 1.0))
+		var var_scale := float(sp.get("scale_variance", 0.15))
+		var attempts := cap * 4
 		var xfs: Array = []
 		for i in attempts:
 			if xfs.size() >= cap:
 				break
 			var u := rng.randf()
 			var v := rng.randf()
-			var px := mini(int(u * iw), iw - 1)
-			var py := mini(int(v * ih), ih - 1)
-			var dens: float = img.get_pixel(px, py)[ci]
+			var dens: float = img.get_pixel(mini(int(u * iw), iw - 1), mini(int(v * ih), ih - 1))[ci]
 			if rng.randf() >= dens:
 				continue
 			var x := origin.x + u * size
 			var z := origin.z + v * size
 			var y := sample_height(heights, w, h, origin, size, x, z)
-			var s := rng.randf_range(0.75, 1.3)
+			if max_slope < PI * 0.49:
+				var gx := sample_height(heights, w, h, origin, size, x + dx, z) - y
+				var gz := sample_height(heights, w, h, origin, size, x, z + dx) - y
+				if atan(Vector2(gx, gz).length() / dx) > max_slope:
+					continue
+			var s := base_scale * (1.0 + rng.randf_range(-var_scale, var_scale))
 			var basis := Basis(Vector3.UP, rng.randf() * TAU).scaled(Vector3(s, s, s))
 			xfs.append(Transform3D(basis, Vector3(x, y - 0.05, z)))
 		if not xfs.is_empty():
@@ -278,42 +298,27 @@ static func instantiate(data: Dictionary, meshes: RefCounted) -> Node3D:
 	cs.transform = Transform3D(Basis().scaled(Vector3(spacing, spacing, spacing)), origin + Vector3((cw - 1) * spacing * 0.5, 0.0, (chh - 1) * spacing * 0.5))
 	body.add_child(cs)
 	root.add_child(body)
-	# instances: one MultiMesh per mesh + collision
+	# static objects: shapes grouped into static bodies of SHAPES_PER_BODY (shape owners, no node per shape)
+	var objects := Node3D.new()
+	objects.name = "ObjectBodies"
+	root.add_child(objects)
 	var inst_root := Node3D.new()
 	inst_root.name = "Instances"
 	root.add_child(inst_root)
-	var inst_body := StaticBody3D.new()
-	inst_body.name = "InstanceBodies"
-	inst_body.collision_layer = LAYER_WORLD
-	inst_body.collision_mask = 0
-	root.add_child(inst_body)
 	var inst_data: Dictionary = data["instances"]
+	var n_shapes := 0
 	for mid in inst_data:
 		var e: Dictionary = meshes.get_entry(mid)
 		if e.is_empty():
 			continue
 		var xfs: Array = inst_data[mid]
-		inst_root.add_child(_multimesh(mid, e["mesh"], xfs, 0.0))
-		var sh: Shape3D = meshes.get_shape(mid)
-		if sh:
-			for xf in xfs:
-				var c := CollisionShape3D.new()
-				c.shape = sh
-				c.transform = xf
-				inst_body.add_child(c)
+		_add_chunked(inst_root, mid, e, xfs, origin)
+		n_shapes += _add_collision(objects, meshes, mid, e, xfs)
 	# vegetation
 	var veg_root := Node3D.new()
 	veg_root.name = "Vegetation"
 	root.add_child(veg_root)
 	var veg: Dictionary = data["vegetation"]
-	var tree_body := StaticBody3D.new()
-	tree_body.name = "TreeBodies"
-	tree_body.collision_layer = LAYER_WORLD
-	tree_body.collision_mask = 0
-	root.add_child(tree_body)
-	var trunk := CylinderShape3D.new()
-	trunk.radius = 0.3
-	trunk.height = 4.0
 	for key in veg:
 		if str(key).begins_with("_"):
 			continue
@@ -321,15 +326,10 @@ static func instantiate(data: Dictionary, meshes: RefCounted) -> Node3D:
 		var ve: Dictionary = meshes.get_entry(str(v["mesh"]))
 		if ve.is_empty():
 			continue
-		var mmi := _multimesh(str(key), ve["mesh"], v["xfs"], float(SPECIES_RANGE.get(v["channel"], 300.0)))
-		mmi.set_meta("channel", v["channel"])
-		veg_root.add_child(mmi)
+		_add_chunked(veg_root, str(key), ve, v["xfs"], origin)
 		if v["channel"] == "trees":
-			for xf in v["xfs"]:
-				var c := CollisionShape3D.new()
-				c.shape = trunk
-				c.transform = Transform3D(Basis(), (xf as Transform3D).origin + Vector3(0, 2.0, 0))
-				tree_body.add_child(c)
+			n_shapes += _add_collision(objects, meshes, str(v["mesh"]), ve, v["xfs"])
+	root.set_meta("collision_shapes", n_shapes)
 	# campfires
 	for cf in info.get("campfires", []):
 		var p: Array = cf.get("pos", [0, 0, 0])
@@ -337,11 +337,96 @@ static func instantiate(data: Dictionary, meshes: RefCounted) -> Node3D:
 		node.campfire_id = str(cf.get("id", ""))
 		node.name = "Campfire_" + node.campfire_id.validate_node_name()
 		node.position = Vector3(float(p[0]), float(p[1]), float(p[2]))
+		node.rotation.y = deg_to_rad(float(cf.get("yaw_deg", 0.0)))
 		root.add_child(node)
 	return root
 
 
-static func _multimesh(id: String, mesh: Mesh, xfs: Array, range_end: float) -> MultiMeshInstance3D:
+## Size class of a mesh -> [chunk size m, visibility range m, casts shadow]. Plants (alpha-tested) fade sooner.
+static func _lod_class(aabb: AABB, scale: float, plant: bool) -> Array:
+	var s := maxf(aabb.size.x, maxf(aabb.size.y, aabb.size.z)) * scale
+	var k := 0.7 if plant else 1.0
+	if s < 1.5:
+		return [128.0, 70.0 * k, false]
+	if s < 4.0:
+		return [128.0, 170.0 * k, false]
+	if s < 12.0:
+		return [256.0, 450.0 * k, true]
+	return [512.0, 0.0, true]
+
+
+static func _add_chunked(parent: Node3D, id: String, e: Dictionary, xfs: Array, origin: Vector3) -> void:
+	var mesh: Mesh = e["mesh"]
+	var aabb: AABB = e["aabb"]
+	var scale := 1.0
+	if not xfs.is_empty():
+		scale = (xfs[0] as Transform3D).basis.get_scale().abs().x
+	var cls := _lod_class(aabb, scale, bool(e.get("plant", false)))
+	var chunk: float = cls[0]
+	var buckets := {}
+	for xf in xfs:
+		var t: Transform3D = xf
+		var key := Vector2i(floori((t.origin.x - origin.x) / chunk), floori((t.origin.z - origin.z) / chunk))
+		if not buckets.has(key):
+			buckets[key] = []
+		buckets[key].append(t)
+	for key in buckets:
+		var k: Vector2i = key
+		var center := origin + Vector3((k.x + 0.5) * chunk, 0.0, (k.y + 0.5) * chunk)
+		var list: Array = buckets[key]
+		center.y = (list[0] as Transform3D).origin.y
+		var mmi := _multimesh(id, mesh, list, center)
+		mmi.position = center
+		if float(cls[1]) > 0.0:
+			mmi.visibility_range_end = float(cls[1]) + chunk * 0.5
+			mmi.visibility_range_end_margin = 15.0
+			mmi.visibility_range_fade_mode = GeometryInstance3D.VISIBILITY_RANGE_FADE_SELF
+		mmi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON if cls[2] else GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		parent.add_child(mmi)
+
+
+## Collision for objects big enough to block a player; shapes are spread over several static bodies (one Jolt
+## compound per body must stay small). Primitive shapes (tree trunks) drop the instance scale (Jolt only scales
+## them uniformly); triangle meshes keep it.
+static func _add_collision(parent: Node3D, meshes: RefCounted, id: String, e: Dictionary, xfs: Array) -> int:
+	var aabb: AABB = e["aabb"]
+	var plant: bool = e.get("plant", false)
+	if not plant and maxf(aabb.size.x, aabb.size.z) < MIN_COLLISION_SIZE_M and aabb.size.y < 0.8:
+		return 0
+	var sh: Shape3D = meshes.get_shape(id)
+	if sh == null:
+		return 0
+	var off: Vector3 = meshes.shape_offset(id)
+	var primitive := not (sh is ConcavePolygonShape3D)
+	var n := 0
+	for xf in xfs:
+		var t: Transform3D = xf
+		var body := _body_with_room(parent)
+		var o := body.create_shape_owner(body)
+		body.shape_owner_add_shape(o, sh)
+		if primitive:
+			body.shape_owner_set_transform(o, Transform3D(t.basis.orthonormalized(), t.origin + t.basis * off))
+		else:
+			body.shape_owner_set_transform(o, t * Transform3D(Basis(), off))
+		n += 1
+	return n
+
+
+const SHAPES_PER_BODY := 256
+
+
+static func _body_with_room(parent: Node3D) -> StaticBody3D:
+	var last: StaticBody3D = parent.get_child(parent.get_child_count() - 1) if parent.get_child_count() > 0 else null
+	if last and last.get_shape_owners().size() < SHAPES_PER_BODY:
+		return last
+	var body := StaticBody3D.new()
+	body.collision_layer = LAYER_WORLD
+	body.collision_mask = 0
+	parent.add_child(body)
+	return body
+
+
+static func _multimesh(id: String, mesh: Mesh, xfs: Array, center: Vector3) -> MultiMeshInstance3D:
 	var mm := MultiMesh.new()
 	mm.transform_format = MultiMesh.TRANSFORM_3D
 	mm.mesh = mesh
@@ -352,24 +437,22 @@ static func _multimesh(id: String, mesh: Mesh, xfs: Array, range_end: float) -> 
 	for xf in xfs:
 		var t: Transform3D = xf
 		var b := t.basis
+		var o := t.origin - center
 		buf[i] = b.x.x
 		buf[i + 1] = b.y.x
 		buf[i + 2] = b.z.x
-		buf[i + 3] = t.origin.x
+		buf[i + 3] = o.x
 		buf[i + 4] = b.x.y
 		buf[i + 5] = b.y.y
 		buf[i + 6] = b.z.y
-		buf[i + 7] = t.origin.y
+		buf[i + 7] = o.y
 		buf[i + 8] = b.x.z
 		buf[i + 9] = b.y.z
 		buf[i + 10] = b.z.z
-		buf[i + 11] = t.origin.z
+		buf[i + 11] = o.z
 		i += 12
 	mm.buffer = buf
 	var mmi := MultiMeshInstance3D.new()
 	mmi.name = "MM_" + id.validate_node_name()
 	mmi.multimesh = mm
-	if range_end > 0.0:
-		mmi.visibility_range_end = range_end
-		mmi.visibility_range_end_margin = 10.0
 	return mmi

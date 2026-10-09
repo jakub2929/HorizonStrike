@@ -30,8 +30,10 @@ func meta_for(type: String) -> Dictionary:
 
 
 func on_cell_loaded(c: Vector2i, spawns: Array) -> void:
-	for s in spawns:
-		var id := str(s.get("site", "site_%d_%d_%d" % [c.x, c.y, sites.size()]))
+	for si in spawns.size():
+		var s: Dictionary = spawns[si]
+		# one HZD site can hold several machine groups (e.g. Grazers + their Watchers): key by cell, site, entry
+		var id := "%d_%d/%s/%d" % [c.x, c.y, str(s.get("site", "site")), si]
 		if sites.has(id):
 			sites[id]["cell"] = c
 			continue

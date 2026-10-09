@@ -263,7 +263,8 @@ func _on_converter_event(e: Dictionary) -> void:
 func _start_build(c: Vector2i) -> void:
 	var dir := cell_dir(c)
 	var job := {"result": {}, "stage": "prepare"}
-	job["task"] = WorkerThreadPool.add_task(func(): job["result"] = CellBuilder.prepare(dir), false, "cell %s" % c)
+	var lib := meshes
+	job["task"] = WorkerThreadPool.add_task(func(): job["result"] = CellBuilder.prepare(dir, lib), false, "cell %s" % c)
 	job["t0"] = Time.get_ticks_msec()
 	building[c] = job
 
@@ -293,9 +294,17 @@ func _poll_builds() -> void:
 			building.erase(c)
 			continue
 		var pending: Array = job["pending"]
+		var waiting: Array = []
 		while not pending.is_empty() and Time.get_ticks_msec() - t_frame < MESH_BUDGET_MS:
-			meshes.get_entry(str(pending.pop_back()))
+			var mid := str(pending.pop_back())
+			if meshes.is_pending(mid):
+				waiting.append(mid)   # another cell's worker is still parsing it
+			else:
+				meshes.get_entry(mid)
+		pending.append_array(waiting)
 		if not pending.is_empty():
+			if waiting.size() == pending.size() and Time.get_ticks_msec() - t_frame < MESH_BUDGET_MS:
+				continue
 			return
 		building.erase(c)
 		var node := CellBuilder.instantiate(data, meshes)

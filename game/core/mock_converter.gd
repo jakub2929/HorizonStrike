@@ -151,7 +151,7 @@ func _do_bootstrap(job: Dictionary) -> void:
 	var bytes := 0
 	_emit({"id": id, "event": "progress", "stage": "weapons", "done": 0, "total": 1})
 	if seed_cache != "":
-		for rel in ["cs2", "hzd/machines", "hzd/audio", "hzd/cells", "hzd/meshes"]:
+		for rel in ["cs2", "hzd/machines", "hzd/audio", "hzd/cells", "hzd/meshes", "hzd/textures"]:
 			bytes += FsUtil.copy_tree(seed_cache.path_join(rel), cache_root.path_join(rel))
 		for rel in ["hzd/machines.json", "hzd/systems.json", "hzd/index.json"]:
 			if FileAccess.file_exists(seed_cache.path_join(rel)) and not FileAccess.file_exists(cache_root.path_join(rel)):
