@@ -202,9 +202,10 @@ func _do_bootstrap(job: Dictionary) -> void:
 
 
 func _process(_delta: float) -> void:
-	if _events.is_empty():
-		return
 	_mutex.lock()
+	if _events.is_empty():
+		_mutex.unlock()
+		return
 	var batch := _events.duplicate()
 	_events.clear()
 	_mutex.unlock()

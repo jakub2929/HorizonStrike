@@ -90,9 +90,11 @@ func _read_stderr() -> void:
 
 
 func _process(_delta: float) -> void:
-	if _queue.is_empty():
-		return
+	# the reader thread appends under the mutex (an unlocked size check can read a buffer being reallocated)
 	_mutex.lock()
+	if _queue.is_empty():
+		_mutex.unlock()
+		return
 	var batch := _queue.duplicate()
 	_queue.clear()
 	_mutex.unlock()

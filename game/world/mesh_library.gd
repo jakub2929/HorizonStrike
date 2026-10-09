@@ -19,6 +19,10 @@ var _entries := {}     # id -> {mesh, aabb, plant, tris, faces}        (main)
 var _textures := {}    # texture name -> ImageTexture                  (main)
 var _materials := {}   # key -> Material                               (main)
 var _shapes := {}      # id -> Shape3D or null                         (main)
+# Workers must never read the main-thread dictionaries above (a main-thread insert can rehash them under a reading
+# worker): they ask these mutex-guarded sets instead.
+var _built := {}       # ids that have an entry in _entries              (worker + main, mutex)
+var _tex_built := {}   # texture names that have a _textures entry        (worker + main, mutex)
 var _mutex := Mutex.new()
 
 
@@ -33,7 +37,7 @@ func prepare(ids: Array) -> void:
 	for raw_id in ids:
 		var id := str(raw_id)
 		_mutex.lock()
-		var done := _parsed.has(id) or _entries.has(id)
+		var done := _parsed.has(id) or _built.has(id)
 		if not done:
 			_parsed[id] = null   # reserved
 		_mutex.unlock()
@@ -93,7 +97,7 @@ func _generate_lods(p: Dictionary) -> void:
 
 func _decode(tex_name: String) -> void:
 	_mutex.lock()
-	var skip := _images.has(tex_name) or _textures.has(tex_name)
+	var skip := _images.has(tex_name) or _tex_built.has(tex_name)
 	if not skip:
 		_images[tex_name] = null
 	_mutex.unlock()
@@ -142,10 +146,11 @@ func get_entry(id: String) -> Dictionary:
 		entry = _build(p)
 	if entry.is_empty():
 		entry = _load_gltf(id)
+	_entries[id] = entry
 	_mutex.lock()
 	_parsed.erase(id)
+	_built[id] = true
 	_mutex.unlock()
-	_entries[id] = entry
 	return entry
 
 
@@ -200,6 +205,7 @@ func _texture(tex_name: String) -> Texture2D:
 	_textures[tex_name] = tex
 	_mutex.lock()
 	_images.erase(tex_name)
+	_tex_built[tex_name] = true
 	_mutex.unlock()
 	return tex
 
@@ -217,6 +223,7 @@ func forget(id: String) -> void:
 	_shapes.erase(id)
 	_mutex.lock()
 	_parsed.erase(id)
+	_built.erase(id)
 	_mutex.unlock()
 
 
