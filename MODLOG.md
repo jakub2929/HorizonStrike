@@ -209,3 +209,9 @@ Full per-site table: `docs/notes/svet.md`. No placement references `ai/groups`, 
   55e12aea), watcher_alert, herd_landscape; full description text present; "Made by EM", MIT; mashup_info: open for
   remixes. History scan before push: 135 commits / 557 blobs, no game-derived files. melty.json holds no listing or
   GitHub reference (link to horizon-strike-2 is server-side; user deletes that draft).
+
+## 0.1.1 / 0.2 (2026-10-09)
+- Preconditions checked: 0.1.0 live (1 player), history clean, origin/main = 45638b3, horizon-strike-2 deleted by the
+  user; melty.json carries no listing reference (format has none).
+- Hotfix 0.1.1 started: buy wheel cannot buy anything for players; t03 passed via Game.buy() (bypassed input).
+  hra reproduces/fixes through real input; test rewrites t03 (and audits others) to use Input.parse_input_event.
