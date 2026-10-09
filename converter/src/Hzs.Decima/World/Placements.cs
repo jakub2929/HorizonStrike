@@ -56,7 +56,7 @@ public sealed class Placements(Resolver res, Log log)
     {
         var roots = file.OfType("ObjectCollection").LastOrDefault();
         IEnumerable<Obj> objs = roots is not null
-            ? file.Decode(roots).Refs("Objects").Select(r => TryDeref(file, r)).Where(o => o is not null)!
+            ? file.Decode(roots).Refs("Objects").Select(r => TryDeref(file, r)).OfType<Obj>()
             : file.Objects.Where(o => o.TypeName is "StaticMeshInstance" or "PrefabInstance").Select(file.Decode);
         foreach (var o in objs) Safe(o!, parent, layer, depth);
     }

@@ -168,9 +168,6 @@ public static class HzdConverter
         // music: Nora exploration themes, the open-world robot fight cue, the sneak cue
         var music = new Audio.Music(res);
         Audio.Music.Track? T(string name) => music.Tracks.FirstOrDefault(t => t.Name.Equals(name, StringComparison.OrdinalIgnoreCase));
-        IEnumerable<Audio.Music.Track> Fam(string fam, int max) => music.Tracks
-            .Where(t => t.Name.EndsWith(fam, StringComparison.OrdinalIgnoreCase) || t.Name.Contains(fam + "-", StringComparison.OrdinalIgnoreCase))
-            .OrderBy(t => t.Name, StringComparer.OrdinalIgnoreCase).Take(max);
         var cues = new (string File, Audio.Music.Track[] Tracks)[]
         {
             ("explore_nora", new[] { T(SystemsSheet.AudioMusicExploreTrack.Value.Trim('"')) }.OfType<Audio.Music.Track>().ToArray()), // sheet systems audio.music_explore_track
