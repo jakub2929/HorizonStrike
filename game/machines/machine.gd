@@ -21,6 +21,15 @@ const LAYER_HITBOX := 8
 ## Peripheral vision (outside the sight cone, up to peripheral_range_m) builds suspicion at this fraction of the
 ## direct rate: machines notice movement behind them slowly instead of instantly (design, hra).
 const PERIPHERAL_GAIN := 0.3
+## HZD alert flow: a calm machine always turns suspicious first and looks at the stimulus for this long before it
+## goes alert (also when another machine calls it or a gunshot startles a herd). Only a hit from the player or the
+## player very close (VERY_CLOSE_FRAC of the immediate alert distance, at least VERY_CLOSE_MIN_M) alerts at once
+## (design, stroje).
+const SUSPICIOUS_LOOK_S := 0.8
+const SUSPICIOUS_LOOK_HERD_S := 0.4
+const VERY_CLOSE_FRAC := 0.25
+const VERY_CLOSE_MIN_M := 3.0
+const CALM_STATES := ["idle", "patrol", "graze", "scavenge"]
 ## Corpses lie where the machine fell; they are freed after CORPSE_MIN_S once the player is farther than
 ## CORPSE_FREE_DISTANCE_M, and always after CORPSE_MAX_S (design, stroje).
 const CORPSE_MIN_S := 45.0
@@ -82,6 +91,8 @@ var _attack_t := 0.0
 var _attack_dealt := false
 var _cooldowns := {}
 var _alert_announce := 0.0
+var _pending_alert := false            # suspicious on the way to alert (look first)
+var _force_alert := false              # this perception tick saw the player very close
 ## Radar pings sent / pings that found the player (scavengers; read by dev/machine_bench.gd --ai).
 var radar_pings := 0
 var radar_pings_hit := 0
@@ -329,7 +340,7 @@ func take_hit(weapon_id: String, base_damage: float, part: String, is_weak: bool
 		if state == "stalk":
 			_set_state("attack")   # a stalking predator that is shot goes for the shooter at once
 		elif state != "alert" and state != "attack" and state != "flee":
-			_go_alert()
+			_go_alert(true)
 	return dmg
 
 
@@ -377,12 +388,14 @@ func notice_impact(pos: Vector3) -> void:
 
 
 func _after_suspicion_change() -> void:
+	var force := _force_alert
+	_force_alert = false
 	if suspicion >= alert_threshold and state not in ["alert", "attack", "flee", "stalk"]:
 		if Game.player:
 			_last_seen = Game.player.global_position
 			_last_seen_time = _now()
-		_go_alert()
-	elif suspicion >= susp_threshold and state in ["idle", "patrol", "graze", "scavenge"]:
+		_go_alert(force)
+	elif suspicion >= susp_threshold and state in CALM_STATES:
 		_set_state("suspicious")
 
 
@@ -419,6 +432,7 @@ func _perceive(delta: float) -> void:
 		# immediate detection only inside the sight cone, at distances scaled by stance x stealth grass
 		if in_cone and d <= imm_alert * vis:
 			suspicion = maxf(suspicion, alert_threshold)
+			_force_alert = d <= maxf(imm_alert * VERY_CLOSE_FRAC * vis, VERY_CLOSE_MIN_M)
 		elif in_cone and d <= imm_susp * vis:
 			suspicion = maxf(suspicion, susp_threshold)
 		var g := gain_per_s * vis * clampf(1.0 - d / maxf(rng, 0.01), 0.0, 1.0)
@@ -452,6 +466,8 @@ func _set_state(s: String) -> void:
 	_has_goal = false
 	_attack_phase = ""
 	current_attack = ""
+	if s != "suspicious":
+		_pending_alert = false
 	if s != "dead":
 		Log.info("machine %s %s -> %s (suspicion %.2f)" % [name, old, s, suspicion])
 	Game.emit_machine_state(self, old, s)
@@ -461,7 +477,19 @@ func _set_state(s: String) -> void:
 		audio.on_state(s)
 
 
-func _go_alert() -> void:
+## Alert. Unless `force` (shot by the player, player very close), a calm machine first turns suspicious and looks at
+## the stimulus for SUSPICIOUS_LOOK_S; _think finishes the alert after that.
+func _go_alert(force: bool = false) -> void:
+	if not force:
+		var look := SUSPICIOUS_LOOK_HERD_S if archetype == "herd" else SUSPICIOUS_LOOK_S
+		if state in CALM_STATES:
+			_set_state("suspicious")
+			_pending_alert = true
+			return
+		if state == "suspicious" and _state_time < look:
+			_pending_alert = true
+			return
+	_pending_alert = false
 	_set_state("alert")
 	_alert_announce = 0.0
 	# guards call nearby machines, scavengers call their pack, herds alert their herd (systems
@@ -562,6 +590,14 @@ func _think(delta: float) -> Array:
 		"patrol", "graze", "scavenge":
 			return _wander(delta, archetype in ["guard", "predator"])
 		"suspicious":
+			if _pending_alert:
+				var look := SUSPICIOUS_LOOK_HERD_S if archetype == "herd" else SUSPICIOUS_LOOK_S
+				var tl := (_last_seen if _last_seen != Vector3.ZERO else _stimulus) - global_position
+				tl.y = 0
+				_face(tl, delta)
+				if _state_time >= look:
+					_go_alert(true)
+				return [Vector3.ZERO, 0.0]
 			if suspicion < susp_threshold * 0.5:
 				_set_state(_calm_state())
 				return [Vector3.ZERO, 0.0]

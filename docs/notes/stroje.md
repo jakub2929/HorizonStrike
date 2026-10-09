@@ -113,3 +113,20 @@ anim/speeds/perception thresholds/attacks/herd/flee, machine_attacks.json. Newes
   (core/game.gd:107) checks alert/attack -> should include `stalk`; audio_director counts only `attack` as combat
   and suspicious/alert as wary -> `stalk` belongs to wary/combat; spawner._engaged -> add `stalk`. For test: t06's
   calm list ["idle","patrol","graze"] -> add "scavenge" for Scrappers.
+- 2026-10-10 Follow-up (hra's autotest t05: Watcher patrol -> alert, skipping suspicious). Causes in machine.gd:
+  (1) the immediate-alert distance (in the sight cone within immediate_alert_m 15 m) jumped a calm machine straight
+  to alert, e.g. a patrolling Watcher that turns to face the player inside 15 m; (2) receive_alert (a second Watcher
+  on the site calling within alert_call_radius_m 60, herd calls) and loud-noise herd alerts set alert directly.
+  Fix (HZD flow): a calm machine (idle/patrol/graze/scavenge) always turns `suspicious` first and looks at the
+  stimulus for SUSPICIOUS_LOOK_S 0.8 s (herds 0.4 s), then goes alert - also when called or startled by a shot.
+  Immediate alert only when hit by the player or with the player very close (25 % of immediate_alert_m, >= 3 m).
+  Sheet thresholds unchanged (Watcher suspicious 30 m / alert 15 m / sight 45 m / half angle 25 deg).
+  Verification: test's autotest t05 on the real world (copy of c48, editor binary, project imported once so the
+  runner's global classes resolve): PASS, suspicious at 1.9 s (32 m) -> alert 4.4 s -> attack 5.0 s.
+  hra's dev scenarios t05 x3 PASS, t06 PASS (graze -> flee in 0.4 s). Bench --ai now requires the first non-calm
+  state of EVERY group member to be entered from suspicious: PASS for all 6 (approach from 70 m), standing at 35 m
+  (Broadhead holds its ground in alert, player outside fight_back_radius), standing at 12 m (Sawtooth inside
+  stalk_until_m attacks without stalking), gunshot near crouched herds (grazer/strider: graze -> suspicious ->
+  alert -> flee 0.41-0.42 s after the shot; Broadhead: suspicious -> alert, holds).
+  Second real autotest run (t05,t06): t05 PASS (suspicious 2.4 s at 39.7 m -> alert 6.4 s -> attack 7.0 s),
+  t06 PASS (12/12 checks).
