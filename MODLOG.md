@@ -167,3 +167,7 @@ Full per-site table: `docs/notes/svet.md`. No placement references `ai/groups`, 
   S3TC + anisotropic + own procedural close-up noise, vegetation species params with per-cell budget
   (`streaming.vegetation_cell_cap` 14000, `streaming.vegetation_density_scale` 1.0). Fresh conversion: world_ready
   68.3 s (start cell only), 3x3 +17.3 s, 826 MB; 62.6 fps at start (worst frame 17.2 ms); runner t05,t06,s01-s03 PASS.
+- 2026-10-09 svet vegetation merged (e8fa530): species via PlacementTargets (4_-3: 118 species in 241 layers, 6 picked
+  per channel incl. snow/no-snow variants by HZD's ecotope_effect snow map), cell.json format 3 (veg_effect.png,
+  per-species per_m2/max_instances/cluster/effect_range), sheet rows vegetation.density_scale 0.25 and
+  max_instances_per_species 3000 (performance). Bootstrap 59.8 s in proto_smoke.
