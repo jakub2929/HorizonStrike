@@ -19,6 +19,8 @@ public sealed class Materials(Resolver res, int maxPx)
     private static readonly string[] Standalone = HzdNames.List("materials.standalone_color");
     private readonly ConcurrentDictionary<Ref, bool> _alphaSets = new();
     private static readonly string[] NotOwnMaps = HzdNames.List("materials.never_surface_maps");
+    private static readonly string[] StandaloneNormal = HzdNames.List("materials.standalone_normal");
+    private readonly ConcurrentDictionary<Ref, bool> _isNormalMap = new();
     private readonly ConcurrentDictionary<string, Func<Image?>> _maps = new();
 
     /// <summary>Key of the texture; Colorized = no colour map, neutral stone x AO (HZD colours these by ecotope at runtime).</summary>
@@ -96,6 +98,13 @@ public sealed class Materials(Resolver res, int maxPx)
             nk = $"n:{n.R.Path}#{n.R.Uuid}/{n.E}/{n.Cx}{n.Cy}";
             _maps.TryAdd(nk, () => NormalOf(n.R, n.E, n.Cx, n.Cy));
         }
+        else if (refs.FirstOrDefault(IsStandaloneNormal) is { Path: not null } sn)
+        {
+            // procedural materials (e.g. the Cauldron walls) bind their normal map as a plain texture (no set, no
+            // PackingInfo): *_cmp composite / *_nmt maps whose R, G are tangent-space X, Y (checked from the pixels)
+            nk = $"n:{sn.Path}#{sn.Uuid}/rg";
+            _maps.TryAdd(nk, () => StandaloneNormalOf(sn));
+        }
         if (ao is not null && !colorized || rough is not null)
         {
             var a = colorized ? null : ao;
@@ -103,6 +112,44 @@ public sealed class Materials(Resolver res, int maxPx)
             _maps.TryAdd(ok, () => OrmOf(a, rough));
         }
         return (nk, ok);
+    }
+
+    /// <summary>
+    /// A bound plain Texture (not in a texture set) named like a normal map (sheet materials.standalone_normal) whose
+    /// R and G average about 0.5 and whose X, Y stay inside the unit circle: a tangent-space normal map.
+    /// </summary>
+    private bool IsStandaloneNormal(Ref r) => _isNormalMap.GetOrAdd(r, k =>
+    {
+        if (!StandaloneNormal.Any(m => k.Path!.Contains(m, StringComparison.OrdinalIgnoreCase))) return false;
+        try
+        {
+            var file = res.TryFile(k.Path!);
+            if (file is null || res.Target(file, k)?.TypeName != "Texture" || SetOf(k, out _) is not null) return false;
+            var tex = HzdTexture.Parse(res.Deref(file, k)!);
+            var img = tex.Decode(res.Archive, tex.MipFor(64));
+            if (img.Channels < 2) return false;
+            double sr = 0, sg = 0; long inside = 0, n = (long)img.Width * img.Height;
+            for (var i = 0; i < n; i++)
+            {
+                double x = img.Pixels[i * img.Channels] / 127.5 - 1, y = img.Pixels[i * img.Channels + 1] / 127.5 - 1;
+                sr += img.Pixels[i * img.Channels]; sg += img.Pixels[i * img.Channels + 1];
+                if (x * x + y * y <= 1.05) inside++;
+            }
+            return Math.Abs(sr / n - 127.5) < 20 && Math.Abs(sg / n - 127.5) < 20 && inside >= n * 0.95;
+        }
+        catch (Exception) { return false; }
+    });
+
+    private Image? StandaloneNormalOf(Ref r)
+    {
+        var file = res.TryFile(r.Path!);
+        if (file is null || res.Deref(file, r) is not { } t) return null;
+        var tex = HzdTexture.Parse(t);
+        var img = tex.Decode(res.Archive, tex.MipFor(maxPx)).Fit(maxPx);
+        var n = img.Width * img.Height;
+        var o = new byte[n * 2];
+        for (var i = 0; i < n; i++) { o[i * 2] = img.Pixels[i * img.Channels]; o[i * 2 + 1] = img.Pixels[i * img.Channels + 1]; }
+        return new Image(img.Width, img.Height, 2, o);
     }
 
     /// <summary>Colour, normal (X, Y) and ORM images of one texture-set file (e.g. a terrain layer); null parts are missing.</summary>
