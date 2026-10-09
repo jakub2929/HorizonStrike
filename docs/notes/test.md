@@ -314,6 +314,39 @@ t04 FAIL (slot key: current stays ak47), t06 FAIL (crouch key: crouched = false;
   luma stddev 41-46); r02 PASS 18/18 clips of 7.2-8 s, not blank (new machines were placeholder boxes there).
 - Needs: hra `player.speed_mult` (t16); svet `kind` per cell.json instance (t14).
 
+
+### Runs on main 0110c88 (svet V0-V7, hra H1-H3, stroje M0-M3), dev editor, cache copy `cache-test-02a` (c48)
+- t12 PASS (`C:\meshy\_tools\autotest-dev\v02-e`): sawtooth patrol 0 -> suspicious 1.7 -> alert 3.8 -> stalk 4.4 ->
+  attack 9.9 s (charge 9.9, pounce 12.4); scrapper scavenge -> suspicious 2.0 -> alert 3.2 -> attack 3.8, laser_burst
+  projectile at 4.7 s; broadhead graze -> suspicious 2.7 -> alert 4.7 -> attack 5.3 (charge 5.3), the second
+  Broadhead graze -> suspicious 3.8 -> alert 4.7 -> attack 5.3. None fled. No shot into the air needed.
+  Earlier attempts failed on test bugs (machine spawned at the player's feet, previous machines left at the spot);
+  one attempt (v02-d) had sawtooth patrol -> alert in 0.3 s at 45 m without suspicious - not reproduced in v02-e,
+  watch item for stroje.
+- t13 PASS (`v02-f`), real input shots, first hit along the shot = the weak spot (game WEAK_SLACK_M 0.15 m agrees:
+  a weak box 0.7 m behind the body surface does not count):
+
+| machine | weak spot first hit + hit by the shot | weak > body (body-only lines) | stroje bench |
+|---|---|---|---|
+| watcher | 7/8 (180 deg: eye 2.0 m behind the body) | 7/7 | 8 |
+| strider | 7/8 (0 deg: canister 1.9 m behind) | 6/6 | 7 |
+| grazer | 8/8 | 8/8 | 8 |
+| sawtooth | 5/8 (0/90/270 deg: canister 0.7-2.1 m behind the body) | 5/5 | 8 |
+| scrapper | 7/8 power_cell | 7/7 | 6/8 power cell |
+| broadhead | 7/8 | 7/7 | 7 |
+
+  Weak damage = deagle.damage x headshot_mult x falloff (oracle) within +-0.02 when the falloff is taken at the weak
+  hitbox surface (e.g. watcher 185.42 vs 185.43); at the aim point it was off by up to 2.1 on the Grazer.
+  Observation for stroje: on the Sawtooth a shot at the default body point (and at body box centres) registers as a
+  weak hit (182 instead of ~44) - the canister box sits inside the body box, so the game's "weak inside an enclosing
+  body box wins" rule applies; t13 compares against body-only lines only.
+- t14 FAIL (`v02-e`): terrain 14/14, rock 22 705/22 738 (99.9 %) with a normal map, building 51 052/70 139
+  (72.8 %) - finding for svet below. Vegetation 15 233/19 738, props 120/321 (not criteria).
+- Finding F8 (svet) t14: building instances without a normal map in the loaded cells around (4,-3), top meshes
+  `825f6b53d3cf44b0_0` x4070, `0ff5e965b6e24263_58` x515, `2548028a75587510_49` x451, `651eef0e181d2161_58` x327,
+  `57b5d8d0323b8a62_13` x326, `fe54649fd6408bd7_66` x291 (material without normal_enabled + normal_texture, or a
+  ShaderMaterial without a bound *normal* texture).
+
 ## Log
 - 2026-10-09 runner, libs and all 13 scenario scripts written against the documented API; stub verification above.
 - 2026-10-09 pre-merge integration: hra's committed game (branch head 4ea177b, exported with `git archive` into a
