@@ -15,6 +15,9 @@ namespace Hzs.Decima.World;
 /// </summary>
 public sealed class WorldMeshes(Resolver res, CachePaths cache, Log log, int texPx = 512, int maxVertices = 12000)
 {
+    /// <summary>Cached core files are dropped above this size (the server converts cells for hours).</summary>
+    public const long MaxResolverBytes = 768L << 20;
+
     private readonly ConcurrentDictionary<string, Lazy<bool>> _meshes = new();
     private readonly ConcurrentDictionary<string, Lazy<(string Id, bool Alpha)?>> _textures = new();
     private readonly Materials _mats = new(res, texPx);
@@ -29,6 +32,7 @@ public sealed class WorldMeshes(Resolver res, CachePaths cache, Log log, int tex
     /// <summary>Exports the mesh if needed. Returns the mesh id and its texture ids, or null when it has no drawable geometry.</summary>
     public (string Id, string[] Textures)? Ensure(string file, Guid uuid)
     {
+        res.TrimIfAbove(MaxResolverBytes);
         var core = res.TryFile(file);
         var obj = core?.Find(uuid);
         if (core is null || obj is null) return null;
@@ -63,11 +67,11 @@ public sealed class WorldMeshes(Resolver res, CachePaths cache, Log log, int tex
             foreach (var prim in md.Prims)
             {
                 if (prim.Idx.Length == 0) continue;
-                var choice = _mats.ForEffect(prim.Effect);
+                var choice = _mats.ForEffect(prim.Effect, known: k => _textures.TryGetValue(k, out var lz) && lz.IsValueCreated && lz.Value is not null);
                 var key = choice?.Key ?? "";
                 if (!matCache.TryGetValue(key, out var mat))
                 {
-                    var tex = choice?.Color is { } img ? Texture(key, img) : null;
+                    var tex = choice is null ? null : choice.Color is { } img ? Texture(key, img) : _textures.TryGetValue(key, out var done) ? done.Value : null;
                     if (tex is { } t)
                     {
                         texIds.Add(t.Id);

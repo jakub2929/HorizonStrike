@@ -11,11 +11,15 @@ namespace Hzs.Decima.Assets;
 public sealed class Materials(Resolver res, int maxPx)
 {
     private readonly ConcurrentDictionary<string, Image?> _images = new();
+    private readonly ConcurrentDictionary<string, bool> _ok = new();
 
     public sealed record Choice(string Key, Image? Color);
 
-    /// <summary>The colour image a render effect uses (null if none found). Key identifies the texture set.</summary>
-    public Choice? ForEffect(Obj? effect, Func<string, bool>? acceptPath = null)
+    /// <summary>
+    /// The colour image a render effect uses (null if none found). Key identifies the texture set. When
+    /// <paramref name="known"/> says the caller already has the key's texture, the image is not decoded (Color null).
+    /// </summary>
+    public Choice? ForEffect(Obj? effect, Func<string, bool>? acceptPath = null, Func<string, bool>? known = null)
     {
         if (effect is null) return null;
         var refs = new List<Ref>();
@@ -37,8 +41,19 @@ public sealed class Materials(Resolver res, int maxPx)
                 foreach (var r in refs.Where(x => Tier(x.Path!) == tier))
                 {
                     var key = $"{pass}:{r.Path}#{r.Uuid}";
+                    if (_ok.TryGetValue(key, out var ok))
+                    {
+                        if (!ok) continue;
+                        if (known?.Invoke(key) == true) return new Choice(key, null);
+                    }
                     var img = _images.GetOrAdd(key, _ => pass == 1 ? ColorOf(r) : AoStone(r));
-                    if (img is not null) return new Choice(key, img);
+                    _ok[key] = img is not null;
+                    if (img is not null)
+                    {
+                        if (_images.Count > 48) _images.Clear(); // bounded: callers that keep results pass `known`
+                        return new Choice(key, img);
+                    }
+                    _images.TryRemove(key, out _);
                 }
         return null;
     }

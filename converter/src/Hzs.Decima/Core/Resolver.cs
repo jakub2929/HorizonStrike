@@ -7,11 +7,29 @@ namespace Hzs.Decima.Core;
 public sealed class Resolver(HzdArchive arc)
 {
     private readonly ConcurrentDictionary<string, CoreFile?> _files = new(StringComparer.Ordinal);
+    private long _bytes;
 
     public HzdArchive Archive => arc;
 
+    /// <summary>Approximate bytes of cached core files.</summary>
+    public long CachedBytes => Interlocked.Read(ref _bytes);
+
     public CoreFile? TryFile(string path) =>
-        _files.GetOrAdd(HzdArchive.Normalize(path), p => arc.TryRead(p) is { } d ? new CoreFile(p, d) : null);
+        _files.GetOrAdd(HzdArchive.Normalize(path), p =>
+        {
+            var d = arc.TryRead(p);
+            if (d is null) return null;
+            Interlocked.Add(ref _bytes, d.Length);
+            return new CoreFile(p, d);
+        });
+
+    /// <summary>Drops the file cache when it grew beyond <paramref name="maxBytes"/> (long-running server).</summary>
+    public void TrimIfAbove(long maxBytes)
+    {
+        if (CachedBytes <= maxBytes) return;
+        _files.Clear();
+        Interlocked.Exchange(ref _bytes, 0);
+    }
 
     public CoreFile File(string path) => TryFile(path) ?? throw new FileNotFoundException($"not in the HZD archives: {HzdArchive.Normalize(path)}");
 

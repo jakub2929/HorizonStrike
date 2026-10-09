@@ -132,8 +132,21 @@ public static class HzdConverter
     public static (int X, int Y) StartCell(ConvContext ctx) => World.WorldIndex.StartCell(ctx.Cache);
 
     /// <summary>One world cell: terrain, instances, vegetation, campfires, spawns (hzd/cells/X_Y/).</summary>
-    public static long ConvertCell(ConvContext ctx, int x, int y, IProgressSink progress) =>
-        World.CellConverter.Convert(ctx, new Resolver(Archive(ctx)), x, y, progress);
+    public static long ConvertCell(ConvContext ctx, int x, int y, IProgressSink progress)
+    {
+        var bytes = World.CellConverter.Convert(ctx, new Resolver(Archive(ctx)), x, y, progress);
+        if (!Stamped(ctx)) Stamp(ctx);
+        return bytes;
+    }
+
+    /// <summary>True when the cell exists in the cache, has the current cell format and the cache is stamped with this HZD build.</summary>
+    public static bool CellUpToDate(ConvContext ctx, int x, int y)
+    {
+        var path = Path.Combine(ctx.Cache.Cell(x, y), "cell.json");
+        if (!File.Exists(path) || !Stamped(ctx)) return false;
+        try { return JsonNode.Parse(File.ReadAllText(path))?["format"]?.GetValue<int>() == World.CellConverter.Format; }
+        catch (Exception) { return false; }
+    }
 
     /// <summary>Horizon music and ambience used by the game.</summary>
     public static long ConvertAudio(ConvContext ctx, IProgressSink progress)

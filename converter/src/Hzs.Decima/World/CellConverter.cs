@@ -12,6 +12,9 @@ namespace Hzs.Decima.World;
 /// </summary>
 public static class CellConverter
 {
+    /// <summary>cell.json "format"; bump when the cell layout changes so old cells are converted again.</summary>
+    public const int Format = 1;
+
     public static long Convert(ConvContext ctx, Resolver res, int x, int y, IProgressSink progress, int texPx = 1024)
     {
         var sw = Stopwatch.StartNew();
@@ -131,7 +134,7 @@ public static class CellConverter
 
             var cell = new JsonObject
             {
-                ["format"] = 1,
+                ["format"] = Format,
                 ["cell"] = new JsonArray(x, y),
                 ["origin"] = new JsonArray(x * TerrainReader.TileSize, 0f, -(y + 1) * TerrainReader.TileSize),
                 ["size"] = TerrainReader.TileSize,
@@ -176,7 +179,7 @@ public static class CellConverter
     {
         lock (MeshesLock)
         {
-            if (_meshes is null || _meshesRoot != ctx.Cache.Root) { _meshes = new WorldMeshes(res, ctx.Cache, ctx.Log); _meshesRoot = ctx.Cache.Root; }
+            if (_meshes is null || _meshesRoot != ctx.Cache.Root) { _meshes = new WorldMeshes(new Resolver(res.Archive), ctx.Cache, ctx.Log); _meshesRoot = ctx.Cache.Root; }
             return _meshes;
         }
     }
