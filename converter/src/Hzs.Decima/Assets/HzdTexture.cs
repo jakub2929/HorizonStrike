@@ -3,6 +3,8 @@ using Hzs.Decima.Archive;
 using Hzs.Decima.Core;
 using TinyBCSharp;
 
+using Hzs.Decima.Sheets;
+
 namespace Hzs.Decima.Assets;
 
 /// <summary>Decoded image: 8-bit channels, row-major.</summary>
@@ -75,7 +77,7 @@ public sealed class HzdTexture
         {
             var n = r.I32();
             stream = System.Text.Encoding.UTF8.GetString(r.Span(n));
-            if (stream.StartsWith("cache:", StringComparison.Ordinal)) stream = stream[6..];
+            stream = HzdNames.StripStream(stream);
             off = (long)r.U64();
             r.U64();
         }

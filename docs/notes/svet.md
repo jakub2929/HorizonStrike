@@ -213,3 +213,17 @@ mole = Burrower were wrong. Grazer is `harvester`.
   (converter-side mapping of HZD data; the game never sees them).
 - S8: tools/proto_smoke.py -> PROTO OK (bootstrap 70 s on an empty cache incl. CS2, 4 ring cells, priority change,
   cancel, cached re-request, 2 parallel workers, bye + exit 0).
+
+## D32 follow-up: HZD names out of code (2026-10-09)
+- New sheet sheets/hzd_content.json (52 rows; groups archive, world, terrain, geometry, campfires, start, sites,
+  vegetation, machines, audio, materials). Converter reads it through Hzs.Generated.HzdContentSheet via
+  Sheets/HzdNames.cs (Str/Num/Int/List/Json/Fill/StripStream). Music explore track and ambience source stay in
+  systems (audio.music_explore_track, audio.ambience_track; music_cues references the former as "@..."), tile size via
+  the systems streaming.cell_size_m binding, start cell via systems streaming.start_cell (also the dev commands).
+- What stays in code: RTTI type/member names of the hand-written layouts and file-format conventions (.core,
+  .core.stream, .bin, ECHO/MEDA/STRL/PICD chunk tags) - format facts, not content.
+- Verified identical output (sha1 of every file) before/after: cell 4_-3 (4 files), shared meshes (1542 files),
+  textures (140), machines (137), audio (23), index.json.
+- proto_smoke.py now passes --log-dir inside the test cache: the default log (logs/ next to the cache root) can be
+  held open by another converter process, and Hzs.Common.Log opens it exclusively (FileShare.Read) -> the second
+  converter crashed at start (reported to main).

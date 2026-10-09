@@ -3,6 +3,8 @@ using System.Numerics;
 using Hzs.Decima.Archive;
 using Hzs.Decima.Core;
 
+using Hzs.Decima.Sheets;
+
 namespace Hzs.Decima.Assets;
 
 /// <summary>One draw primitive in HZD model space (Z-up, meters).</summary>
@@ -238,7 +240,7 @@ public static class MeshReader
         return prim;
     }
 
-    private static string StripCache(string loc) => loc.StartsWith("cache:", StringComparison.Ordinal) ? loc[6..] : loc;
+    private static string StripCache(string loc) => HzdNames.StripStream(loc);
 
     /// <summary>
     /// HZD skin weights ("3x8"): the weight bytes hold the weights of influences 1..n-1; influence 0 gets the rest

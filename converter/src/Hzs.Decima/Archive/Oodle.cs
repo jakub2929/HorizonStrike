@@ -1,5 +1,7 @@
 using System.Runtime.InteropServices;
 
+using Hzs.Decima.Sheets;
+
 namespace Hzs.Decima.Archive;
 
 /// <summary>
@@ -26,7 +28,7 @@ public sealed unsafe class Oodle
         lock (Gate)
         {
             if (_instance is not null) return _instance;
-            var dll = Path.Combine(hzdDir, "oo2core_3_win64.dll");
+            var dll = Path.Combine(hzdDir, HzdNames.Str("archive.oodle_dll"));
             if (!File.Exists(dll)) throw new FileNotFoundException("Oodle library not found in the HZD install", dll);
             _instance = new Oodle(NativeLibrary.Load(dll));
             _loadedFrom = dll;

@@ -1,6 +1,7 @@
 using System.Text.Json.Nodes;
 using Hzs.Common;
 using Hzs.Decima.Core;
+using Hzs.Decima.Sheets;
 
 namespace Hzs.Decima.Audio;
 
@@ -12,36 +13,31 @@ namespace Hzs.Decima.Audio;
 /// </summary>
 public static class MachineSounds
 {
-    // ordered patterns per role (substring match on the wave file name); first patterns win
-    private static readonly Dictionary<string, string[]> Roles = new()
-    {
-        ["idle"] = ["vox_idle", "idle_grunt", "idle_loop", "vox_snort", "horse_vox", "rndm_vox", "vox_grty", "chitter", "vox_borg"],
-        ["graze"] = ["grass_processor", "ripgrass", "procesing", "harvester_burp"],
-        ["scan"] = ["scan"],
-        ["suspicious"] = ["vox_susp", "vox_tst", "vox_a_", "start_whinney", "vox_rise", "vox_noise"],
-        ["alert"] = ["vox_alrt", "vox_alerted", "harvester_scream", "vox_b_", "jump_whine", "scout_call", "vox_speedup"],
-        ["attack"] = ["vox_attck", "vox_attack", "attkick", "attbackkick", "attack_", "pre_attack", "vox_agr", "bucking", "blade_drill", "back_swipe", "front_kick", "combat_charge", "swipe"],
-        ["hit"] = ["hit_react", "hit_pain_short", "hitmove", "hr_knockdown", "stumble", "hit_fall"],
-        ["death"] = ["kill", "pain_long", "malfunct", "death"],
-        ["footstep"] = ["footstep", "walk_dirt", "walk_grass", "step_extr", "fts_"],
-    };
+    // ordered wave-name patterns per role and role fallbacks: sheet hzd_content machines.sound_roles / sound_role_fallback
+    private static Dictionary<string, string[]> Roles => HzdNames.Json("machines.sound_roles").AsObject()
+        .ToDictionary(kv => kv.Key, kv => kv.Value!.AsArray().Select(x => x!.GetValue<string>()).ToArray());
 
-    private static readonly Dictionary<string, string> Fallback = new() { ["scan"] = "idle", ["graze"] = "idle", ["suspicious"] = "alert", ["death"] = "hit" };
+    private static Dictionary<string, string> Fallback => HzdNames.Json("machines.sound_role_fallback").AsObject()
+        .ToDictionary(kv => kv.Key, kv => kv.Value!.GetValue<string>());
 
-    public static long Export(Resolver res, string internalName, IEnumerable<string> roles, string outDir, Log log, int perRole = 6)
+    public static long Export(Resolver res, string internalName, IEnumerable<string> roles, string outDir, Log log, int? perRoleOverride = null)
     {
-        var prefix = $"sounds/effects/robots/{internalName}/";
-        var waves = res.Archive.Paths.Where(p => p.StartsWith(prefix, StringComparison.Ordinal) && p.Contains("/wav/", StringComparison.Ordinal))
+        var perRole = perRoleOverride ?? HzdNames.Int("machines.sounds_per_role");
+        var patterns = Roles;
+        var fallback = Fallback;
+        var marker = HzdNames.Str("machines.sound_dir_marker");
+        var prefix = HzdNames.Fill("machines.sound_root", ("internal", internalName));
+        var waves = res.Archive.Paths.Where(p => p.StartsWith(prefix, StringComparison.Ordinal) && p.Contains(marker, StringComparison.Ordinal))
             .OrderBy(p => p, StringComparer.Ordinal).ToList();
         var snd = Path.Combine(outDir, "snd");
         Directory.CreateDirectory(snd);
         var index = new JsonObject();
         long bytes = 0;
         var picked = new Dictionary<string, List<string>>();
-        foreach (var role in Roles.Keys)
+        foreach (var role in patterns.Keys)
         {
             var list = new List<string>();
-            foreach (var pat in Roles[role])
+            foreach (var pat in patterns[role])
                 foreach (var w in waves)
                 {
                     if (list.Count >= perRole) break;
@@ -53,7 +49,7 @@ public static class MachineSounds
         foreach (var role in roles)
         {
             var src = picked.GetValueOrDefault(role) ?? [];
-            if (src.Count == 0 && Fallback.TryGetValue(role, out var fb)) src = picked.GetValueOrDefault(fb) ?? [];
+            if (src.Count == 0 && fallback.TryGetValue(role, out var fb)) src = picked.GetValueOrDefault(fb) ?? [];
             var arr = new JsonArray();
             var n = 0;
             foreach (var w in src)

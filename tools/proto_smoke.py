@@ -45,7 +45,8 @@ def main():
     timeout = float(arg("--timeout", "1200"))
     os.makedirs(cache, exist_ok=True)
     errlog = open(os.path.join(cache, "proto_smoke_stderr.log"), "w", encoding="utf-8")
-    cmd = converter_cmd() + ["serve", "--cs2", cs2, "--hzd", hzd, "--cache", cache, "--workers", "2"]
+    cmd = converter_cmd() + ["serve", "--cs2", cs2, "--hzd", hzd, "--cache", cache, "--workers", "2",
+                               "--log-dir", os.path.join(cache, "logs")]  # own log: the default logs/ next to the cache may be held by another converter
     print("starting:", " ".join(cmd))
     p = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=errlog, text=True, encoding="utf-8", bufsize=1)
     events = queue.Queue()
