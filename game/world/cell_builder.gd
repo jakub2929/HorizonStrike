@@ -13,6 +13,7 @@ const FsUtil := preload("res://core/fsutil.gd")
 const Campfire := preload("res://world/campfire.gd")
 const TerrainMaterial := preload("res://world/terrain_material.gd")
 const MeshLib := preload("res://world/mesh_library.gd")
+const WaterMaterial := preload("res://world/water_material.gd")
 
 const MAX_VISUAL_VERTS := 257
 const MAX_COLLISION_VERTS := 257      # = the visual terrain grid (2 m): feet stand on the surface that is drawn
@@ -113,6 +114,19 @@ static func prepare(cell_dir: String, meshes: RefCounted) -> Dictionary:
 			tints[mid].append(Color.WHITE)
 	out["instances"] = groups
 	out["tints"] = tints
+	# water surfaces (cell.json water.instances): drawn with the shared water material, no collision
+	var water := {}
+	var wdata = info.get("water")
+	if typeof(wdata) == TYPE_DICTIONARY:
+		for inst in wdata.get("instances", []):
+			var wm := str(inst.get("mesh", ""))
+			var wxf: Array = inst.get("xf", [])
+			if wm == "" or wxf.size() != 12:
+				continue
+			if not water.has(wm):
+				water[wm] = []
+			water[wm].append(_xf(wxf))
+	out["water"] = water
 	tp["instances"] = (Time.get_ticks_usec() - tw) / 1000.0
 	tw = Time.get_ticks_usec()
 	# ---- vegetation scattered from the density map
@@ -121,6 +135,8 @@ static func prepare(cell_dir: String, meshes: RefCounted) -> Dictionary:
 	var ids := {}
 	for mid in groups:
 		ids[mid] = true
+	for wm in out["water"]:
+		ids[wm] = true
 	for key in out["vegetation"]:
 		if not str(key).begins_with("_"):
 			ids[out["vegetation"][key]["mesh"]] = true
@@ -454,6 +470,17 @@ static func _plan(out: Dictionary, meshes: RefCounted) -> void:
 		_plan_chunks(chunks, str(key), str(v["mesh"]), inf2, v["xfs"], origin, [])
 		if v["channel"] == "trees":
 			_plan_collision(col, str(v["mesh"]), inf2, v["xfs"], origin)
+	var water: Dictionary = out.get("water", {})
+	for wm in water:
+		var winf: Dictionary = meshes.info(wm)
+		if winf.is_empty():
+			continue
+		var n0 := chunks.size()
+		_plan_chunks(chunks, "water:" + wm, wm, winf, water[wm], origin, [])
+		for k in range(n0, chunks.size()):
+			chunks[k]["water"] = true
+			chunks[k]["shadow"] = false
+			chunks[k]["vis_end"] = 0.0
 	out["chunks"] = chunks
 	out["col_buckets"] = col
 	var n := 0
@@ -671,6 +698,8 @@ static func make_chunk(spec: Dictionary, meshes: RefCounted) -> MultiMeshInstanc
 		mmi.visibility_range_end_margin = 15.0
 		mmi.visibility_range_fade_mode = GeometryInstance3D.VISIBILITY_RANGE_FADE_SELF
 	mmi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON if spec["shadow"] else GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	if spec.get("water", false):
+		mmi.material_override = WaterMaterial.get_material()
 	return mmi
 
 

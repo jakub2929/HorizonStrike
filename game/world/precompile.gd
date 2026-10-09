@@ -200,6 +200,10 @@ func _build_real_materials() -> void:
 
 
 func _build_terrain_variants() -> void:
+	var wq := MeshInstance3D.new()
+	wq.mesh = _quad_plain
+	wq.material_override = load("res://world/water_material.gd").get_material()
+	_place(wq)
 	for alb in [null, _dummy]:
 		for nrm in [null, _dummy]:
 			for world_n in [false, true]:

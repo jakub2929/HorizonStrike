@@ -457,8 +457,9 @@ func _finish_insert(ins: RefCounted) -> void:
 	profiler.inserted(c, ins.phases, data.get("t", {}), float(data.get("prepare_wall_ms", 0.0)), 0.0, float(ins.phases["add_child"]),
 		{"instances": cell_data[c]["instances"], "vegetation": cell_data[c]["veg_count"], "shapes": int(data.get("col_items", 0)),
 		"bodies": (data.get("col_buckets", {}) as Dictionary).size()})
-	Log.info("cell %s loaded in %d ms (real terrain %s, %d instances, %d vegetation, %d steps, %d collision items in %d buckets near the player only)" % [c,
+	Log.info("cell %s loaded in %d ms (real terrain %s, %d instances, %d vegetation, %d water surfaces, %d steps, %d collision items in %d buckets near the player only)" % [c,
 		Time.get_ticks_msec() - int(job.get("t0", Time.get_ticks_msec())), data.get("real", false), cell_data[c]["instances"], cell_data[c]["veg_count"],
+		(data.get("water", {}) as Dictionary).values().reduce(func(a, l): return a + (l as Array).size(), 0),
 		ins.steps_done, int(data.get("col_items", 0)), (data.get("col_buckets", {}) as Dictionary).size()])
 	_finish_detail += ", log %.1f" % ((Time.get_ticks_usec() - tf) / 1000.0)
 	tf = Time.get_ticks_usec()
