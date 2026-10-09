@@ -145,6 +145,37 @@ requirement: 10 of 10 views tried, FAIL). Real data, editor, main f82b0ef + this
 (`C:\meshy\_tools\autotest-dev\s03run{1,2,3}`): PASS, PASS, PASS – each "3 in frustum, 3 unoccluded", view 1 of 10
 (40 m from FE_Antelope_Scout); the retry path was not needed in these three runs.
 
+## 0.1.1 hotfix: player input instead of API shortcuts
+The released 0.1.0 could not buy anything with the wheel, yet t03 passed: it called `Game.buy()`. Now the behaviour
+under test goes through simulated player input in the game process (`lib/inputsim.gd`, `Input.parse_input_event`,
+keys/buttons taken from the game's InputMap; the OS cursor and the user's devices are never touched). API calls stay
+only for setup (money, spawn, teleport, aim_at = camera direction, invulnerable, kill_player) and for reading state.
+- t03 (rewritten): buy key -> mouse moves to the item's slot as drawn on screen (found by its displayed name and
+  "$price" label, centre of that slot) -> left click; HE Grenade by holding the buy key, hovering and releasing it.
+  Cases: P250, AK-47, HE Grenade, Kevlar (price subtracted, item/armor given, shown price == resolved price), then AWP
+  with $price-1 refused (money unchanged, not given). `Game.buy()` is never called.
+- s01: the wheel is opened/closed with the buy key; "12 items" is read from the slots on screen.
+- t02, t04: weapons taken with their slot keys (CS slots 1-4 from weapons.slot), shots with the fire button, reload key
+  on an empty clip; damage read from the target's health. t04: the Watcher has 90 HP, so its weak shot is capped (check:
+  one weak shot kills and the formula deals >= 90); the exact weak-spot number is measured on a Grazer's weak spot
+  (150 HP).
+- t06: crouch key held down, Glock from slot 2, the shot into the air with the fire button (one round must be used).
+- Not changed (setup, not the behaviour under test): t07 buys its loadout with Game.buy (the death rule is under test),
+  kill_player (documented lethal-damage path), teleports (positioning), campfire activation (the game activates by
+  proximity; the test stands next to it).
+- Verified on the scratch stub: a correct input-driven wheel -> t03 23/23 + s01 PASS; wheel that ignores input in
+  automated runs -> FAIL "wheel open and the slot visible on screen" x5; wheel GUI that swallows clicks/motion -> FAIL
+  "money unchanged / item not given" x4.
+
+### Before hra's fix (main 143bc4a, real data, editor) – `C:\meshy\_tools\autotest-dev\hotfix-before`
+ExitCode 1. t03 FAIL (wheel never opens: "wheel open and the slot visible on screen" x5), s01 FAIL (shown []),
+t02 FAIL (fire button: "presses_without_shot": 5, ammo (30, 90) unchanged; knife slot key: current stays ak47),
+t04 FAIL (slot key: current stays ak47), t06 FAIL (crouch key: crouched = false; fire button: ammo unchanged).
+- F8 (hra): in automated runs the game ignores all player input: `ui/buy_wheel.gd _unhandled_input` returns when
+  `Game.args.automated()`; `player/weapons.gd` returns unless `Input.mouse_mode == MOUSE_MODE_CAPTURED`;
+  `player/player.gd` movement/crouch need the captured mouse too. Automated runs must accept (simulated) input without
+  capturing the OS mouse, otherwise no test can exercise the real input path.
+
 ## Scenario isolation + t04 line of sight (after final3: t04 miss, s03/t06 herd of 1 at the machine cap)
 - The runner calls `ctx.begin_scenario()` before and `ctx.cleanup()` after every in-process scenario (also after a
   timeout): machines the scenario spawned through `Game.spawn_machine` are freed (`queue_free`; the game unregisters

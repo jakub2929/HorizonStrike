@@ -4,6 +4,7 @@ extends "res://autotest/lib/scenario.gd"
 ## after 10 s the mean distance grew by >= 30 m, and no Grazer damaged the player.
 
 const Combat := preload("res://autotest/lib/combat.gd")
+const InputSim := preload("res://autotest/lib/inputsim.gd")
 const Sites := preload("res://autotest/lib/sites.gd")
 
 const DIST_M := 30.0
@@ -44,7 +45,7 @@ func _run(ctx):
 	# crouch before approaching; if a grazer still notices the player while being placed (sight is probabilistic at
 	# this distance), back off, let the herd calm down and place again (up to 3 attempts)
 	await _crouch(ctx, p, true)
-	await Combat.equip(ctx, "glock")
+	check("glock taken with its slot key", await Combat.equip(ctx, "glock"), "current %s" % str(p.get("current_weapon")))
 	var placed: Dictionary = {}
 	for attempt in 3:
 		var center := _centroid(herd)
@@ -83,9 +84,13 @@ func _run(ctx):
 	marker.global_position = ctx.player_pos() + Vector3(0, 60, 0) + ctx.forward() * 5.0
 	await ctx.call_api(g, "aim_at", [marker, "body"])
 	await ctx.physics_frames(2)
-	var shot: Variant = await ctx.call_api(g, "fire")
+	var ammo0: Variant = Combat.ammo_of(ctx, "glock")
+	await _inp(ctx).tap("fire")
+	await ctx.physics_frames(2)
+	var ammo1: Variant = Combat.ammo_of(ctx, "glock")
 	marker.queue_free()
-	data.shot = shot
+	data.shot = {"fire_key": _inp(ctx).describe("fire"), "ammo": [str(ammo0), str(ammo1)]}
+	check("fire button fired the Glock into the air (one round used)", ammo0 is Vector2i and ammo1 is Vector2i and (ammo1 as Vector2i).x == (ammo0 as Vector2i).x - 1, "ammo %s -> %s" % [str(ammo0), str(ammo1)])
 	var t_shot := Time.get_ticks_msec()
 	var fled_at := {}
 	while (Time.get_ticks_msec() - t_shot) / 1000.0 < WAIT_S:
@@ -130,25 +135,28 @@ func _find_herd(ctx, need: int) -> Array:
 	return out
 
 
+var _inp_obj = null
+
+
+func _inp(ctx):
+	if _inp_obj == null:
+		_inp_obj = InputSim.new(ctx)
+	return _inp_obj
+
+
 func _crouch(ctx, p: Node, on: bool) -> void:
-	## crouch through the player's own method/property (automated runs have no captured mouse, so the game ignores
-	## input actions), else the input action
-	if p.has_method("set_crouch"):
-		p.call("set_crouch", on)
-		data.crouch = "player.set_crouch()"
-	elif "crouching" in p:
-		p.set("crouching", on)
-		data.crouch = "player.crouching"
-	elif InputMap.has_action("crouch"):
-		if on:
-			Input.action_press("crouch")
-		else:
-			Input.action_release("crouch")
-		data.crouch = "input action crouch"
-	else:
+	## the player's crouch key, held down while crouched (simulated input event), released afterwards
+	var inp = _inp(ctx)
+	if inp.binding("crouch") == null:
 		data.crouch = "unavailable"
 		if on:
-			note("no crouch action or player.crouching - stood instead")
+			note("the game binds no crouch key - stood instead")
+	else:
+		if on:
+			inp.press("crouch")
+		else:
+			inp.release("crouch")
+		data.crouch = "crouch key %s held" % inp.describe("crouch")
 	await ctx.physics_frames(3)
 	if on:
 		for k in ["crouched", "crouching"]:
