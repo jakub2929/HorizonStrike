@@ -171,3 +171,7 @@ Full per-site table: `docs/notes/svet.md`. No placement references `ai/groups`, 
   per channel incl. snow/no-snow variants by HZD's ecotope_effect snow map), cell.json format 3 (veg_effect.png,
   per-species per_m2/max_instances/cluster/effect_range), sheet rows vegetation.density_scale 0.25 and
   max_instances_per_species 3000 (performance). Bootstrap 59.8 s in proto_smoke.
+- 2026-10-09 hra vegetation merged (f3b8cd7): effect_range on the snow map, clusters, max_instances, tree budget
+  `streaming.vegetation_tree_cap` 1800 + rest of 14000; small plants fade at 45 m, shadows 100 m, LOD threshold 6 px,
+  alpha-to-coverage off. 71.9 fps at start (worst 31.1 ms); runner t05,t06,s01-s03 PASS; export includes autotest/
+  (runs only with --autotest), excludes dev/.
