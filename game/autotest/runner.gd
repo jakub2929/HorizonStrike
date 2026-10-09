@@ -25,6 +25,19 @@ const SCENARIOS := {
 	"t11": preload("res://autotest/scenarios/t11_no_listener.gd"),
 	"s01": preload("res://autotest/scenarios/s01_buy_wheel.gd"),
 	"s03": preload("res://autotest/scenarios/s03_herd_landscape.gd"),
+	"t15": preload("res://autotest/scenarios/t15_perf.gd"),
+	"t12": preload("res://autotest/scenarios/t12_new_machines.gd"),
+	"t13": preload("res://autotest/scenarios/t13_weak_all.gd"),
+	"r01": preload("res://autotest/scenarios/r01_shots.gd"),
+	"t14": preload("res://autotest/scenarios/t14_normals.gd"),
+	"t16": preload("res://autotest/scenarios/t16_stress.gd"),
+	"r02": preload("res://autotest/scenarios/r02_machine_videos.gd"),
+	"r03": preload("res://autotest/scenarios/r03_cell_crossing.gd"),
+	"r04": preload("res://autotest/scenarios/r04_frametime_graph.gd"),
+	## no sheet rows: child parts started by t16 / r02 / r03 themselves (lib/movie.gd for the recordings)
+	"t16run": preload("res://autotest/scenarios/t16run.gd"),
+	"r02clip": preload("res://autotest/scenarios/r02clip.gd"),
+	"r03walk": preload("res://autotest/scenarios/r03walk.gd"),
 }
 ## rows produced inside another scenario's run (sheet: s02 "taken inside t05")
 const HOSTED := {"s02": "t05"}
@@ -94,7 +107,7 @@ func _main() -> void:
 		var host: String = HOSTED.get(id, id)
 		var row: Dictionary = AutotestSheet.row(host)
 		if row.get("process") == "child" and not is_child:
-			_limit_s += CHILD_TIMEOUT_S.get(_child_lead(host).get("id", ""), 600.0) + 30.0
+			_limit_s += _child_timeout(_child_lead(host)) + 30.0
 		elif SCENARIOS.has(host):
 			_limit_s += SCENARIOS[host].new().timeout_s + 10.0
 	ctx.note("scenarios: %s (global limit %d s)" % [",".join(ids), int(_limit_s)])
@@ -102,7 +115,7 @@ func _main() -> void:
 		if _has_result(id):
 			continue
 		var row: Dictionary = AutotestSheet.row(id)
-		if row.is_empty():
+		if row.is_empty() and not SCENARIOS.has(id):
 			_put({"id": id, "name": "unknown scenario", "pass": false, "details": {"summary": "unknown scenario id"}})
 		elif row.get("process") == "child" and not is_child:
 			for r in await _run_child(id):
@@ -235,9 +248,22 @@ func _run_child(id: String) -> Array:
 	if ci >= 0:
 		extra[ci + 1] = _fresh_dir(extra[ci + 1], notes)
 	DirAccess.make_dir_recursive_absolute(child_out)
-	var argv := Proc.game_launch_prefix()
+	# engine options in the sheet's extra_args (--resolution, --write-movie, --fixed-fps) must reach the engine: before
+	# "--" with the editor binary, anywhere with the exported exe
+	var engine := PackedStringArray()
+	var rest := PackedStringArray()
+	var i := 0
+	while i < extra.size():
+		if extra[i] in Proc.ENGINE_VALUE_ARGS and i + 1 < extra.size():
+			engine.append(extra[i])
+			engine.append(extra[i + 1])
+			i += 2
+		else:
+			rest.append(extra[i])
+			i += 1
+	var argv := Proc.game_launch_prefix(engine)
 	argv.append_array(args.forward(drop))
-	argv.append_array(extra)
+	argv.append_array(rest)
 	var exe := OS.get_executable_path()
 	var launched_unix := int(Time.get_unix_time_from_system())
 	ctx.note("== child %s: %s %s" % [",".join(group), exe, " ".join(argv)])
@@ -246,9 +272,10 @@ func _run_child(id: String) -> Array:
 	OS.unset_environment(CHILD_ENV)
 	if pid <= 0:
 		return _child_fail(group, "could not start child process", {"argv": argv})
-	var timeout_s: float = CHILD_TIMEOUT_S.get(lead.id, 600.0)
+	var timeout_s: float = _child_timeout(lead)
 	var t0 := Time.get_ticks_msec()
 	var last_note := t0
+	var quiet := Proc.quiet_parent(get_tree())
 	while OS.is_process_running(pid) and Time.get_ticks_msec() - t0 < int(timeout_s * 1000.0):
 		await get_tree().create_timer(0.5, true, false, true).timeout
 		if Time.get_ticks_msec() - last_note > 60000:
@@ -259,6 +286,7 @@ func _run_child(id: String) -> Array:
 		ctx.note("child %d timed out after %d s; killing that exact PID" % [pid, int(timeout_s)])
 		OS.kill(pid)
 		await get_tree().create_timer(1.0, true, false, true).timeout
+	Proc.restore_parent(get_tree(), quiet)
 	var code := OS.get_process_exit_code(pid)
 	var secs := snappedf((Time.get_ticks_msec() - t0) / 1000.0, 0.1)
 	var info := {"child_pid": pid, "child_exit_code": code, "child_seconds": secs, "child_out": child_out, "argv": " ".join(argv), "timed_out": timed_out}
@@ -288,6 +316,20 @@ func _run_child(id: String) -> Array:
 				d["summary"] = "child exit code %d - %s" % [code, d.get("summary", "")]
 		out.append({"id": gid, "name": str(AutotestSheet.row(gid).get("name", gid)), "pass": ok, "details": d})
 	return out
+
+
+func _child_timeout(lead: Dictionary) -> float:
+	## the child runs the scenarios listed after --autotest in the lead row: their own watchdogs + start-up margin
+	if CHILD_TIMEOUT_S.has(lead.get("id", "")):
+		return CHILD_TIMEOUT_S[lead.id]
+	var ea: Array = lead.get("extra_args", [])
+	var i := ea.find("--autotest")
+	var total := 0.0
+	if i >= 0 and i + 1 < ea.size():
+		for id in str(ea[i + 1]).split(",", false):
+			if SCENARIOS.has(id):
+				total += SCENARIOS[id].new().timeout_s
+	return total + 300.0 if total > 0.0 else 600.0
 
 
 func _child_fail(group: PackedStringArray, why: String, info: Dictionary) -> Array:
