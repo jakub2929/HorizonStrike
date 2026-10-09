@@ -130,3 +130,13 @@ mole = Burrower were wrong. Grazer is `harvester`.
 - `worlddata_flattened_albedo` (Texture 2048 px, streamed) is the terrain colour seen from above, same orientation as
   the heights (ravine, river and plateau line up with the hillshade). Exported at <= 1024 px (0.5 m/px).
 - All 340 terrain tiles have both files. Cell terrain converts in ~0.1 s.
+
+## S5 index (2026-10-09)
+- `leveldata/locationmarkers.core` = ObjectCollection of three hunting-ground marker files only (no Mother's Heart).
+  Mother's Heart village markers are AIMarkers in `tiles/tile_x04_y-03/layers/gameplay/markers.core`
+  (M_Area_Marketplace, M_Area_Entrance, M_Area_AloyHome ...). Start position = M_Area_Marketplace.
+- Campfires: `layers/gameplay/campfires.core` SceneInstances with Prefab
+  `levels/worlds/world/scenes/campfire_save/scene_campfire_save_resource`; id = Name. Tile (4,-3): 3 campfires,
+  start campfire Campfire_x04_y-03_01 (47 m from the marketplace). Their Z matches the terrain within 0.33 m - an
+  independent check of the height scale (raw/32), the row/column orientation and the world placement.
+- Acceptance: `python -c "...index.json..."` -> `340 512.0 [4, -3] True`.

@@ -39,7 +39,7 @@ public static class SystemsSheet
     public static readonly SystemsRow CombatFallSafeSpeedU = new("combat.fall_safe_speed_u", "combat", "float", "580", "u/s", "no fall damage below");
     public static readonly SystemsRow CombatFallFatalSpeedU = new("combat.fall_fatal_speed_u", "combat", "float", "1024", "u/s", "fall damage reaches 100 at");
     public static readonly SystemsRow RespawnTarget = new("respawn.target", "respawn", "string", "last_campfire", "-", "respawn at the last activated campfire (BRIEF)");
-    public static readonly SystemsRow RespawnStartCampfire = new("respawn.start_campfire", "respawn", "string", "TODO", "-", "campfire id in cell [4,-3] nearest the Mother's Heart location marker (levels/worlds/world/leveldata/locationmarkers.core); used before any campfire is activated");
+    public static readonly SystemsRow RespawnStartCampfire = new("respawn.start_campfire", "respawn", "string", "Campfire_x04_y-03_01", "-", "campfire id in cell [4,-3] nearest the Mother's Heart location marker (levels/worlds/world/leveldata/locationmarkers.core); used before any campfire is activated");
     public static readonly SystemsRow RespawnCampfireActivateRadiusM = new("respawn.campfire_activate_radius_m", "respawn", "float", "4.0", "m", "walking this close activates a campfire");
     public static readonly SystemsRow RespawnLoadoutRule = new("respawn.loadout_rule", "respawn", "string", "inventory = weapons rows with start_loadout = true; other weapons, grenades and armor are lost", "-", "BRIEF");
     public static readonly SystemsRow RespawnKeepMoney = new("respawn.keep_money", "respawn", "bool", "true", "-", "money is kept (BRIEF)");

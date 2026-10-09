@@ -125,11 +125,10 @@ public static class HzdConverter
 
     /// <summary>World index: cell grid, start cell, campfires, spawn sites (hzd/index.json).</summary>
     public static long BuildIndex(ConvContext ctx, IProgressSink progress) =>
-        throw new NotImplementedException("svet: BuildIndex");
+        World.WorldIndex.Build(ctx, new Resolver(Archive(ctx)), progress);
 
     /// <summary>Start cell from hzd/index.json (after BuildIndex).</summary>
-    public static (int X, int Y) StartCell(ConvContext ctx) =>
-        throw new NotImplementedException("svet: StartCell");
+    public static (int X, int Y) StartCell(ConvContext ctx) => World.WorldIndex.StartCell(ctx.Cache);
 
     /// <summary>One world cell: terrain, instances, vegetation, campfires, spawns (hzd/cells/X_Y/).</summary>
     public static long ConvertCell(ConvContext ctx, int x, int y, IProgressSink progress) =>
