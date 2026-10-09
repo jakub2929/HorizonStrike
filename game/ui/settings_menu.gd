@@ -72,6 +72,11 @@ func _ready() -> void:
 	_vol.value_changed.connect(_on_vol)
 	box.add_child(_vol)
 	AudioServer.set_bus_volume_db(0, linear_to_db(maxf(_vol.value, 0.0001)))
+	var fs := CheckButton.new()
+	fs.text = "Fullscreen"
+	fs.button_pressed = bool(Settings.get_value("fullscreen", false))
+	fs.toggled.connect(_on_fullscreen)
+	box.add_child(fs)
 	var resume := Button.new()
 	resume.text = "Resume"
 	resume.pressed.connect(close)
@@ -80,6 +85,21 @@ func _ready() -> void:
 	quit.text = "Quit"
 	quit.pressed.connect(func(): get_tree().quit(0))
 	box.add_child(quit)
+
+
+func _on_fullscreen(on: bool) -> void:
+	Settings.set_value("fullscreen", on)
+	apply_window_mode()
+
+
+## Applies the saved window mode (never in automated runs: they keep the default window).
+static func apply_window_mode() -> void:
+	if Game.args and Game.args.automated():
+		return
+	if DisplayServer.get_name() == "headless":
+		return
+	var on := bool(Settings.get_value("fullscreen", false))
+	DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_FULLSCREEN if on else DisplayServer.WINDOW_MODE_WINDOWED)
 
 
 func _on_sens(v: float) -> void:

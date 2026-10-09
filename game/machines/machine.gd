@@ -142,6 +142,26 @@ func _ready() -> void:
 	cs.shape = cap
 	cs.position = Vector3(0, cap.height * 0.5 + 0.1, 0)
 	add_child(cs)
+	# long bodies (Strider, Grazer, Watcher torso): a horizontal capsule along the trunk so the player cannot walk
+	# through the front or the back of the machine
+	var trunk: AABB = rig.trunk_bounds()
+	if trunk.size.z > cap.radius * 2.5:
+		var tc := CollisionShape3D.new()
+		var tcap := CapsuleShape3D.new()
+		tcap.radius = clampf(minf(trunk.size.x, trunk.size.y) * 0.45, 0.25, 0.8)
+		tcap.height = maxf(trunk.size.z, tcap.radius * 2.0 + 0.05)
+		tc.shape = tcap
+		tc.rotation = Vector3(PI * 0.5, 0, 0)
+		tc.position = trunk.get_center()
+		# separate body: blocks the player but never the machine's own movement over slopes
+		var tb := AnimatableBody3D.new()
+		tb.name = "TrunkBody"
+		tb.collision_layer = LAYER_MACHINE
+		tb.collision_mask = 0
+		tb.sync_to_physics = false
+		tb.add_child(tc)
+		add_child(tb)
+		add_collision_exception_with(tb)
 	home = global_position
 	_set_state("patrol" if archetype == "guard" else "graze")
 	Game.register_machine(self)

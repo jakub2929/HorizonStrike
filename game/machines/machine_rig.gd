@@ -464,6 +464,25 @@ func _add_hitbox_static(part: String, weak: bool, shape: Shape3D, offset: Vector
 
 # ------------------------------------------------------------------ runtime
 
+## Bounds (machine space, rest pose) of the trunk: bones that are not helpers, tails or legs.
+func trunk_bounds() -> AABB:
+	var leg := {}
+	for ch in leg_chains:
+		for b in ch:
+			leg[b] = true
+	var aabb := AABB()
+	var first := true
+	var to_machine := global_transform.affine_inverse() * skeleton.global_transform
+	for i in skeleton.get_bone_count():
+		var n := skeleton.get_bone_name(i).to_lower()
+		if helper_bones.has(i) or leg.has(i) or n.contains("tail") or n.contains("root") or n.contains("ground") or n.contains("mount") or n.begins_with("ik"):
+			continue
+		var p := to_machine * skeleton.get_bone_global_rest(i).origin
+		aabb = AABB(p, Vector3.ZERO) if first else aabb.expand(p)
+		first = false
+	return aabb
+
+
 func eye_global() -> Vector3:
 	if _eye_attach:
 		return _eye_attach.global_position

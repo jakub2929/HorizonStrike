@@ -254,6 +254,7 @@ func _spawn_player(pos: Vector3) -> void:
 	var sm := SettingsMenu.new()
 	sm.name = "SettingsLayer"
 	add_child(sm)
+	SettingsMenu.apply_window_mode()
 	var ad := AudioDirector.new()
 	ad.name = "AudioDirector"
 	add_child(ad)
