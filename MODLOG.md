@@ -176,3 +176,7 @@ Full per-site table: `docs/notes/svet.md`. No placement references `ai/groups`, 
   alpha-to-coverage off. 71.9 fps at start (worst 31.1 ms); runner t05,t06,s01-s03 PASS; export includes autotest/
   (runs only with --autotest), excludes dev/.
 - D44 CS2 movement/combat engine constants (not in CS2 data files) verified against the public CS2 command reference; sv_accelerate 5.5 kept (reference table value). Sheet preflight: 2871/2871 cells verified, CLEAN.
+- 2026-10-09 Release prep: runtime BC compression only in editor builds (release templates lack it; release uses
+  uncompressed textures: ~58-65 fps at start, 1.1-1.5 GB VRAM); 30 s perf line in latest.log; cache size scans
+  (game + autotest) never call FileAccess.get_size on paths that may vanish; s03 picks a camera position that sees the
+  whole herd (test d9b1a3d).
