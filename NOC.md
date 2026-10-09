@@ -20,3 +20,4 @@ Když nevíš, kde jsi: přečti NOC.md a MODLOG.md a pokračuj od posledního z
 - 00:47 Sloučeno svet: throttle konvertoru (CPU 28 %→10 %), DDS min 4x4, automatická rekonverze buněk při změně sheetů. Běží: hra (segfault + napojení throttle), stroje (t05), test.
 - 01:13 Sloučeno stroje: oprava průběhu podezření (t05 PASS). Běží: hra (segfault + throttle), test.
 - 01:23 Sloučeno stroje: showcase scéna pro videa strojů (Watcher walk/attack/death natočeno, snímky ne prázdné). Běží: hra (segfault+throttle), test.
+- 01:32 Sloučeno test: t12/t13 PASS, t14 FAIL (budovy 72,8 % normál → svet), t16 pád při ukončení (→ hra), t15 měřeno na buildu před H4–H8 (znovu na konci). Záznamy natočeny (18 klipů strojů + průchod buňkami + graf). Další: svet F8, hra F9+segfault+throttle, pak finální měření na klidném stroji.

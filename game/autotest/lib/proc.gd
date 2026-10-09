@@ -2,17 +2,44 @@ extends RefCounted
 ## Process helpers: launching the game again as a child, netstat / tasklist parsing, independent disk usage.
 
 
-static func game_launch_prefix() -> PackedStringArray:
-	## editor binary (dev): "--path <project>" + "--"; exported exe: nothing (exactly as Melty launches it)
+const ENGINE_VALUE_ARGS := ["--resolution", "--write-movie", "--fixed-fps", "--position"]
+
+
+static func game_launch_prefix(engine_args: PackedStringArray = PackedStringArray()) -> PackedStringArray:
+	## editor binary (dev): "--path <project>" + engine options + "--"; exported exe: engine options only (exactly as
+	## Melty launches it plus those)
 	var out := PackedStringArray()
 	if not OS.has_feature("template"):
 		out.append("--path")
 		out.append(ProjectSettings.globalize_path("res://").trim_suffix("/"))
 	if DisplayServer.get_name() == "headless":
 		out.append("--headless")
+	out.append_array(engine_args)
 	if not OS.has_feature("template"):
 		out.append("--")
 	return out
+
+
+static func quiet_parent(tree: SceneTree) -> Dictionary:
+	## the parent is a full game instance: while a child runs it would render and stream next to it (GPU and CPU time
+	## the child's frame times must not share). 3D off, 5 fps cap, low-processor mode, game tree paused (the runner
+	## and its timers run with PROCESS_MODE_ALWAYS). restore_parent() puts everything back.
+	var vp := tree.root
+	var saved := {"disable_3d": vp.disable_3d, "max_fps": Engine.max_fps, "low_cpu": OS.low_processor_usage_mode, "paused": tree.paused}
+	vp.disable_3d = true
+	Engine.max_fps = 5
+	OS.low_processor_usage_mode = true
+	tree.paused = true
+	return saved
+
+
+static func restore_parent(tree: SceneTree, saved: Dictionary) -> void:
+	if saved.is_empty():
+		return
+	tree.root.disable_3d = bool(saved.disable_3d)
+	Engine.max_fps = int(saved.max_fps)
+	OS.low_processor_usage_mode = bool(saved.low_cpu)
+	tree.paused = bool(saved.paused)
 
 
 static func system32(exe: String) -> String:

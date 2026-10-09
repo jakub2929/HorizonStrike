@@ -289,3 +289,10 @@ Full per-site table: `docs/notes/svet.md`. No placement references `ai/groups`, 
 - Merged stroje 2545ce1: calm machines always go through `suspicious` first (0.8 s guard/predator/pack, 0.4 s herd),
   also for calls from other machines and shots; immediate alert only when hit by the player or the player is within
   max(3 m, immediate_alert_m/4). t05 PASS 2x on real data, t06 PASS; AI bench PASS for all 6 in 4 scenarios.
+- Merged test 8e29972: t12 PASS (3 new machines' cycles), t13 PASS via real input (weak spot hittable from: watcher 7,
+  strider 7, grazer 8, sawtooth 5, scrapper 7, broadhead 7 of 8; sawtooth canister 0.7-2.1 m behind the body surface in
+  3 directions), t14 FAIL (buildings with normal maps 72.8 %; terrain 14/14, rocks 99.9 %), t15 measured on a build
+  BEFORE hra H4-H8 (route 66.7 avg / 25.3 1% low / 541 ms load frame) - to re-run, t16 2/20 runs ok but a crash
+  (0xC0000005) after "quitting (0)" when quitting ~1 s after a teleport (world stops waiting for a cell task after 10 s).
+  0.1.1 baseline (noisy: other agents' Godot/converter runs): route avg 42-48 fps, VRAM 1230 MiB, 1.5-2 s hitch per
+  cell load. Records: before/after PNGs, 18 machine clips + 25 s cell-crossing video, frame-time SVG.

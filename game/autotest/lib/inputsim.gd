@@ -149,3 +149,82 @@ func equip(weapon_id: String) -> bool:
 		var deploy: float = ctx.oracle.num(ctx.oracle.weapon(weapon_id, "deploy_time"))
 		await ctx.wait((deploy if not is_nan(deploy) else 1.0) + 0.15)
 	return ok
+
+
+# --- mouse look (relative motion, like a player moving the mouse) ------------------------------------------------
+
+var rad_per_px := 0.0022  # estimate; corrected from the camera's actual response
+var look_events := 0
+
+
+func look(dx: float, dy: float) -> void:
+	## one relative mouse motion event; the game turns the camera by it (its mouse-look needs the captured mouse, see
+	## capture_for_look)
+	var e := InputEventMouseMotion.new()
+	e.relative = Vector2(dx, dy)
+	e.screen_relative = Vector2(dx, dy)
+	e.position = _cursor_window()
+	e.global_position = e.position
+	Input.parse_input_event(e)
+	look_events += 1
+
+
+func capture_for_look() -> bool:
+	## mouse-look reacts only while the mouse is captured (as during play); returns whether it was captured before
+	var was := Input.mouse_mode == Input.MOUSE_MODE_CAPTURED
+	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+	return was
+
+
+func yaw_pitch() -> Vector2:
+	## camera yaw (0 = looking at -Z, positive to the left like Node3D.rotation.y) and pitch, radians
+	var cam: Camera3D = ctx.player_camera()
+	if cam == null:
+		return Vector2.ZERO
+	var f := -cam.global_transform.basis.z
+	return Vector2(atan2(-f.x, -f.z), asin(clampf(f.y, -1.0, 1.0)))
+
+
+static func yaw_pitch_to(from: Vector3, to: Vector3) -> Vector2:
+	var d := to - from
+	var h := Vector2(d.x, d.z).length()
+	return Vector2(atan2(-d.x, -d.z), atan2(d.y, h))
+
+
+func look_step(target_yaw: float, target_pitch: float, max_px: float = 300.0) -> Vector2:
+	## one correction towards the target angles; returns the error (yaw, pitch) before this step
+	var cur := yaw_pitch()
+	var ey := wrapf(target_yaw - cur.x, -PI, PI)
+	var ep := target_pitch - cur.y
+	# the game turns yaw by -relative.x * sensitivity and pitch by -relative.y * sensitivity
+	var dx := clampf(-ey / rad_per_px, -max_px, max_px)
+	var dy := clampf(-ep / rad_per_px, -max_px, max_px)
+	if absf(dx) >= 0.05 or absf(dy) >= 0.05:
+		look(dx, dy)
+	return Vector2(ey, ep)
+
+
+func learn_sensitivity(before: Vector2, after: Vector2, sent_dx: float) -> void:
+	if absf(sent_dx) > 3.0:
+		var k := -wrapf(after.x - before.x, -PI, PI) / sent_dx
+		if k > 0.00005 and k < 0.05:
+			rad_per_px = lerpf(rad_per_px, k, 0.6)
+
+
+func aim_at_point(p: Vector3, tol_rad: float = 0.002, max_frames: int = 240) -> Dictionary:
+	## turn the camera onto a world point with relative mouse motion only (closed loop on the camera's real
+	## orientation; the sensitivity is learned from the response)
+	var cam: Camera3D = ctx.player_camera()
+	if cam == null:
+		return {"ok": false, "why": "no camera"}
+	var err := Vector2(INF, INF)
+	for i in max_frames:
+		var before := yaw_pitch()
+		var t := yaw_pitch_to(cam.global_position, p)
+		err = look_step(t.x, t.y)
+		if absf(err.x) < tol_rad and absf(err.y) < tol_rad:
+			return {"ok": true, "frames": i, "rad_per_px": rad_per_px}
+		var dx := clampf(-err.x / rad_per_px, -300.0, 300.0)
+		await ctx.frames(1)
+		learn_sensitivity(before, yaw_pitch(), dx)
+	return {"ok": false, "why": "not converged", "error_rad": [err.x, err.y], "rad_per_px": rad_per_px}
