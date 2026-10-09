@@ -208,8 +208,16 @@ static func _los(ctx, m: Node, to: Vector3, part: String = "body") -> Dictionary
 		return {"clear": false, "by": "no camera"}
 	var q := PhysicsRayQueryParameters3D.create(cam.global_position, to + (to - cam.global_position).normalized() * 0.5)
 	var ex: Array[RID] = ctx.player_rids()
-	if m is CollisionObject3D:
-		ex.append((m as CollisionObject3D).get_rid())
+	# machines' movement/blocking bodies (their root body, TrunkBody, ...) are not bullet targets: only their hitboxes
+	# (nodes with a "part") are; exclude the rest for every machine, as the bullet trace does
+	for mm in ctx.game.get("machines") if ctx.game != null and "machines" in ctx.game else []:
+		if not is_instance_valid(mm):
+			continue
+		if mm is CollisionObject3D:
+			ex.append((mm as CollisionObject3D).get_rid())
+		for co in (mm as Node).find_children("*", "CollisionObject3D", true, false):
+			if not (co as Node).has_meta("part"):
+				ex.append((co as CollisionObject3D).get_rid())
 	q.exclude = ex
 	q.collide_with_areas = true
 	var hit: Dictionary = ctx.runner.get_viewport().get_world_3d().direct_space_state.intersect_ray(q)
@@ -223,7 +231,7 @@ static func _los(ctx, m: Node, to: Vector3, part: String = "body") -> Dictionary
 	var mine: bool = owner_m == m or n == m or m.is_ancestor_of(n)
 	var hit_part := str(n.get_meta("part", ""))
 	var hit_weak: bool = bool(n.get_meta("weak", false))
-	var who: String = (owner_m as Node).name if owner_m is Node else ("target" if mine else "other")
+	var who: String = (owner_m as Node).name if owner_m is Node else ("a node under the target" if mine else "no machine")
 	var label := "%s (part '%s'%s of %s)" % [n.name, hit_part, ", weak" if hit_weak else "", who]
 	var ok: bool = mine and (hit_part == part if part != "body" else (hit_part != "" and not hit_weak))
 	return {"clear": ok, "by": label}
