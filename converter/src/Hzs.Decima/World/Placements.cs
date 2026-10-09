@@ -55,6 +55,33 @@ public sealed class Placements(Resolver res, Log log)
         return _out;
     }
 
+    /// <summary>
+    /// Visual meshes of a placement target (PrefabResource, instance, collection or mesh resource) with prefab-local
+    /// transforms; shadow/occluder chains are skipped like in the world layers.
+    /// </summary>
+    public List<Placement> ForTarget(CoreFile from, Ref r)
+    {
+        _out.Clear();
+        if (r.IsNull) return [];
+        var file = r.Path is null ? from : res.TryFile(r.Path);
+        var target = file?.Find(r.Uuid);
+        if (file is null || target is null) return [];
+        var layer = Path.GetFileName(file.Path);
+        switch (target.TypeName)
+        {
+            case "PrefabResource":
+                if (TryDeref(file, file.Decode(target).Ref("ObjectCollection")) is { } coll) Safe(coll, Matrix4x4.Identity, layer, 0);
+                break;
+            case "StaticMeshInstance" or "PrefabInstance" or "ObjectCollection":
+                Safe(file.Decode(target), Matrix4x4.Identity, layer, 0);
+                break;
+            default:
+                VisitMesh(file, r, Matrix4x4.Identity, layer, 0);
+                break;
+        }
+        return [.. _out];
+    }
+
     /// <summary>Visits the objects listed by the file's root ObjectCollection (the last one), else all instances.</summary>
     private void VisitRoots(CoreFile file, Matrix4x4 parent, string layer, int depth)
     {

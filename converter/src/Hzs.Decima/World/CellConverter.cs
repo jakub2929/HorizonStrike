@@ -14,7 +14,7 @@ namespace Hzs.Decima.World;
 public static class CellConverter
 {
     /// <summary>cell.json "format"; bump when the cell layout changes so old cells are converted again.</summary>
-    public const int Format = 2;
+    public const int Format = 3;
 
     public static long Convert(ConvContext ctx, Resolver res, int x, int y, IProgressSink progress)
     {
@@ -93,31 +93,47 @@ public static class CellConverter
                 if (density is not null)
                 {
                     File.WriteAllBytes(Path.Combine(tmp, "veg_density.png"), density.ToPng());
+                    var effect = veg.Effect(x, y, density.Width);
+                    if (effect is not null) File.WriteAllBytes(Path.Combine(tmp, "veg_effect.png"), effect.ToPng());
                     var species = new JsonArray();
-                    var sp = veg.Species(x, y);
+                    // a species is usable when its mesh exports with a colour texture (an untextured opaque card is never right)
+                    var sp = veg.Pick(x, y, density, effect, usable: s => meshes.Ensure(s.MeshFile, s.MeshUuid, written) is { Textures.Length: > 0 });
+                    var scale = HzdNames.Num("vegetation.density_scale");
+                    var maxPer = HzdNames.Int("vegetation.max_instances_per_species");
+                    var cluster = HzdNames.Json("vegetation.cluster");
                     var vids = new System.Collections.Concurrent.ConcurrentDictionary<int, MeshRef?>();
-                    Parallel.For(0, sp.Count, new ParallelOptions { MaxDegreeOfParallelism = 4, CancellationToken = ctx.Ct }, i => vids[i] = meshes.Ensure(sp[i].MeshFile, sp[i].MeshUuid, written));
+                    Parallel.For(0, sp.Count, new ParallelOptions { MaxDegreeOfParallelism = 4, CancellationToken = ctx.Ct }, i => vids[i] = meshes.Ensure(sp[i].Species.MeshFile, sp[i].Species.MeshUuid, written));
                     for (var i = 0; i < sp.Count; i++)
                     {
                         if (vids.GetValueOrDefault(i) is not { } m) continue;
                         usedMeshes.Add(m.Id);
                         foreach (var t in m.Textures) usedTex.Add(t);
-                        species.Add(new JsonObject
+                        var s = sp[i].Species;
+                        var o = new JsonObject
                         {
-                            ["channel"] = sp[i].Channel,
+                            ["channel"] = s.Channel,
                             ["mesh"] = m.Id,
-                            ["name"] = sp[i].Name,
-                            ["per_m2"] = Math.Round(1.0 / (sp[i].Footprint * sp[i].Footprint), 5),
-                            ["footprint_m"] = Math.Round(sp[i].Footprint, 3),
-                            ["scale"] = Math.Round(sp[i].Scale, 3),
-                            ["scale_variance"] = Math.Round(sp[i].ScaleVariance, 3),
-                            ["max_slope_deg"] = Math.Round(sp[i].MaxSlope, 1),
-                        });
+                            ["name"] = s.Name,
+                            ["per_m2"] = Math.Round(scale * s.PerM2, 5),
+                            ["hzd_per_m2"] = Math.Round(s.PerM2, 5),
+                            ["expected"] = (long)Math.Round(scale * sp[i].Expected),
+                            ["max_instances"] = (int)Math.Min(maxPer, Math.Round(scale * sp[i].Expected)),
+                            ["cluster"] = cluster[s.Channel]?.DeepClone(),
+                            ["footprint_m"] = Math.Round(s.Footprint, 3),
+                            ["wander_m"] = Math.Round(s.Wander, 3),
+                            ["scale"] = Math.Round(s.Scale, 3),
+                            ["scale_variance"] = Math.Round(s.ScaleVariance, 3),
+                            ["max_slope_deg"] = Math.Round(s.MaxSlope, 1),
+                        };
+                        if (s.EffectLo > 0 || s.EffectHi < 1) o["effect_range"] = new JsonArray(Math.Round(s.EffectLo, 3), Math.Round(s.EffectHi, 3));
+                        species.Add(o);
                     }
                     vegetation = new JsonObject
                     {
                         ["density"] = "veg_density.png",
+                        ["effect"] = effect is null ? null : "veg_effect.png",
                         ["channels"] = new JsonArray(Vegetation.Channels.Select(c => (JsonNode)c).ToArray()),
+                        ["density_scale"] = scale,
                         ["species"] = species,
                     };
                 }

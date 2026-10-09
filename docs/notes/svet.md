@@ -255,6 +255,28 @@ mole = Burrower were wrong. Grazer is `harvester`.
   not verifiable. Approximation: cell.json instances[].tint (linear multiplier) on meshes flagged #colorized =
   stone pulled towards the terrain bake around the instance (5x5 samples within 2 m, weight materials.ground_tint 0.5).
   4_-3: 5874 of 23093 instances tinted, median tint ~1.3 (snow).
-- Found, not fixed (outside this round): procedural species - most MeshPlacements have Mesh null and use
-  PlacementTargets (-> PrefabResource with StaticMeshInstances); Vegetation.Species only reads Mesh, so 4_-3 lists
-  3 tree species and no ground cover (241 placement layers). Dev: hzsconv hzd-veg --cell X,Y.
+- Procedural species (fixed in the vegetation round below).
+
+## Vegetation round (2026-10-09)
+- Most MeshPlacements have Mesh null and PlacementTargets -> PrefabResource -> ObjectCollection -> StaticMeshInstance
+  (+ a *_ShadowGeo instance, skipped by geometry.skip_mesh_names); Placements.ForTarget expands them like world prefabs.
+  4_-3: 241 placement layers -> 118 species (was 3).
+- Layers point at single MeshPlacements inside the node file; the enclosing PlacementSets' DensityGraph / DensityScale
+  apply too (parents found through the sets' Children in the same file).
+- Density graphs: snow / frost / no-snow variants are gated by the ecotope effect map (worlddata/ecotope_effect = topo
+  map channel A): DensityCurveLookup(Map = DensityWorldDataMap ecotope_effect, step Curve), DensityWorldDataMap with its
+  own Curve, DensityInvert of it, DensityMultiply = intersection. Curve range = inputs where the curve >= 0.5
+  (carex: snow > 0.601, frost 0.541..0.6, no snow < 0.54; aspen snow > 0.551). Other nodes (slope, height, variance,
+  forest maps) are ignored. Hand-written layouts: CurveResource, DensityCurveLookup, DensityMultiply,
+  DensityWorldDataMap, DensityInvert.
+- HZD density per species = DensityScale product / Footprint^2 (Footprint = spacing; ground cover 0.5 m -> 4 per m2).
+  expected = that x sum over the 512^2 density map (1 px = 1 m2) of channel density x effect in range.
+- Choice per channel (vegetation.species_per_channel = 6): most placement layers, then most expected; the best of every
+  distinct effect range first (so snow and no-snow variants both exist), species whose mesh has no colour texture are
+  skipped (frost grass: "frost" is in materials.never_base_color -> opaque card).
+- cell.json format 3: vegetation.effect (veg_effect.png), density_scale, species[].hzd_per_m2 / expected /
+  max_instances / cluster / wander_m / effect_range. Sheet: vegetation.effect_map, effect_type, density_scale (0.25),
+  max_instances_per_species (3000), cluster (design, per channel).
+- 4_-3 picks: trees Colorado pinyon x2, quaking aspen (snow / no snow), lodgepole pine (snow / no snow); blockbush beaked
+  willow; undergrowth fourwing saltbush, Payson's sedge (snow / no snow), carex, common weeds, white aster; stealth
+  cover grass (snow / no snow).
