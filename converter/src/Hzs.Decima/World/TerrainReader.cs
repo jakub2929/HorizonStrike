@@ -26,6 +26,53 @@ public static class TerrainReader
 
     public static string HeightPath(int x, int y) => $"{WorldTiles.TileDir(x, y)}/{HzdNames.Str("terrain.height")}";
     public static string AlbedoPath(int x, int y) => $"{WorldTiles.TileDir(x, y)}/{HzdNames.Str("terrain.albedo")}";
+    public static string NormalPath(int x, int y) => $"{WorldTiles.TileDir(x, y)}/{HzdNames.Str("terrain.normal")}";
+
+    /// <summary>
+    /// World-space terrain normal in Godot axes as a 2-channel image: R = X (east), G = Z (south), unorm; Y (up) is
+    /// rebuilt as sqrt(1 - x^2 - z^2). Source: the tile's terrain normal map (HZD world space R = east, G = north;
+    /// checked against the height gradients: corr -0.87 / +0.71 on tile 4,-3), else derived from the heights.
+    /// Row 0 = north edge like the heights.
+    /// </summary>
+    public static (Image Img, string Source) ReadNormal(Resolver res, int x, int y, TerrainData terrain, int maxPx)
+    {
+        var texObj = res.TryFile(NormalPath(x, y))?.FirstObj("Texture");
+        if (texObj is not null)
+        {
+            try
+            {
+                var tex = HzdTexture.Parse(texObj);
+                var img = tex.Decode(res.Archive, tex.MipFor(maxPx)).Fit(maxPx);
+                if (img.Channels >= 2)
+                {
+                    var n = img.Width * img.Height;
+                    var o = new byte[n * 2];
+                    for (var i = 0; i < n; i++) { o[i * 2] = img.Pixels[i * img.Channels]; o[i * 2 + 1] = (byte)(255 - img.Pixels[i * img.Channels + 1]); }
+                    return (new Image(img.Width, img.Height, 2, o), NormalPath(x, y));
+                }
+            }
+            catch (NotSupportedException) { }
+        }
+        return (FromHeights(terrain), "heights");
+    }
+
+    private static Image FromHeights(TerrainData t)
+    {
+        int r = t.Res;
+        var o = new byte[r * r * 2];
+        var s = t.Spacing;
+        for (var row = 0; row < r; row++)
+            for (var c = 0; c < r; c++)
+            {
+                float hl = t.Heights[row * r + Math.Max(0, c - 1)], hr = t.Heights[row * r + Math.Min(r - 1, c + 1)];
+                float hn = t.Heights[Math.Max(0, row - 1) * r + c], hs = t.Heights[Math.Min(r - 1, row + 1) * r + c];
+                var nx = -(hr - hl) / (2 * s); var nz = -(hs - hn) / (2 * s);
+                var l = MathF.Sqrt(nx * nx + nz * nz + 1);
+                o[(row * r + c) * 2] = (byte)Math.Clamp((nx / l + 1) * 127.5f + 0.5f, 0, 255);
+                o[(row * r + c) * 2 + 1] = (byte)Math.Clamp((nz / l + 1) * 127.5f + 0.5f, 0, 255);
+            }
+        return new Image(r, r, 2, o);
+    }
 
     public static TerrainData? ReadReal(Resolver res, int x, int y)
     {

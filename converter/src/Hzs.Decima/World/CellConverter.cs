@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Text.Json.Nodes;
 using Hzs.Common;
+using Hzs.Decima.Assets;
 using Hzs.Decima.Core;
 using Hzs.Decima.Sheets;
 
@@ -14,12 +15,13 @@ namespace Hzs.Decima.World;
 public static class CellConverter
 {
     /// <summary>cell.json "format"; bump when the cell layout changes so old cells are converted again.</summary>
-    public const int Format = 3;
+    public const int Format = 5;
 
     public static long Convert(ConvContext ctx, Resolver res, int x, int y, IProgressSink progress)
     {
         var texPx = HzdNames.Int("terrain.albedo_px");
         var sw = Stopwatch.StartNew();
+        var timers = Assets.Timers.Snapshot();
         var target = ctx.Cache.Cell(x, y);
         var written = new System.Runtime.CompilerServices.StrongBox<long>(); // shared meshes/textures this job wrote
         var tmp = Atomic.BeginDir(target);
@@ -40,15 +42,23 @@ public static class CellConverter
                 albedoImg = TerrainReader.ReadAlbedo(res, x, y, texPx);
                 if (albedoImg is not null)
                 {
-                    File.WriteAllBytes(Path.Combine(tmp, "albedo.png"), albedoImg.ToPng());
-                    albedo = "albedo.png";
+                    File.WriteAllBytes(Path.Combine(tmp, "albedo.dds"), Dds.Encode(albedoImg, Dds.Parse(Hzs.Generated.SystemsSheet.RenderTextureFormatAlbedo.Value), true, MipMode.Color));
+                    albedo = "albedo.dds";
                 }
             }
             catch (Exception ex) { ctx.Log.Warn($"cell {x},{y}: albedo: {ex.Message}"); }
+            string? normal = null, normalSource = null;
+            try
+            {
+                var (nimg, nsrc) = TerrainReader.ReadNormal(res, x, y, terrain, HzdNames.Int("terrain.normal_px"));
+                File.WriteAllBytes(Path.Combine(tmp, "normal.dds"), Dds.Encode(nimg, Dds.Parse(Hzs.Generated.SystemsSheet.RenderTextureFormatNormal.Value), false, MipMode.Normal));
+                (normal, normalSource) = ("normal.dds", nsrc);
+            }
+            catch (Exception ex) { ctx.Log.Warn($"cell {x},{y}: terrain normal: {ex.Message}"); }
             progress.Report("terrain", 1, 1);
 
             // static geometry: placements -> shared meshes
-            var placements = new Placements(res, ctx.Log).ForTile(x, y);
+            var placements = Assets.Timers.Time("placements", () => new Placements(res, ctx.Log).ForTile(x, y));
             var unique = placements.Select(p => (p.MeshFile, p.MeshUuid)).Distinct().ToList();
             var meshes = Meshes(ctx, res);
             var ids = new System.Collections.Concurrent.ConcurrentDictionary<(string, Guid), MeshRef?>();
@@ -70,7 +80,7 @@ public static class CellConverter
                 usedMeshes.Add(m.Id);
                 foreach (var t in m.Textures) usedTex.Add(t);
                 var g = Assets.Space.M(p.World);
-                var inst = new JsonObject { ["mesh"] = m.Id, ["xf"] = new JsonArray(Assets.Space.Xf(g).Select(v => (JsonNode)Math.Round(v, 4)).ToArray()) };
+                var inst = new JsonObject { ["mesh"] = m.Id, ["kind"] = KindOf(p.MeshFile), ["xf"] = new JsonArray(Assets.Space.Xf(g).Select(v => (JsonNode)Math.Round(v, 4)).ToArray()) };
                 if (m.Colorized && tint?.At(g.M41, g.M43) is { } c)
                     inst["tint"] = new JsonArray(Math.Round(c.X, 3), Math.Round(c.Y, 3), Math.Round(c.Z, 3));
                 instances.Add(inst);
@@ -92,9 +102,10 @@ public static class CellConverter
                 var density = veg.Density(x, y);
                 if (density is not null)
                 {
-                    File.WriteAllBytes(Path.Combine(tmp, "veg_density.png"), density.ToPng());
+                    var maskFormat = Dds.Parse(Hzs.Generated.SystemsSheet.RenderTextureFormatMasks.Value);
+                    File.WriteAllBytes(Path.Combine(tmp, "veg_density.dds"), Dds.Encode(density, maskFormat, false, MipMode.Data));
                     var effect = veg.Effect(x, y, density.Width);
-                    if (effect is not null) File.WriteAllBytes(Path.Combine(tmp, "veg_effect.png"), effect.ToPng());
+                    if (effect is not null) File.WriteAllBytes(Path.Combine(tmp, "veg_effect.dds"), Dds.Encode(effect, maskFormat, false, MipMode.Data));
                     var species = new JsonArray();
                     // a species is usable when its mesh exports with a colour texture (an untextured opaque card is never right)
                     var sp = veg.Pick(x, y, density, effect, usable: s => meshes.Ensure(s.MeshFile, s.MeshUuid, written) is { Textures.Length: > 0 });
@@ -130,8 +141,8 @@ public static class CellConverter
                     }
                     vegetation = new JsonObject
                     {
-                        ["density"] = "veg_density.png",
-                        ["effect"] = effect is null ? null : "veg_effect.png",
+                        ["density"] = "veg_density.dds",
+                        ["effect"] = effect is null ? null : "veg_effect.dds",
                         ["channels"] = new JsonArray(Vegetation.Channels.Select(c => (JsonNode)c).ToArray()),
                         ["density_scale"] = scale,
                         ["species"] = species,
@@ -171,6 +182,9 @@ public static class CellConverter
                     ["max"] = Math.Round(terrain.Max, 3),
                     ["real"] = terrain.Real,
                     ["albedo"] = albedo,
+                    ["normal"] = normal,
+                    ["normal_space"] = normal is null ? null : "world_xz",
+                    ["normal_source"] = normalSource,
                     ["source"] = terrain.Source,
                 },
                 ["instances"] = instances,
@@ -190,8 +204,19 @@ public static class CellConverter
             throw;
         }
         var bytes = Sizes.DirBytes(target) + Interlocked.Read(ref written.Value);
-        ctx.Log.Info($"cell {x},{y}: {bytes} bytes (cell + new shared meshes/textures), {sw.ElapsedMilliseconds} ms");
+        ctx.Log.Info($"cell {x},{y}: {bytes} bytes (cell + new shared meshes/textures), {sw.ElapsedMilliseconds} ms; cpu ms {Assets.Timers.Since(timers)}");
         return bytes;
+    }
+
+    private static readonly (string Kind, string[] Contains)[] KindRules = HzdNames.Json("geometry.kind_rules").AsArray()
+        .Select(r => (r!["kind"]!.GetValue<string>(), r["contains"]!.AsArray().Select(c => c!.GetValue<string>()).ToArray())).ToArray();
+
+    /// <summary>instances[].kind (rock, vegetation, building, prop) from the sheet rules on the mesh's core path.</summary>
+    public static string KindOf(string meshFile)
+    {
+        foreach (var (kind, contains) in KindRules)
+            if (contains.Any(c => meshFile.Contains(c, StringComparison.OrdinalIgnoreCase))) return kind;
+        return "prop";
     }
 
     private static readonly object MeshesLock = new();

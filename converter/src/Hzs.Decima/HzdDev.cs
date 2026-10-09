@@ -244,6 +244,126 @@ public static partial class HzdDev
                     Console.WriteLine($"extracted {n} files, {bytes} bytes -> {outDir}");
                     return 0;
                 }
+            case "hzd-bcbench":
+                {
+                    // dev only: BC encode speed / error on HZD colour textures (first Texture of texture-set files under --prefix)
+                    var prefix = Get("--prefix") ?? "models/building_blocks/nora/";
+                    var n = int.TryParse(Get("--n"), out var nv) ? nv : 24;
+                    var bres = new Resolver(arc);
+                    var imgs = new List<Assets.Image>();
+                    foreach (var path in arc.Paths.Where(x => x.StartsWith(prefix, StringComparison.Ordinal) && x.EndsWith("_set", StringComparison.Ordinal)))
+                    {
+                        if (imgs.Count >= n) break;
+                        var tf = bres.TryFile(path + ".core");
+                        var to = tf?.Objects.FirstOrDefault(o => o.TypeName == "Texture");
+                        if (tf is null || to is null) continue;
+                        try
+                        {
+                            var tx = Assets.HzdTexture.Parse(tf.Decode(to));
+                            var im = tx.Decode(arc, tx.MipFor(512)).Fit(512);
+                            if (im.Channels == 4 && im.Width >= 256) imgs.Add(im);
+                        }
+                        catch (Exception) { }
+                    }
+                    var mpix = imgs.Sum(i => (double)i.Width * i.Height) / 1e6;
+                    Console.WriteLine($"{imgs.Count} textures, {mpix:F2} MPix");
+                    void Report(string name, Assets.BcFormat bf, Func<Assets.Image, byte[]> enc)
+                    {
+                        var t0 = Stopwatch.StartNew();
+                        double err = 0; long cnt = 0;
+                        foreach (var im in imgs)
+                        {
+                            var raw = enc(im);
+                            var back = Assets.Dds.DecodeBlocks(bf, raw, im.Width, im.Height);
+                            var chans = bf == Assets.BcFormat.BC5 ? 2 : bf == Assets.BcFormat.BC1 ? 3 : 4;
+                            for (var i = 0; i < im.Width * im.Height; i++)
+                                for (var c = 0; c < chans; c++) { var d = im.Pixels[i * 4 + c] - back[i * 4 + c]; err += d * d; cnt++; }
+                        }
+                        Console.WriteLine($"{name,-24} {t0.Elapsed.TotalMilliseconds / mpix,8:F1} ms/MPix  PSNR {10 * Math.Log10(255.0 * 255.0 / (err / cnt)):F1} dB");
+                    }
+                    foreach (var bf in new[] { Assets.BcFormat.BC1, Assets.BcFormat.BC3, Assets.BcFormat.BC5, Assets.BcFormat.BC7 })
+                        Report($"own {bf}", bf, im => Assets.BcEncode.Encode(bf, im.Pixels, im.Width, im.Height));
+                    return 0;
+                }
+            case "hzd-texsets":
+                {
+                    // dev only: channel packing of texture sets under --prefix (histogram of entry layouts)
+                    var prefix = Get("--prefix") ?? "models/";
+                    var n = int.TryParse(Get("--n"), out var nv) ? nv : 400;
+                    var tres = new Resolver(arc);
+                    string[] names = ["-", "Color", "Alpha", "Normal", "Refl", "AO", "Rough", "Height", "Mask", "MaskA", "Incand", "TrDiff", "TrAmt", "Misc", "?"];
+                    var hist = new Dictionary<string, int>();
+                    var seen = 0;
+                    foreach (var path in arc.Paths.Where(x => x.StartsWith(prefix, StringComparison.Ordinal) && x.EndsWith("_set", StringComparison.Ordinal)))
+                    {
+                        if (seen++ >= n) break;
+                        var tf = tres.TryFile(path + ".core");
+                        if (tf is null) continue;
+                        foreach (var set in tf.All("TextureSet"))
+                            foreach (var e in set.Structs("Entries"))
+                            {
+                                var p = (uint)e.Long("PackingInfo");
+                                var chans = string.Join(",", Enumerable.Range(0, 4).Select(c => (p >> (c * 8)) & 0xFF).Select(b => b == 0x80 ? "-" : $"{names[Math.Min(14, (int)(b & 0x0F))]}{(b >> 4) & 3}"));
+                                var to = tres.Deref(tf, e.Ref("Texture"));
+                                var fmt = to is null ? "?" : Assets.HzdTexture.Parse(to).Format.ToString();
+                                var key = $"{chans,-34} fmt {fmt}";
+                                hist[key] = hist.GetValueOrDefault(key) + 1;
+                            }
+                    }
+                    foreach (var kv in hist.OrderByDescending(k => k.Value).Take(25)) Console.WriteLine($"{kv.Value,5}  {kv.Key}");
+                    return 0;
+                }
+            case "hzd-normconv":
+                {
+                    // dev only: green-channel convention of HZD normal maps. A height field's gradient is curl-free:
+                    // gx = -nx/nz and gy = s * ny/nz (image y down) must satisfy d(gx)/dy = d(gy)/dx; s = +1 means +Y up
+                    // (OpenGL / glTF), s = -1 means +Y down (DirectX). Mean |curl| for both signs over normal maps under --prefix.
+                    var prefix = Get("--prefix") ?? "models/building_blocks/rocks/";
+                    var n = int.TryParse(Get("--n"), out var nv) ? nv : 40;
+                    var tres = new Resolver(arc);
+                    int up = 0, down = 0, maps = 0;
+                    foreach (var path in arc.Paths.Where(x => x.StartsWith(prefix, StringComparison.Ordinal) && x.EndsWith("_set", StringComparison.Ordinal)))
+                    {
+                        if (maps >= n) break;
+                        var tf = tres.TryFile(path + ".core");
+                        if (tf is null) continue;
+                        foreach (var set in tf.All("TextureSet"))
+                            foreach (var e in set.Structs("Entries"))
+                            {
+                                var p = (uint)e.Long("PackingInfo");
+                                if ((p & 0x0F) != 3 || ((p >> 8) & 0x0F) != 3) continue;
+                                var to = tres.Deref(tf, e.Ref("Texture"));
+                                if (to is null) continue;
+                                var tx = Assets.HzdTexture.Parse(to);
+                                if (tx.Width < 128) continue;
+                                var im = tx.Decode(arc, tx.MipFor(512));
+                                int w = im.Width, h = im.Height, ch = im.Channels;
+                                var gx = new double[w * h]; var gy = new double[w * h];
+                                for (var i = 0; i < w * h; i++)
+                                {
+                                    double x = im.Pixels[i * ch] / 127.5 - 1, y = im.Pixels[i * ch + 1] / 127.5 - 1;
+                                    var z = Math.Sqrt(Math.Max(0.05, 1 - x * x - y * y));
+                                    gx[i] = -x / z; gy[i] = y / z;
+                                }
+                                double cPlus = 0, cMinus = 0;
+                                for (var yy = 0; yy < h - 1; yy++)
+                                    for (var xx = 0; xx < w - 1; xx++)
+                                    {
+                                        var i = yy * w + xx;
+                                        var dgxdy = gx[i + w] - gx[i];
+                                        var dgydx = gy[i + 1] - gy[i];
+                                        cPlus += Math.Abs(dgxdy - dgydx);    // s = +1
+                                        cMinus += Math.Abs(dgxdy + dgydx);   // s = -1
+                                    }
+                                if (cPlus < cMinus) up++; else down++;
+                                maps++;
+                                if (maps <= 8) Console.WriteLine($"{path}: curl(+Y up) {cPlus / (w * h):F4}  curl(+Y down) {cMinus / (w * h):F4}");
+                                break;
+                            }
+                    }
+                    Console.WriteLine($"normal maps {maps}: +Y up (OpenGL) {up}, +Y down (DirectX) {down}");
+                    return 0;
+                }
             case "hzd-veg":
                 {
                     // dev only: placement layers of a tile -> density channel and placement target type

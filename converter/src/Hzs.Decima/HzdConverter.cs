@@ -150,7 +150,7 @@ public static class HzdConverter
             if (cell?["format"]?.GetValue<int>() != World.CellConverter.Format) return false;
             // the game's cache GC may have deleted shared meshes/textures the cell uses: then convert it again
             var meshes = cell["meshes"]?.AsArray().Select(m => Path.Combine(ctx.Cache.Meshes, $"{m}.glb")) ?? [];
-            var textures = cell["textures"]?.AsArray().Select(t => Path.Combine(ctx.Cache.Hzd, "textures", $"{t}.png")) ?? [];
+            var textures = cell["textures"]?.AsArray().Select(t => Path.Combine(ctx.Cache.Hzd, "textures", $"{t}{World.WorldMeshes.TexExt}")) ?? [];
             return meshes.Concat(textures).All(File.Exists);
         }
         catch (Exception) { return false; }

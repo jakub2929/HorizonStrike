@@ -27,7 +27,7 @@ public sealed class WorldMeshes(Resolver res, CachePaths cache, Log log, int tex
     /// glb asset.extras.format of shared meshes; bump when mesh/texture export changes. Meshes of another format are
     /// exported again (same id, overwritten atomically) together with their textures.
     /// </summary>
-    public const int Format = 2;
+    public const int Format = 4;
 
     private const string ColorizedFlag = "#colorized";
 
@@ -76,7 +76,27 @@ public sealed class WorldMeshes(Resolver res, CachePaths cache, Log log, int tex
         return (map.TryUpdate(key, fresh, lz) ? fresh : map[key]).Value;
     }
 
-    private string TexPath(string texId) => Path.Combine(TextureDir, texId + ".png");
+    private string TexPath(string texId) => Path.Combine(TextureDir, texId + TexExt);
+
+    /// <summary>Shared texture files: DDS (BC1 opaque / BC7 cut-out colour, sRGB, full mips; see <see cref="Dds"/>).</summary>
+    public const string TexExt = ".dds";
+    private static readonly BcFormat AlbedoFormat = Dds.Parse(Hzs.Generated.SystemsSheet.RenderTextureFormatAlbedo.Value);
+    private static readonly BcFormat AlbedoAlphaFormat = Dds.Parse(Hzs.Generated.SystemsSheet.RenderTextureFormatAlbedoAlpha.Value);
+    private static readonly BcFormat NormalFormat = Dds.Parse(Hzs.Generated.SystemsSheet.RenderTextureFormatNormal.Value);
+    private static readonly BcFormat OrmFormat = Dds.Parse(Hzs.Generated.SystemsSheet.RenderTextureFormatOrm.Value);
+    private readonly ConcurrentDictionary<string, Lazy<string?>> _maps = new();
+
+    /// <summary>Normal (BC5 linear, XY) or ORM (BC1 linear) texture id of a surface-map key, exported when missing; null if undecodable.</summary>
+    private string? MapTexture(string key, bool normal, StrongBox<long> written) =>
+        Fresh(_maps, key, () => new Lazy<string?>(() =>
+        {
+            var img = _mats.Map(key);
+            if (img is null) return null;
+            var tid = $"{Murmur3.PathHash(key):x16}";
+            var dds = normal ? Dds.Encode(img, NormalFormat, false, MipMode.Normal) : Dds.Encode(img, OrmFormat, false, MipMode.Data);
+            WriteShared(TexPath(tid), dds, written);
+            return tid;
+        }, LazyThreadSafetyMode.ExecutionAndPublication), v => v is null || File.Exists(TexPath(v)));
 
     /// <summary>glb, sidecar and every texture the sidecar lists exist on disk.</summary>
     private bool MeshFilesPresent(string id)
@@ -95,7 +115,7 @@ public sealed class WorldMeshes(Resolver res, CachePaths cache, Log log, int tex
         if (File.Exists(Path.Combine(MeshDir, id + ".empty"))) return false;
         try
         {
-            var (md, lod, lods) = MeshReader.ReadBudget(res, core, obj, maxVertices);
+            var (md, lod, lods) = Timers.Time("mesh_read", () => MeshReader.ReadBudget(res, core, obj, maxVertices));
             if (md is null || md.Prims.Count == 0 || md.Prims.All(p => p.Idx.Length == 0))
             {
                 WriteShared(Path.Combine(MeshDir, id + ".empty"), [], written);
@@ -110,17 +130,24 @@ public sealed class WorldMeshes(Resolver res, CachePaths cache, Log log, int tex
             {
                 if (prim.Idx.Length == 0) continue;
                 var choice = _mats.ForEffect(prim.Effect, known: k => _textures.TryGetValue(k, out var lz) && lz.IsValueCreated && lz.Value is { } kt && File.Exists(TexPath(kt.Id)));
-                var key = choice?.Key ?? "";
+                var (nk, ok) = _mats.SurfaceMaps(prim.Effect, choice?.Colorized == true);
+                var key = $"{choice?.Key}|{nk}|{ok}";
                 if (!matCache.TryGetValue(key, out var mat))
                 {
+                    var nid = nk is null ? null : MapTexture(nk, true, written);
+                    var oid = ok is null ? null : MapTexture(ok, false, written);
+                    int? nTex = nid is null ? null : glb.ImageUri($"../textures/{nid}{TexExt}", nid);
+                    int? oTex = oid is null ? null : glb.ImageUri($"../textures/{oid}{TexExt}", oid);
+                    if (nid is not null) texIds.Add(nid);
+                    if (oid is not null) texIds.Add(oid);
                     var tex = choice is null ? null : choice.Color is { } img ? Texture(key, img, written) : _textures.TryGetValue(key, out var done) ? done.Value : null;
                     if (tex is { } t)
                     {
                         texIds.Add(t.Id);
                         colorized |= choice!.Colorized;
-                        mat = glb.Material($"m{matCache.Count}", glb.ImageUri($"../textures/{t.Id}.png", t.Id), alphaMask: t.Alpha, doubleSided: t.Alpha);
+                        mat = glb.Material($"m{matCache.Count}", glb.ImageUri($"../textures/{t.Id}{TexExt}", t.Id), nTex, alphaMask: t.Alpha, doubleSided: t.Alpha, ormTex: oTex);
                     }
-                    else mat = glb.Material($"m{matCache.Count}", null, baseColor: [0.5f, 0.5f, 0.5f, 1f]);
+                    else mat = glb.Material($"m{matCache.Count}", null, nTex, baseColor: [0.5f, 0.5f, 0.5f, 1f], ormTex: oTex);
                     matCache[key] = mat;
                 }
                 var pos = (float[])prim.Pos.Clone();
@@ -159,7 +186,8 @@ public sealed class WorldMeshes(Resolver res, CachePaths cache, Log log, int tex
         {
             var tid = $"{Murmur3.PathHash(key):x16}";
             var alpha = img.Channels == 4 && HasCutout(img);
-            WriteShared(TexPath(tid), img.ToPng(), written); // a texture is decoded only for a mesh being exported
+            var dds = alpha ? Dds.Encode(img, AlbedoAlphaFormat, true, MipMode.Cutout) : Dds.Encode(img, AlbedoFormat, true, MipMode.Color);
+            WriteShared(TexPath(tid), dds, written); // a texture is decoded only for a mesh being exported
             return (tid, alpha);
         }, LazyThreadSafetyMode.ExecutionAndPublication), v => v is null || File.Exists(TexPath(v.Value.Id)));
 
