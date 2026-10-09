@@ -15,6 +15,8 @@ var mock_cell_mib := 0        ## --mock-cell-mib <n>: dev, pad every mock cell t
 var exit_after := -1.0        ## --exit-after <s>: dev, quit cleanly after s seconds
 var screenshot_at := -1.0     ## --screenshot-at <s> <png>: dev, save a screenshot after s seconds
 var screenshot_path := ""
+var profile_cells := false    ## --profile-cells: dev, vsync off, walk perf.route_cells, write <logs>/cell_phases.csv
+var quit_after_cells := 0     ## --quit-after-cells <n>: dev, quit after n inserted cells (with --profile-cells)
 var all := PackedStringArray()
 
 
@@ -80,13 +82,19 @@ static func parse(list: PackedStringArray) -> RefCounted:
 					a.screenshot_at = float(nxt)
 					a.screenshot_path = list[i + 2]
 					i += 2
+			"--profile-cells":
+				a.profile_cells = true
+			"--quit-after-cells":
+				if has_value:
+					a.quit_after_cells = int(nxt)
+					i += 1
 		i += 1
 	return a
 
 
 ## True for runs driven by a program (autotest, dev --script tools, timed dev runs): no mouse capture.
 func automated() -> bool:
-	return autotest or all.has("--script") or exit_after > 0.0 or screenshot_at > 0.0
+	return autotest or all.has("--script") or exit_after > 0.0 or screenshot_at > 0.0 or profile_cells
 
 
 func describe() -> String:

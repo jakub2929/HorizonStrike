@@ -4,6 +4,7 @@ extends Node
 
 signal world_ready
 signal cell_loaded(cell: Vector2i)
+signal cell_insert_started(cell: Vector2i)   ## a prepared cell starts entering the scene (budgeted steps follow)
 signal cell_evicted(cell: Vector2i)
 signal machine_state_changed(machine: Node, old: String, new: String)
 signal money_changed(value: int)
