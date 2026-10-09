@@ -10,7 +10,7 @@ const GlbReader := preload("res://world/glb_reader.gd")
 
 const MAX_TRIMESH_FACES := 90000   # 30k triangles
 const LOD_MIN_TRIS := 300
-const COLLISION_TRIS := 1500        # collision triangles per mesh: the finest generated LOD under this count is used
+const COLLISION_TRIS := 800         # collision triangles per mesh: the finest generated LOD under this count is used
 
 var dir := ""
 var tex_dir := ""

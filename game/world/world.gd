@@ -528,17 +528,21 @@ func _collision_ring(delta: float, deadline: int) -> void:
 				if missing != "":
 					meshes.get_shape(missing)
 				else:
+					# then one body (<= SHAPES_PER_BODY shapes) per step: making all of a dense bucket at once was 15+ ms
 					_col_ops.pop_front()
-					var bodies: Array = CellBuilder.make_bucket_bodies(cc["buckets"][key], meshes)
-					cc["bodies"][key] = bodies
-					var attach: Array = []
-					for b in bodies:
-						attach.append([c, key, "attach", 0.0, b])
-					_col_ops = attach + _col_ops
-			"attach":
+					cc["bodies"][key] = []
+					var n: int = (cc["buckets"][key] as Array).size()
+					var parts: Array = []
+					for i0 in range(0, n, CellBuilder.SHAPES_PER_BODY):
+						parts.append([c, key, "body", 0.0, i0])
+					_col_ops = parts + _col_ops
+			"body":
 				_col_ops.pop_front()
-				if is_instance_valid(op[4]) and (cc["bodies"] as Dictionary).has(key):
-					(cc["parent"] as Node).add_child(op[4])
+				if (cc["bodies"] as Dictionary).has(key):
+					var items: Array = (cc["buckets"][key] as Array).slice(int(op[4]), int(op[4]) + CellBuilder.SHAPES_PER_BODY)
+					for b in CellBuilder.make_bucket_bodies(items, meshes):
+						cc["bodies"][key].append(b)
+						(cc["parent"] as Node).add_child(b)
 			_:
 				_col_ops.pop_front()
 				for b in cc["bodies"].get(key, []):
@@ -555,7 +559,7 @@ func _plan_collision_ops() -> void:
 	var b: float = CellBuilder.COLLISION_BUCKET_M
 	var adds: Array = []
 	# keep pending attaches of bodies already built; everything else is re-planned
-	var keep: Array = _col_ops.filter(func(o): return str(o[2]) == "attach")
+	var keep: Array = _col_ops.filter(func(o): return str(o[2]) == "body")
 	_col_ops.clear()
 	for c in _col:
 		var cc: Dictionary = _col[c]
@@ -634,11 +638,6 @@ func _unload(c: Vector2i) -> void:
 	var drop: Array = [cell_data.get(c)]
 	cell_data.erase(c)
 	if _col.has(c):
-		# bodies built but not attached yet are not under the cell node
-		for key in _col[c]["bodies"]:
-			for b in _col[c]["bodies"][key]:
-				if is_instance_valid(b) and not (b as Node).is_inside_tree():
-					_graveyard.append(b)
 		drop.append(_col[c])
 	_col.erase(c)
 	# collision buckets (tens of thousands of transforms) and heights: a worker drops the last reference (~15 ms here)
