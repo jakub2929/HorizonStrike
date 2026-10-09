@@ -27,7 +27,7 @@ public sealed class WorldMeshes(Resolver res, CachePaths cache, Log log, int tex
     /// glb asset.extras.format of shared meshes; bump when mesh/texture export changes. Meshes of another format are
     /// exported again (same id, overwritten atomically) together with their textures.
     /// </summary>
-    public const int Format = 2;
+    public const int Format = 3;
 
     private const string ColorizedFlag = "#colorized";
 
@@ -76,7 +76,12 @@ public sealed class WorldMeshes(Resolver res, CachePaths cache, Log log, int tex
         return (map.TryUpdate(key, fresh, lz) ? fresh : map[key]).Value;
     }
 
-    private string TexPath(string texId) => Path.Combine(TextureDir, texId + ".png");
+    private string TexPath(string texId) => Path.Combine(TextureDir, texId + TexExt);
+
+    /// <summary>Shared texture files: DDS (BC1 opaque / BC7 cut-out colour, sRGB, full mips; see <see cref="Dds"/>).</summary>
+    public const string TexExt = ".dds";
+    private static readonly BcFormat AlbedoFormat = Dds.Parse(Hzs.Generated.SystemsSheet.RenderTextureFormatAlbedo.Value);
+    private static readonly BcFormat AlbedoAlphaFormat = Dds.Parse(Hzs.Generated.SystemsSheet.RenderTextureFormatAlbedoAlpha.Value);
 
     /// <summary>glb, sidecar and every texture the sidecar lists exist on disk.</summary>
     private bool MeshFilesPresent(string id)
@@ -118,7 +123,7 @@ public sealed class WorldMeshes(Resolver res, CachePaths cache, Log log, int tex
                     {
                         texIds.Add(t.Id);
                         colorized |= choice!.Colorized;
-                        mat = glb.Material($"m{matCache.Count}", glb.ImageUri($"../textures/{t.Id}.png", t.Id), alphaMask: t.Alpha, doubleSided: t.Alpha);
+                        mat = glb.Material($"m{matCache.Count}", glb.ImageUri($"../textures/{t.Id}{TexExt}", t.Id), alphaMask: t.Alpha, doubleSided: t.Alpha);
                     }
                     else mat = glb.Material($"m{matCache.Count}", null, baseColor: [0.5f, 0.5f, 0.5f, 1f]);
                     matCache[key] = mat;
@@ -159,7 +164,8 @@ public sealed class WorldMeshes(Resolver res, CachePaths cache, Log log, int tex
         {
             var tid = $"{Murmur3.PathHash(key):x16}";
             var alpha = img.Channels == 4 && HasCutout(img);
-            WriteShared(TexPath(tid), img.ToPng(), written); // a texture is decoded only for a mesh being exported
+            var dds = alpha ? Dds.Encode(img, AlbedoAlphaFormat, true, MipMode.Cutout) : Dds.Encode(img, AlbedoFormat, true, MipMode.Color);
+            WriteShared(TexPath(tid), dds, written); // a texture is decoded only for a mesh being exported
             return (tid, alpha);
         }, LazyThreadSafetyMode.ExecutionAndPublication), v => v is null || File.Exists(TexPath(v.Value.Id)));
 

@@ -87,7 +87,9 @@ public sealed class Glb
     /// <summary>External image (relative URI, e.g. a texture shared by many meshes).</summary>
     public int ImageUri(string uri, string name)
     {
-        _images.Add(new JsonObject { ["uri"] = uri, ["name"] = name });
+        var img = new JsonObject { ["uri"] = uri, ["name"] = name };
+        if (uri.EndsWith(".dds", StringComparison.OrdinalIgnoreCase)) img["mimeType"] = "image/vnd-ms.dds"; // block-compressed DDS (not core glTF)
+        _images.Add(img);
         _textures.Add(new JsonObject { ["source"] = _images.Count - 1, ["sampler"] = 0 });
         return _textures.Count - 1;
     }

@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Text.Json.Nodes;
 using Hzs.Common;
+using Hzs.Decima.Assets;
 using Hzs.Decima.Core;
 using Hzs.Decima.Sheets;
 
@@ -14,7 +15,7 @@ namespace Hzs.Decima.World;
 public static class CellConverter
 {
     /// <summary>cell.json "format"; bump when the cell layout changes so old cells are converted again.</summary>
-    public const int Format = 3;
+    public const int Format = 4;
 
     public static long Convert(ConvContext ctx, Resolver res, int x, int y, IProgressSink progress)
     {
@@ -40,8 +41,8 @@ public static class CellConverter
                 albedoImg = TerrainReader.ReadAlbedo(res, x, y, texPx);
                 if (albedoImg is not null)
                 {
-                    File.WriteAllBytes(Path.Combine(tmp, "albedo.png"), albedoImg.ToPng());
-                    albedo = "albedo.png";
+                    File.WriteAllBytes(Path.Combine(tmp, "albedo.dds"), Dds.Encode(albedoImg, Dds.Parse(Hzs.Generated.SystemsSheet.RenderTextureFormatAlbedo.Value), true, MipMode.Color));
+                    albedo = "albedo.dds";
                 }
             }
             catch (Exception ex) { ctx.Log.Warn($"cell {x},{y}: albedo: {ex.Message}"); }
@@ -92,9 +93,10 @@ public static class CellConverter
                 var density = veg.Density(x, y);
                 if (density is not null)
                 {
-                    File.WriteAllBytes(Path.Combine(tmp, "veg_density.png"), density.ToPng());
+                    var maskFormat = Dds.Parse(Hzs.Generated.SystemsSheet.RenderTextureFormatMasks.Value);
+                    File.WriteAllBytes(Path.Combine(tmp, "veg_density.dds"), Dds.Encode(density, maskFormat, false, MipMode.Data));
                     var effect = veg.Effect(x, y, density.Width);
-                    if (effect is not null) File.WriteAllBytes(Path.Combine(tmp, "veg_effect.png"), effect.ToPng());
+                    if (effect is not null) File.WriteAllBytes(Path.Combine(tmp, "veg_effect.dds"), Dds.Encode(effect, maskFormat, false, MipMode.Data));
                     var species = new JsonArray();
                     // a species is usable when its mesh exports with a colour texture (an untextured opaque card is never right)
                     var sp = veg.Pick(x, y, density, effect, usable: s => meshes.Ensure(s.MeshFile, s.MeshUuid, written) is { Textures.Length: > 0 });
@@ -130,8 +132,8 @@ public static class CellConverter
                     }
                     vegetation = new JsonObject
                     {
-                        ["density"] = "veg_density.png",
-                        ["effect"] = effect is null ? null : "veg_effect.png",
+                        ["density"] = "veg_density.dds",
+                        ["effect"] = effect is null ? null : "veg_effect.dds",
                         ["channels"] = new JsonArray(Vegetation.Channels.Select(c => (JsonNode)c).ToArray()),
                         ["density_scale"] = scale,
                         ["species"] = species,
