@@ -75,7 +75,26 @@ Rules I follow: no class_name lookups across files (everything via preload, so a
 - H8: export preset + Build-Game verified from bash (PowerShell is blocked for this agent, so build.ps1 itself was
   not executed by me): 109 MB exe, boots on mock data, `preflight package dist` CLEAN.
 
+- Content contract (D32) applied: core/content.gd resolves models (content_model -> meta.json model -> documented
+  cache layout), bones only via bone_roles (head, neck, spine, tail, eye, leg chains as role names or "a>b>c"),
+  positions only via points (weak_spot, attack_<id>, muzzle, eject). No game bone/file names left in code (only the
+  documented cache layout as last fallback and generic gameplay words matched against sheet sound events).
+- Real world pipeline: own glb reader (worker), textures decoded + S3TC once per hash, meshoptimizer LODs via
+  ImporterMesh on the worker, chunked MultiMeshes with size-based fade, shadows only >= 12 m, collision in static
+  bodies of 256 shapes. Real cell 5_-2 (37k instances): 174 M -> 6-8 M primitives; real start area 64.6 fps.
+- Real mode end-to-end (svet merged): first launch on an empty cache: converter bootstrap 79 s, world_ready 87.7 s
+  with only the start cell on disk, 3x3 after 19 s more, 785 MB, 14 weapons, 3 machines (dev/first_launch.gd).
+  Dev scenarios in real mode: t05 PASS (5.5 s, eye bolt; log `music: combat`), t06 PASS (33.7 -> 85.6 m), t07 PASS.
+- D36 implemented: machine health = hzd_health x combat.machine_health_scale (new hra-owned systems row, 1.0).
+- Obstacle avoidance (feelers) added after herds piled up on real rocks/fences.
+
 ## Notes for teammates (relay via main)
+- test (t10): real cells outside the start area are ~11 MB (meshes/textures shared), 5 steps east add ~164 MB, so
+  cap = bytes + reserve(600) + 300 MiB never evicts (target = cap - reserve). Use e.g. cap = bytes + reserve + 50 MiB
+  or more steps; eviction itself is verified with 30 MiB mock cells (dev/scenarios.gd t10: 4 farthest-first).
+- test (s02): the real Watcher is 1.45 m tall; at the vertical FOV 73.74 deg it covers >= 15 % of the frame only
+  within ~7.5 m.
+- test: new signal `Game.player_damaged(amount, cause)` (also while invulnerable) for t05 "attack hits the player".
 - test: `Game.fire()` ignores the fire-rate/deploy gate; returned damage includes CS range falloff (t04 expected
   values must include `range_modifier^(dist_u/500)`); knife reach = combat.knife_reach_m from the camera;
   `Game.spawn_machine` faces the player; `player.set_crouch(bool)` exists for t06; projectiles are in group
