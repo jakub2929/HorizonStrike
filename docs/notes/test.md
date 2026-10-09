@@ -101,6 +101,31 @@ Aligned with hra's in-progress code (read-only look at the hra worktree, not mer
   shape for body 'InstanceBodies:<StaticBody3D>' ... 'Compound hierarchy is too deep and exceeds the amount of
   available sub shape ID bits'` – that cell's static instances probably have no collision. Split InstanceBodies into
   several bodies (Jolt sub-shape ID bits limit).
+- F6 (svet, then hra) t10, real data: `Game.cache_bytes()` peaked at 4 741 MiB while the cache folder never exceeded
+  841 MiB (cap 3 619 MiB) -> t10 FAIL "max Game.cache_bytes() sample <= cap: 4971678609 <= 3795370491". Cause: the
+  converter's `done.bytes` for a cell is `Sizes.DirBytes(target) + Meshes(ctx, res).BytesWritten`
+  (converter/src/Hzs.Decima/World/CellConverter.cs:168), and `BytesWritten` is a process-wide cumulative counter, so
+  every cell reports all mesh bytes written so far (game log: `cell (6, -3) converted (504613266 bytes ...)` while
+  evicted cells are 7-13 MB). hra's world.gd adds done.bytes to its running total -> HUD size and eviction work on an
+  inflated number (it evicted ring-5 cells early). Fix: report the bytes written by that job only; hra could also
+  re-anchor on its background folder scan instead of keeping the delta.
+
+## Pre-merge integration runs (hra 4ea177b snapshot, dev editor build)
+| id | name | mock | real data | key details (real) |
+|---|---|---|---|---|
+| t01 | start loadout | PASS | PASS | knife+glock, $800, glock clip 20 |
+| t02 | kill reward | PASS | PASS | 1100 / 3050 / 16000, signal == delta |
+| t03 | buy | PASS | PASS | 3000 -> 300 -> 0, awp refused, wheel 12 items at resolved prices |
+| t04 | weak spot | PASS | FAIL (F3) | weak 107.76 vs body 12.66 at ~9 m; full health 140 vs expected 90 |
+| t05 | watcher alert | PASS | FAIL (F4) | no Watcher spawned at FE_Harvester_Scout |
+| s02 | watcher alert shot | PASS | not produced (F4) | mock: 28 % of frame at 9 m (retake) |
+| t06 | herd flees | PASS | PASS | 3/3 flee in 0.01 s, 31.5 -> 67.5 m |
+| s03 | herd landscape | FAIL (mock terrain) | PASS | 3 grazers unoccluded, terrain.real, 115 973 veg instances |
+| t07 | death/respawn | PASS | PASS | respawn at Campfire_x05_y-03_3, 1.6 m, $5000 kept |
+| t08 | missing HZD | PASS | PASS | screen + message + log line, converter not started |
+| t09 | first launch | FAIL (mock has no model.glb) | PASS | bootstrap_seconds 88.1; 346 MiB at world_ready, 749 MiB after the 3x3 |
+| t10 | cache cap | PASS (60 MiB padded cells) | FAIL (F6) | disk max 841 MiB <= cap 3 619 MiB, 24 evictions, none protected |
+| t11 | no listener | FAIL (in-process mock) | PASS | hzsconv.exe, 0 listeners |
 - F2 (hra): parent and child game share `%LOCALAPPDATA%\HorizonStrike\logs\latest.log` – hra's log.gd already
   opens it shared, appends within 120 s and tags lines with the pid; t08 filters by pid. Closed unless it regresses.
 
