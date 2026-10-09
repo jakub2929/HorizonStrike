@@ -459,3 +459,18 @@ Sites of the new machines (svet 0.2 V3, hzsconv hzd-sites after site_map type:di
 - cell.json "sheets" = hash of site_map, hzd_content, machines id / herd sizes, systems render.* / streaming.* values
   (not descriptions); CellUpToDate requires the same hash. Check: a cell with a changed hash is converted again
   (cached false), an unchanged one is served cached.
+
+## 0.2 t14 building normal maps (2026-10-10)
+- t14 / F8: buildings 72.8 % with a normal map (same 72.6 % recomputed from cache-svetwork/c33, 5x5 around 4,-3).
+  Causes: (1) Cauldron walls / floors (foundry wall_b025/b026, floor_b005: ~45 k instances) use a procedural material
+  that binds plain textures, no texture set: wall_b0xx_cmp = composite map with RG = normal XY (B / A masks), next to
+  *_cmp_02 masks and tiling granite *_nmt details; (2) invisible helper geometry was exported: *_occ_L1 /
+  *_occlusion LOD chains (effect Z_Prime_PlaneOccluders@IBL or DoubleSided, 12-55 vertices) and collision quads
+  (effect Coll_Mat); (3) moss sprigs on ruin dressing bind moss_sprigs_2016_nmt_msk as a plain texture.
+- Fix: materials.standalone_normal (_cmp, _nmt) plain textures whose R, G average ~0.5 and stay in the unit circle
+  (checked on the 64 px mip) are the normal map when no set has a normal channel (_cmp_02 masks fail the check);
+  geometry.skip_effect_names (Coll_Mat, Occluder) drop primitives; geometry.skip_mesh_names + _occlusion.
+  WorldMeshes.Format 6. Materials still without a normal carry extras {hzd_normal: "none"} (e.g. dressing_b128_c001 m0
+  SDF_Layered effect with no texture bindings, RF_FloorGlass wedges, BSP tunnel / cradle pieces, snow drifts).
+- After (cache-svetwork/c54, 5x5 around 4,-3): building 312 078 / 314 160 = 99.3 % (100 % with the hzd_normal none
+  materials excluded), rock 100.0 %, vegetation 100.0 %; 35 997 fewer building instances (invisible helpers).

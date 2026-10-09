@@ -30,9 +30,12 @@ public sealed class WorldMeshes(Resolver res, CachePaths cache, Log log, int tex
     /// glb asset.extras.format of shared meshes; bump when mesh/texture export changes. Meshes of another format are
     /// exported again (same id, overwritten atomically) together with their textures.
     /// </summary>
-    public const int Format = 5;
+    public const int Format = 6;
 
     private const string ColorizedFlag = "#colorized";
+
+    /// <summary>Render effects of invisible helper geometry (collision quads, occluder planes): never exported.</summary>
+    private static readonly string[] SkipEffects = Sheets.HzdNames.List("geometry.skip_effect_names");
 
     private readonly ConcurrentDictionary<string, Lazy<bool>> _meshes = new();
     private readonly ConcurrentDictionary<string, Lazy<(string Id, bool Alpha)?>> _textures = new();
@@ -161,6 +164,7 @@ public sealed class WorldMeshes(Resolver res, CachePaths cache, Log log, int tex
         try
         {
             var (md, lod, lods) = Timers.Time("mesh_read", () => MeshReader.ReadBudget(res, core, obj, maxVertices));
+            md?.Prims.RemoveAll(p => p.Effect?.Has("Name") == true && SkipEffects.Any(e => p.Effect.Str("Name").Contains(e, StringComparison.OrdinalIgnoreCase)));
             if (md is null || md.Prims.Count == 0 || md.Prims.All(p => p.Idx.Length == 0))
             {
                 WriteShared(Path.Combine(MeshDir, id + ".empty"), [], written);
@@ -190,9 +194,9 @@ public sealed class WorldMeshes(Resolver res, CachePaths cache, Log log, int tex
                     {
                         texIds.Add(t.Id);
                         colorized |= choice!.Colorized;
-                        mat = glb.Material($"m{matCache.Count}", glb.ImageUri($"../textures/{t.Id}{TexExt}", t.Id), nTex, alphaMask: t.Alpha, doubleSided: t.Alpha, ormTex: oTex);
+                        mat = glb.Material($"m{matCache.Count}", glb.ImageUri($"../textures/{t.Id}{TexExt}", t.Id), nTex, alphaMask: t.Alpha, doubleSided: t.Alpha, ormTex: oTex, extras: NoNormal(nTex));
                     }
-                    else mat = glb.Material($"m{matCache.Count}", null, nTex, baseColor: [0.5f, 0.5f, 0.5f, 1f], ormTex: oTex);
+                    else mat = glb.Material($"m{matCache.Count}", null, nTex, baseColor: [0.5f, 0.5f, 0.5f, 1f], ormTex: oTex, extras: NoNormal(nTex));
                     matCache[key] = mat;
                 }
                 var pos = (float[])prim.Pos.Clone();
@@ -235,6 +239,9 @@ public sealed class WorldMeshes(Resolver res, CachePaths cache, Log log, int tex
             WriteShared(TexPath(tid), dds, written); // a texture is decoded only for a mesh being exported
             return (tid, alpha);
         }, LazyThreadSafetyMode.ExecutionAndPublication), v => v is null || File.Exists(TexPath(v.Value.Id)));
+
+    /// <summary>Material extras when HZD binds no normal map to the effect (searched: texture-set channels, plain normal textures).</summary>
+    private static JsonObject? NoNormal(int? normalTex) => normalTex is null ? new JsonObject { ["hzd_normal"] = "none" } : null;
 
     /// <summary>asset.extras.format of a glb file (0 when missing or unreadable).</summary>
     private static int GlbFormat(string path)
