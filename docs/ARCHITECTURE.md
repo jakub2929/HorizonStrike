@@ -204,3 +204,6 @@ included). Weak spots, attack origins, hit FX and muzzle flashes are always look
 - Game API additions: signal cell_insert_started(cell), player.speed_mult (test setup only), machine.current_attack,
   machine.weak_points(part); machine states add stalk, scavenge.
 - Dev-only tools: tools/frametime_graph.py, game/dev/machine_bench.gd.
+- Protocol op `{"id":N,"op":"throttle","workers":W,"threads":T}` -> `{"id":N,"event":"throttled",...}`; serve runs at
+  BelowNormal priority; `status` reports workers/threads. Game: workers 1 / threads 2 in-world, workers 2 on the
+  loading screen. cell.json `sheets` = hash of sheet values affecting cell output (stale cells reconvert).

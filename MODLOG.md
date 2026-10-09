@@ -282,3 +282,7 @@ Full per-site table: `docs/notes/svet.md`. No placement references `ai/groups`, 
   cell build (1/13 mock smokes); t05 Watcher skipped `suspicious`; some 1x1 DDS mips warn.
 - D57 LOD threshold 12 px from the sheet; FXAA; precompile on loading screen; far cells via HLOD proxy; ring 2 converted
   even while standing.
+- Merged svet 1e11f80: converter BelowNormal + throttle op; throttled (1 worker, 2 threads) CPU share mean 9.6 % /
+  max 17.2 % of 12 cores vs unthrottled 27.9 % / 45.6 % (6 cells 43.3 s vs 16.7 s); tiny DDS padded to 4x4
+  (WorldMeshes.Format 5); cell.json `sheets` hash -> site_map/hzd_content/machines(id, herd)/render/streaming changes
+  reconvert stale cells.
