@@ -12,6 +12,10 @@ extends SceneTree
 ##   godot --headless --path game --script res://dev/machine_bench.gd -- --cache <dir> --machines watcher [--out f.json]
 ##   windowed (no --headless) with --shots <dir>: side-view screenshots at key moments of every phase
 ## Exit code 0 when every machine passes (slide < 5 cm, penetration < 5 cm, all poses ok), else 1.
+## --ai: AI check instead (dev, not the autotest): a stand-in player (setup only) walks up to a group of each machine
+## type; records the state sequence, attacks (machine.current_attack), radar pings, projectiles and hits, and checks
+## the archetype's cycle (guard: alert -> attack; herd: alert -> flee, or with defend_charge alert -> attack;
+## predator: alert -> stalk -> attack; scavenger: radar ping -> alert -> pack call -> laser burst).
 
 const SLIDE_MAX_CM := 5.0
 const PEN_MAX_CM := 5.0
@@ -43,6 +47,8 @@ func _initialize() -> void:
 			"--shots":
 				r.shots = nxt
 				i += 1
+			"--ai":
+				r.ai = true
 		i += 1
 	if r.types.is_empty():
 		r.types = ["watcher", "strider", "grazer"]
@@ -61,6 +67,11 @@ class Runner extends Node:
 	var types: Array = []
 	var only: Array = []          # optional phase filter (dev)
 	var shots := ""               # screenshot directory (windowed runs)
+	var ai := false
+	var _fake: Node3D
+	var _ai_group: Array = []
+	var _ai_t := 0.0
+	var _ai_rec := {}
 	var _cam: Camera3D
 	var _shot_done := {}
 	var results: Array = []
@@ -103,6 +114,11 @@ class Runner extends Node:
 		_build_terrain()
 		if shots != "":
 			_build_view()
+		if ai:
+			_fake = FakePlayer.new()
+			add_child(_fake)
+			_game.player = _fake
+			_game.machine_state_changed.connect(_on_state_changed)
 		_next_machine()
 
 	# ------------------------------------------------------------ terrain
@@ -195,11 +211,18 @@ class Runner extends Node:
 		if is_instance_valid(_m):
 			_m.queue_free()
 		_m = null
+		for g in _ai_group:
+			if is_instance_valid(g):
+				g.queue_free()
+		_ai_group.clear()
 		_idx += 1
 		if _idx >= types.size():
 			_finish()
 			return
 		var type := str(types[_idx])
+		if ai:
+			_start_ai(type)
+			return
 		var meta: Dictionary = {"mock": true}
 		if not mock:
 			var mm: Dictionary = Content.machine_meta(type)
@@ -308,7 +331,127 @@ class Runner extends Node:
 			else:
 				m.rig.play_pose(str(a.get("pose", "")), float(a["windup_s"]) + float(a["active_s"]))
 
+	# ------------------------------------------------------------ AI check
+
+	func _start_ai(type: String) -> void:
+		var meta: Dictionary = {"mock": true}
+		if not mock:
+			var mm: Dictionary = Content.machine_meta(type)
+			if not mm.is_empty():
+				meta = mm
+		var n := clampi(int(Sheets.machine_num(type, "herd_size_min", 1)), 1, 2)
+		for k in n:
+			var m: Node = Machine.new()
+			m.setup(type, meta)
+			m.site = {"radius": 15.0, "id": "bench"}
+			add_child(m)
+			var pos := Vector3(k * 4.0 - 2.0 * (n - 1), 0, 0)
+			m.global_position = Vector3(pos.x, height(pos.x, pos.z) + 0.4, pos.z)
+			m.rotation.y = PI   # facing +Z, towards the approaching player
+			m.home = m.global_position
+			_ai_group.append(m)
+		for g in _ai_group:
+			g.herd = _ai_group
+		_fake.global_position = Vector3(0, height(0, 70) + 0.1, 70)
+		(_fake as FakePlayer).hits.clear()
+		_ai_t = 0.0
+		_ai_rec = {"machine": type, "states": [], "attacks": {}, "pings": 0, "pings_inside": 0, "max_proj": 0,
+			"burst_max": 0, "others_alerted": false, "archetype": str(_ai_group[0].archetype)}
+
+	func _on_state_changed(m: Node, _old: String, new: String) -> void:
+		if not ai or _ai_group.is_empty():
+			return
+		if m == _ai_group[0]:
+			_ai_rec["states"].append(new)
+		elif _ai_group.has(m) and new in ["alert", "attack", "flee", "stalk"]:
+			_ai_rec["others_alerted"] = true
+
+	func _process_ai(delta: float) -> void:
+		_ai_t += delta
+		var lead: Node3D = _ai_group[0] if not _ai_group.is_empty() and is_instance_valid(_ai_group[0]) else null
+		if lead == null:
+			return
+		# the stand-in walks towards the machine at 2.5 m/s and stops 4 m away
+		var to := lead.global_position - _fake.global_position
+		to.y = 0
+		if to.length() > 4.0:
+			var step := to.normalized() * 2.5 * delta
+			var np := _fake.global_position + step
+			np.y = height(np.x, np.z) + 0.1
+			_fake.global_position = np
+		var ca := str(lead.current_attack)
+		if ca != "":
+			_ai_rec["attacks"][ca] = int(_ai_rec["attacks"].get(ca, 0)) + (1 if str(_ai_rec.get("_last_ca", "")) != ca else 0)
+		_ai_rec["_last_ca"] = ca
+		var proj := get_tree().get_nodes_in_group("machine_projectiles").size()
+		_ai_rec["max_proj"] = maxi(int(_ai_rec["max_proj"]), proj)
+		_ai_rec["burst_max"] = maxi(int(_ai_rec["burst_max"]), int(lead.get("_burst_fired")))
+		var pings := 0
+		var pings_in := 0
+		for g in _ai_group:
+			if is_instance_valid(g):
+				pings += int(g.radar_pings)
+				pings_in += int(g.radar_pings_hit)
+		_ai_rec["pings"] = pings
+		_ai_rec["pings_inside"] = pings_in
+		if _ai_t >= 32.0:
+			_close_ai()
+			_next_machine()
+
+	func _close_ai() -> void:
+		var r := _ai_rec
+		r.erase("_last_ca")
+		var st: Array = r["states"]
+		var hits: Array = (_fake as FakePlayer).hits
+		var arch := str(r["archetype"])
+		var lead: Node = _ai_group[0]
+		var want: Array = []
+		match arch:
+			"guard":
+				want = ["alert", "attack"]
+			"predator":
+				want = ["alert", "stalk", "attack"]
+			"scavenger":
+				want = ["alert", "attack"]
+			"herd":
+				want = ["alert", "attack"] if bool(lead.behaviour.get("defend_charge", false)) else ["alert", "flee"]
+		var problems: Array = []
+		var at := 0
+		for w in want:
+			var f := st.find(w, at)
+			if f < 0:
+				problems.append("no %s after %s" % [w, st.slice(0, at)])
+				break
+			at = f + 1
+		if arch != "herd" or bool(lead.behaviour.get("defend_charge", false)):
+			if (r["attacks"] as Dictionary).is_empty():
+				problems.append("no attack performed")
+			if hits.is_empty():
+				problems.append("player never hit")
+		if arch == "herd" and bool(lead.behaviour.get("defend_charge", false)) and st.has("flee"):
+			problems.append("defender fled")
+		if arch == "scavenger":
+			if int(r["pings_inside"]) < 1:
+				problems.append("no radar ping reached the player")
+			if (r["attacks"] as Dictionary).has("scrapper_laser_burst") and int(r["burst_max"]) < 2:
+				problems.append("laser burst fired %d bolts" % int(r["burst_max"]))
+		if _ai_group.size() > 1 and not bool(r["others_alerted"]) and arch != "predator":
+			problems.append("second machine never alerted")
+		r["hits"] = hits.size()
+		r["damage"] = hits.reduce(func(acc, h): return acc + float(h[0]), 0.0)
+		r["hit_causes"] = hits.map(func(h): return h[1])
+		r["pass"] = problems.is_empty()
+		r["problems"] = problems
+		results.append(r)
+		print("AI %s (%s, %d machines): %s | states %s | attacks %s | hits %d (%.0f HP: %s) | pings %d (inside %d) | burst max %d | pack/herd alerted %s" % [r["machine"], arch, _ai_group.size(),
+			"PASS" if r["pass"] else "FAIL " + "; ".join(problems), " > ".join(st), r["attacks"], r["hits"], r["damage"],
+			",".join(PackedStringArray(r["hit_causes"])), r["pings"], r["pings_inside"], r["burst_max"], r["others_alerted"]])
+
 	func _process(delta: float) -> void:
+		if ai:
+			if not _done and not _ai_group.is_empty():
+				_process_ai(delta)
+			return
 		if _done or _m == null or _pi < 0 or _pi >= _phases.size():
 			return
 		_pt += delta
@@ -573,6 +716,13 @@ class Runner extends Node:
 
 	func _finish() -> void:
 		_done = true
+		if ai:
+			var ok := true
+			for r in results:
+				ok = ok and bool(r["pass"])
+			print("AI RESULT %s" % ("PASS" if ok else "FAIL"))
+			get_tree().quit(0 if ok else 1)
+			return
 		var all_pass := true
 		print("BENCH TABLE machine | real | foot_slide_cm | penetration_cm | float_cm | poses")
 		for r in results:
@@ -586,3 +736,35 @@ class Runner extends Node:
 				f.store_string(JSON.stringify(results, "  "))
 				f.close()
 		get_tree().quit(0 if all_pass else 1)
+
+
+## Stand-in player for --ai (dev only): the methods machines and projectiles call on Game.player.
+class FakePlayer extends CharacterBody3D:
+	var hits: Array = []
+
+	func _init() -> void:
+		name = "BenchPlayer"
+		collision_layer = 2
+		collision_mask = 0
+		var cs := CollisionShape3D.new()
+		var cap := CapsuleShape3D.new()
+		cap.radius = 0.4
+		cap.height = 1.8
+		cs.shape = cap
+		cs.position = Vector3(0, 0.9, 0)
+		add_child(cs)
+
+	func is_alive() -> bool:
+		return true
+
+	func head_position() -> Vector3:
+		return global_position + Vector3(0, 1.6, 0)
+
+	func visibility_factor() -> float:
+		return 1.0
+
+	func knockback(_v: Vector3) -> void:
+		pass
+
+	func apply_damage(dmg: float, _armor_ratio: float, _source: Variant, cause: String) -> void:
+		hits.append([dmg, cause])

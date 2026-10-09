@@ -82,6 +82,9 @@ var _attack_t := 0.0
 var _attack_dealt := false
 var _cooldowns := {}
 var _alert_announce := 0.0
+## Radar pings sent / pings that found the player (scavengers; read by dev/machine_bench.gd --ai).
+var radar_pings := 0
+var radar_pings_hit := 0
 var _ping_t := 3.0
 var _hit_time := -100.0
 var _burst_fired := 0
@@ -655,7 +658,9 @@ func _radar(delta: float) -> void:
 	var p: Node3D = Game.player
 	var hit: bool = p != null and p.is_alive() and p.global_position.distance_to(global_position) <= radius
 	Log.info("machine %s radar ping (player %s)" % [name, "inside" if hit else "outside"])
+	radar_pings += 1
 	if hit:
+		radar_pings_hit += 1
 		_stimulus = p.global_position
 		_last_seen = p.global_position
 		_last_seen_time = _now()
