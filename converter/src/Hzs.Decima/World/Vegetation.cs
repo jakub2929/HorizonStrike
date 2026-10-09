@@ -34,7 +34,7 @@ public sealed class Vegetation(Resolver res, Log log)
         return tex.Decode(res.Archive, 0);
     }
 
-    private static string? ChannelOf(string placementPath)
+    internal static string? ChannelOf(string placementPath)
     {
         var parts = placementPath.Split('/');
         if (parts.Length < 4 || parts[1] != HzdNames.Str("vegetation.placement_root")) return null;

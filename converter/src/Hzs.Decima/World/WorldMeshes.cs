@@ -8,6 +8,9 @@ using Hzs.Decima.Core;
 
 namespace Hzs.Decima.World;
 
+/// <summary>An exported shared mesh: id, colour texture ids, and whether a material is colourised (stone x AO).</summary>
+public sealed record MeshRef(string Id, string[] Textures, bool Colorized);
+
 /// <summary>
 /// Shared static meshes of the world: hzd/meshes/&lt;meshid&gt;.glb (Godot space, mesh-local, no transform) and their
 /// colour textures shared by many meshes in hzd/textures/&lt;texid&gt;.png (glb image uri "../textures/&lt;texid&gt;.png").
@@ -18,6 +21,14 @@ public sealed class WorldMeshes(Resolver res, CachePaths cache, Log log, int tex
 {
     /// <summary>Cached core files are dropped above this size (the server converts cells for hours).</summary>
     public const long MaxResolverBytes = 768L << 20;
+
+    /// <summary>
+    /// glb asset.extras.format of shared meshes; bump when mesh/texture export changes. Meshes of another format are
+    /// exported again (same id, overwritten atomically) together with their textures.
+    /// </summary>
+    public const int Format = 2;
+
+    private const string ColorizedFlag = "#colorized";
 
     private readonly ConcurrentDictionary<string, Lazy<bool>> _meshes = new();
     private readonly ConcurrentDictionary<string, Lazy<(string Id, bool Alpha)?>> _textures = new();
@@ -33,27 +44,27 @@ public sealed class WorldMeshes(Resolver res, CachePaths cache, Log log, int tex
     /// Bytes of mesh/texture files this call actually writes are added to <paramref name="written"/> (per job; a mesh
     /// another job is already exporting is counted by that job only).
     /// </summary>
-    public (string Id, string[] Textures)? Ensure(string file, Guid uuid, StrongBox<long> written)
+    public MeshRef? Ensure(string file, Guid uuid, StrongBox<long> written)
     {
         res.TrimIfAbove(MaxResolverBytes);
         var core = res.TryFile(file);
         var obj = core?.Find(uuid);
         if (core is null || obj is null) return null;
         var id = MeshId(file, obj.Index);
-        var texs = new List<string>();
         var ok = _meshes.GetOrAdd(id, _ => new Lazy<bool>(() => Export(core, obj, id, written), LazyThreadSafetyMode.ExecutionAndPublication)).Value;
         if (!ok) return null;
-        // texture ids are recorded next to the mesh (small sidecar) so cells can list them without re-reading the glb
+        // texture ids (and the #colorized flag) are recorded next to the mesh (small sidecar) so cells can list them
+        // without re-reading the glb
         var side = Path.Combine(MeshDir, id + ".tex");
-        if (File.Exists(side)) texs.AddRange(File.ReadAllLines(side).Where(l => l.Length > 0));
-        return (id, texs.ToArray());
+        var lines = File.Exists(side) ? File.ReadAllLines(side).Where(l => l.Length > 0).ToArray() : [];
+        return new MeshRef(id, lines.Where(l => !l.StartsWith('#')).ToArray(), lines.Contains(ColorizedFlag));
     }
 
     private bool Export(CoreFile core, CoreObject obj, string id, StrongBox<long> written)
     {
         var glbPath = Path.Combine(MeshDir, id + ".glb");
         var sidePath = Path.Combine(MeshDir, id + ".tex");
-        if (File.Exists(glbPath) && File.Exists(sidePath)) return true;
+        if (File.Exists(glbPath) && File.Exists(sidePath) && GlbFormat(glbPath) == Format) return true;
         if (File.Exists(Path.Combine(MeshDir, id + ".empty"))) return false;
         try
         {
@@ -63,10 +74,11 @@ public sealed class WorldMeshes(Resolver res, CachePaths cache, Log log, int tex
                 WriteShared(Path.Combine(MeshDir, id + ".empty"), [], written);
                 return false;
             }
-            var glb = new Glb { Extras = new JsonObject { ["source"] = $"{core.Path}#{obj.Index}", ["lod"] = lod, ["lods"] = lods } };
+            var glb = new Glb { Extras = new JsonObject { ["source"] = $"{core.Path}#{obj.Index}", ["lod"] = lod, ["lods"] = lods, ["format"] = Format } };
             var prims = new List<(JsonObject, int, int?)>();
             var texIds = new List<string>();
             var matCache = new Dictionary<string, int>();
+            var colorized = false;
             foreach (var prim in md.Prims)
             {
                 if (prim.Idx.Length == 0) continue;
@@ -78,6 +90,7 @@ public sealed class WorldMeshes(Resolver res, CachePaths cache, Log log, int tex
                     if (tex is { } t)
                     {
                         texIds.Add(t.Id);
+                        colorized |= choice!.Colorized;
                         mat = glb.Material($"m{matCache.Count}", glb.ImageUri($"../textures/{t.Id}.png", t.Id), alphaMask: t.Alpha, doubleSided: t.Alpha);
                     }
                     else mat = glb.Material($"m{matCache.Count}", null, baseColor: [0.5f, 0.5f, 0.5f, 1f]);
@@ -103,7 +116,7 @@ public sealed class WorldMeshes(Resolver res, CachePaths cache, Log log, int tex
             var root = glb.Node(id, mesh: glb.Mesh(md.Name, prims));
             glb.SceneRoot(root);
             var bytes = glb.ToBytes();
-            WriteShared(sidePath, System.Text.Encoding.UTF8.GetBytes(string.Join("\n", texIds.Distinct())), written);
+            WriteShared(sidePath, System.Text.Encoding.UTF8.GetBytes(string.Join("\n", texIds.Distinct().Concat(colorized ? [ColorizedFlag] : []))), written);
             WriteShared(glbPath, bytes, written);
             return true;
         }
@@ -120,9 +133,26 @@ public sealed class WorldMeshes(Resolver res, CachePaths cache, Log log, int tex
             var tid = $"{Murmur3.PathHash(k):x16}";
             var path = Path.Combine(TextureDir, tid + ".png");
             var alpha = img.Channels == 4 && HasCutout(img);
-            if (!File.Exists(path)) WriteShared(path, img.ToPng(), written);
+            WriteShared(path, img.ToPng(), written); // once per process: a texture is decoded only for a mesh being exported
             return (tid, alpha);
         }, LazyThreadSafetyMode.ExecutionAndPublication)).Value;
+
+    /// <summary>asset.extras.format of a glb file (0 when missing or unreadable).</summary>
+    private static int GlbFormat(string path)
+    {
+        try
+        {
+            using var f = File.OpenRead(path);
+            Span<byte> head = stackalloc byte[20];
+            if (f.Read(head) != 20) return 0;
+            var len = BitConverter.ToInt32(head[12..16]);
+            if (len <= 0 || len > 16 << 20) return 0;
+            var json = new byte[len];
+            f.ReadExactly(json);
+            return JsonNode.Parse(json)?["asset"]?["extras"]?["format"]?.GetValue<int>() ?? 0;
+        }
+        catch (Exception) { return 0; }
+    }
 
     private static bool HasCutout(Image img)
     {

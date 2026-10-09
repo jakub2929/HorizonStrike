@@ -16,8 +16,14 @@ public sealed class Materials(Resolver res, int maxPx)
     private readonly ConcurrentDictionary<string, bool> _ok = new();
     private static readonly string[] Tiers = HzdNames.List("materials.tiers");
     private static readonly string[] Bad = HzdNames.List("materials.never_base_color");
+    private static readonly string[] Standalone = HzdNames.List("materials.standalone_color");
+    private readonly ConcurrentDictionary<Ref, bool> _alphaSets = new();
 
-    public sealed record Choice(string Key, Image? Color);
+    /// <summary>Key of the texture; Colorized = no colour map, neutral stone x AO (HZD colours these by ecotope at runtime).</summary>
+    public sealed record Choice(string Key, Image? Color, bool Colorized);
+
+    /// <summary>sRGB base of colourised (AO-only) assets.</summary>
+    public static readonly byte[] Stone = [140, 134, 124];
 
     /// <summary>
     /// The colour image a render effect uses (null if none found). Key identifies the texture set. When
@@ -37,6 +43,8 @@ public sealed class Materials(Resolver res, int maxPx)
                     if (Tier(r.Path) < 0) continue;
                     if (!refs.Contains(r)) refs.Add(r);
                 }
+        // cut-out mask bound next to the colour map (e.g. grass: colour + translucency texture and an alpha-only set)
+        Ref? alphaRef = refs.FirstOrDefault(HasAlpha) is { Path: not null } ar ? ar : null;
         // per source tier (asset folder, shared shader libraries, texture library): 1) the colour map of a bound texture
         // set; 2) assets coloured by the ecotope shader at runtime (rocks) have no colour map, only normal + AO:
         // neutral stone x AO. Detail/noise/pattern maps are never used as base colour.
@@ -44,18 +52,18 @@ public sealed class Materials(Resolver res, int maxPx)
             foreach (var pass in new[] { 1, 2 })
                 foreach (var r in refs.Where(x => Tier(x.Path!) == tier))
                 {
-                    var key = $"{pass}:{r.Path}#{r.Uuid}";
+                    var key = pass == 1 && alphaRef is { } a && a != r ? $"1:{r.Path}#{r.Uuid}+{a.Path}#{a.Uuid}" : $"{pass}:{r.Path}#{r.Uuid}";
                     if (_ok.TryGetValue(key, out var ok))
                     {
                         if (!ok) continue;
-                        if (known?.Invoke(key) == true) return new Choice(key, null);
+                        if (known?.Invoke(key) == true) return new Choice(key, null, pass == 2);
                     }
-                    var img = _images.GetOrAdd(key, _ => pass == 1 ? ColorOf(r) : AoStone(r));
+                    var img = _images.GetOrAdd(key, _ => pass == 1 ? ColorOf(r, alphaRef) : AoStone(r));
                     _ok[key] = img is not null;
                     if (img is not null)
                     {
                         if (_images.Count > 48) _images.Clear(); // bounded: callers that keep results pass `known`
-                        return new Choice(key, img);
+                        return new Choice(key, img, pass == 2);
                     }
                     _images.TryRemove(key, out _);
                 }
@@ -89,38 +97,95 @@ public sealed class Materials(Resolver res, int maxPx)
         return -1;
     }
 
-    private Image? ColorOf(Ref r)
+    /// <summary>True when the ref is (or lies in) a texture set with a channel of type Alpha.</summary>
+    private bool HasAlpha(Ref r) => _alphaSets.GetOrAdd(r, k =>
+        SetOf(k, out _) is { } set && set.Structs("Entries").Any(e => ChannelOf(e, 2) >= 0));
+
+    /// <summary>
+    /// Colour map of a texture set entry of type Color, or a standalone colour texture (name marked in the sheet; its
+    /// alpha holds translucency, not a mask). Alpha = the set's channel of type Alpha, else the effect's alpha-only set.
+    /// </summary>
+    private Image? ColorOf(Ref r, Ref? alphaRef)
     {
         var set = SetOf(r, out var file);
-        if (set is null) return null;
-        var entry = set.Structs("Entries").FirstOrDefault(e => ((uint)e.Long("PackingInfo") & 0x0F) == 1)
-                    ?? set.Structs("Entries").FirstOrDefault(e => e.Int("ColorSpace") == 1);
-        if (entry is null) return null;
-        var texObj = res.Deref(file!, entry.Ref("Texture"));
-        if (texObj is null) return null;
-        var tex = HzdTexture.Parse(texObj);
-        var color = tex.Decode(res.Archive, tex.MipFor(maxPx)).Fit(maxPx);
-        // foliage: the cut-out mask is a separate channel of type Alpha (2), often in another entry of the set
-        foreach (var e in set.Structs("Entries"))
+        Image color;
+        var colorIdx = -1;
+        if (set is null)
         {
+            if (file is null || !Standalone.Any(m => r.Path!.Contains(m, StringComparison.OrdinalIgnoreCase))) return null;
+            if (res.Target(file, r)?.TypeName != "Texture" || res.Deref(file, r) is not { } t) return null;
+            var st = HzdTexture.Parse(t);
+            color = st.Decode(res.Archive, st.MipFor(maxPx)).Fit(maxPx);
+        }
+        else
+        {
+            var entries = set.Structs("Entries").ToList();
+            colorIdx = entries.FindIndex(e => ((uint)e.Long("PackingInfo") & 0x0F) == 1);
+            if (colorIdx < 0) colorIdx = entries.FindIndex(e => e.Int("ColorSpace") == 1);
+            if (colorIdx < 0) return null;
+            var texObj = res.Deref(file!, entries[colorIdx].Ref("Texture"));
+            if (texObj is null) return null;
+            var tex = HzdTexture.Parse(texObj);
+            color = tex.Decode(res.Archive, tex.MipFor(maxPx)).Fit(maxPx);
+        }
+        // the cut-out mask is a channel of type Alpha (2), often a BC4 entry of its own. Any other alpha content of the
+        // colour map (unused, translucency, height ...) is dropped so it never cuts holes.
+        if (set is not null && AlphaOf(set, file!, colorIdx, color) is { } own) return own;
+        if (alphaRef is { } ar && SetOf(ar, out var af) is { } aset && AlphaOf(aset, af!, -1, color) is { } bound) return bound;
+        return Rgb(color);
+    }
+
+    private Image? AlphaOf(Obj set, CoreFile file, int colorIdx, Image color)
+    {
+        var entries = set.Structs("Entries").ToList();
+        for (var i = 0; i < entries.Count; i++)
+        {
+            var e = entries[i];
             var ch = ChannelOf(e, 2);
             if (ch < 0) continue;
-            if (ReferenceEquals(e, entry) && ch == 3 && color.Channels == 4) break; // already in the colour map's alpha
-            var aObj = res.Deref(file!, e.Ref("Texture"));
-            if (aObj is null) break;
-            var at = HzdTexture.Parse(aObj);
-            var a = at.Decode(res.Archive, at.MipFor(maxPx)).Fit(maxPx);
-            if (ch >= a.Channels) break;
-            if (a.Width != color.Width || a.Height != color.Height) break;
-            var rgba = new byte[color.Width * color.Height * 4];
-            for (var i = 0; i < color.Width * color.Height; i++)
+            Image a;
+            if (i == colorIdx) a = color;
+            else
             {
-                for (var k = 0; k < 3; k++) rgba[i * 4 + k] = color.Pixels[i * color.Channels + Math.Min(k, color.Channels - 1)];
-                rgba[i * 4 + 3] = a.Pixels[i * a.Channels + ch];
+                var aObj = res.Deref(file, e.Ref("Texture"));
+                if (aObj is null) continue;
+                var at = HzdTexture.Parse(aObj);
+                var px = Math.Max(color.Width, color.Height);
+                a = at.Decode(res.Archive, at.MipFor(px)).Fit(px);
             }
-            return new Image(color.Width, color.Height, 4, rgba);
+            if (ch >= a.Channels) continue;
+            return WithAlpha(color, a, ch);
         }
-        return color;
+        return null;
+    }
+
+    /// <summary>RGB of <paramref name="color"/> plus channel <paramref name="ch"/> of <paramref name="a"/> as alpha (nearest sample when sizes differ).</summary>
+    private static Image WithAlpha(Image color, Image a, int ch)
+    {
+        int w = color.Width, h = color.Height;
+        var rgba = new byte[w * h * 4];
+        for (var y = 0; y < h; y++)
+        {
+            var ay = (int)((long)y * a.Height / h);
+            for (var x = 0; x < w; x++)
+            {
+                var i = y * w + x;
+                var ai = ay * a.Width + (int)((long)x * a.Width / w);
+                for (var k = 0; k < 3; k++) rgba[i * 4 + k] = color.Pixels[i * color.Channels + Math.Min(k, color.Channels - 1)];
+                rgba[i * 4 + 3] = a.Pixels[ai * a.Channels + ch];
+            }
+        }
+        return new Image(w, h, 4, rgba);
+    }
+
+    private static Image Rgb(Image color)
+    {
+        if (color.Channels == 3) return color;
+        var n = color.Width * color.Height;
+        var rgb = new byte[n * 3];
+        for (var i = 0; i < n; i++)
+            for (var k = 0; k < 3; k++) rgb[i * 3 + k] = color.Pixels[i * color.Channels + Math.Min(k, color.Channels - 1)];
+        return new Image(color.Width, color.Height, 3, rgb);
     }
 
     private Image? AoStone(Ref r)
@@ -141,7 +206,7 @@ public sealed class Materials(Resolver res, int maxPx)
             {
                 var ao = img.Pixels[i * img.Channels + ch] / 255f;
                 var k = 0.35f + 0.65f * ao;
-                o[i * 3] = (byte)(140 * k); o[i * 3 + 1] = (byte)(134 * k); o[i * 3 + 2] = (byte)(124 * k);
+                o[i * 3] = (byte)(Stone[0] * k); o[i * 3 + 1] = (byte)(Stone[1] * k); o[i * 3 + 2] = (byte)(Stone[2] * k);
             }
             return new Image(img.Width, img.Height, 3, o);
         }

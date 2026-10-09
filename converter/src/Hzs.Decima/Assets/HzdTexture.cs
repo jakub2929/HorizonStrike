@@ -149,10 +149,10 @@ public sealed class HzdTexture
             case BC2: return new Image(w, h, 4, Dec(BlockFormat.BC2, w, h, src));
             case BC3: return new Image(w, h, 4, Dec(BlockFormat.BC3, w, h, src));
             case BC7: return new Image(w, h, 4, Dec(BlockFormat.BC7, w, h, src));
-            case BC4U: return new Image(w, h, 1, Dec(BlockFormat.BC4U, w, h, src));
-            case BC4S: return new Image(w, h, 1, Dec(BlockFormat.BC4S, w, h, src));
-            case BC5U: return new Image(w, h, 2, Dec(BlockFormat.BC5U, w, h, src));
-            case BC5S: return new Image(w, h, 2, Dec(BlockFormat.BC5S, w, h, src));
+            case BC4U: return new Image(w, h, 1, Narrow(Dec(BlockFormat.BC4U, w, h, src), 1));
+            case BC4S: return new Image(w, h, 1, Narrow(Dec(BlockFormat.BC4S, w, h, src), 1));
+            case BC5U: return new Image(w, h, 2, Narrow(Dec(BlockFormat.BC5U, w, h, src), 2));
+            case BC5S: return new Image(w, h, 2, Narrow(Dec(BlockFormat.BC5S, w, h, src), 2));
             case RGBA_8888: case RGBA_UNORM_8: return new Image(w, h, 4, src);
             case RGBA_8888_REV:
                 for (var i = 0; i < src.Length; i += 4) (src[i], src[i + 2]) = (src[i + 2], src[i]);
@@ -170,4 +170,14 @@ public sealed class HzdTexture
     }
 
     private static byte[] Dec(BlockFormat f, int w, int h, byte[] src) => BlockDecoder.Create(f).Decode(w, h, src);
+
+    /// <summary>TinyBCSharp always writes 4 bytes per pixel (BC4: R replicated to RGB, BC5: R, G, 0); keeps the first channels.</summary>
+    private static byte[] Narrow(byte[] rgba, int channels)
+    {
+        var n = rgba.Length / 4;
+        var o = new byte[n * channels];
+        for (var i = 0; i < n; i++)
+            for (var c = 0; c < channels; c++) o[i * channels + c] = rgba[i * 4 + c];
+        return o;
+    }
 }

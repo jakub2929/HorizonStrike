@@ -244,6 +244,47 @@ public static partial class HzdDev
                     Console.WriteLine($"extracted {n} files, {bytes} bytes -> {outDir}");
                     return 0;
                 }
+            case "hzd-veg":
+                {
+                    // dev only: placement layers of a tile -> density channel and placement target type
+                    var c = (Get("--cell") ?? $"{StartX},{StartY}").Split(',').Select(int.Parse).ToArray();
+                    var res = new Resolver(arc);
+                    var f = res.File(Vegetation.PlacementPath(c[0], c[1]));
+                    var rows = new List<string>();
+                    foreach (var layer in f.All("PlacementLayer"))
+                    {
+                        var proc = res.Deref(layer, layer.Ref("ProcData"));
+                        var pref = proc?.Type == "PlacementProceduralData" ? proc.Ref("Placement") : default;
+                        var t = pref.Path is null ? null : res.Target(proc!.File!, pref)?.TypeName;
+                        rows.Add($"{proc?.Type ?? "-",-26} {t ?? "-",-22} {Vegetation.ChannelOf(pref.Path ?? "") ?? "-",-14} {pref.Path}");
+                    }
+                    foreach (var g in rows.GroupBy(r => r).OrderByDescending(g => g.Count()).Take(int.TryParse(Get("--top"), out var tp) ? tp : 60))
+                        Console.WriteLine($"{g.Count(),4} {g.Key}");
+                    Console.WriteLine($"layers {rows.Count}");
+                    using var vlog = new Hzs.Common.Log(Get("--log-dir"));
+                    foreach (var s in new Vegetation(res, vlog).Species(c[0], c[1], 100))
+                        Console.WriteLine($"  species {s.Channel,-14} layers {s.Layers,3} {s.Name,-40} {s.MeshFile}");
+                    return 0;
+                }
+            case "hzd-tex":
+                {
+                    // dev only: every Texture object of a core file decoded to PNG in a scratch folder (format research)
+                    var path = Get("--path") ?? throw new ArgumentException("--path <core path> is required");
+                    var outDir = Get("--out") ?? throw new ArgumentException("--out <scratch dir> is required");
+                    var px = int.TryParse(Get("--px"), out var pv) ? pv : 1024;
+                    var res = new Resolver(arc);
+                    var f = res.File(path);
+                    Directory.CreateDirectory(outDir);
+                    foreach (var o in f.Objects.Where(o => o.TypeName == "Texture"))
+                    {
+                        var tex = Assets.HzdTexture.Parse(f.Decode(o));
+                        var img = tex.Decode(arc, tex.MipFor(px));
+                        var dst = Path.Combine(outDir, $"{Path.GetFileName(path)}_{o.Index}.png");
+                        File.WriteAllBytes(dst, img.ToPng());
+                        Console.WriteLine($"#{o.Index} {tex.Name} {tex.Width}x{tex.Height} fmt {tex.Format} -> {img.Width}x{img.Height}x{img.Channels} {dst}");
+                    }
+                    return 0;
+                }
             default:
                 Console.Error.WriteLine($"unknown command {args[0]}");
                 return 2;
