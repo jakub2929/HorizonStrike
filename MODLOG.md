@@ -249,3 +249,11 @@ Full per-site table: `docs/notes/svet.md`. No placement references `ai/groups`, 
   builder reads helpers from own then shared rig; Broadhead uses Strider AI perception (45 m / 12 deg); site_map
   prepared: direwolf->sawtooth (1 site, 1), hyena->scrapper (2 sites, 7), longhorn->broadhead (23 sites, 86);
   PAS_Direwolf (5,-3) has no objects in the archives.
+- Merged svet V0–V2 (72e079a) + hra H1–H3 (70b8582). H1 cell-load profile (route 32 cells, 1920x1080, editor, old
+  PNG cache): add_child median 187 / max 1126 ms (biggest), first_draw 57/418, mesh_upload 28/303, collision 45/295,
+  multimesh 54/241, terrain_collision 47/73, terrain 6/29; worst frame median 443 / max 1676 ms; worker prepare
+  1389/5976 ms; VRAM at start 780 MB. H2 (one cell at a time, 6 ms main-thread budget, object collision only within
+  150 m in 32 m bins, terrain collision 257^2 heightmap per cell = 2 m grid, herd spawns 1 machine/frame, machine
+  types warmed on the loading screen): worst frame on route 77.3 ms (median 44.9), add_child max 11 ms; 2 frames >
+  50 ms are first-draw shader compiles (H8). H3: DDS loads in the RELEASE template (BC1->DXT1, BC5->RGTC_RG,
+  BC7->BPTC); release VRAM at start 1022 MB (texture 585, buffer 414) on the DDS cache.
