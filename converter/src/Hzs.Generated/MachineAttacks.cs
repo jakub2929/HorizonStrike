@@ -12,5 +12,14 @@ public static class MachineAttacksSheet
     public static readonly MachineAttacksRow StriderCharge = new("strider_charge", "Charge", "charge", "front", 6.0, 25.0, 30.0, 1.2, 0.6, 1.5, 6.0, 0.0, 8.0, "charge");
     public static readonly MachineAttacksRow GrazerRotorSweep = new("grazer_rotor_sweep", "Rotor sweep", "melee", "front", 0.0, 3.5, 25.0, 1.2, 0.6, 0.4, 3.0, 0.0, 5.0, "rotor_sweep");
     public static readonly MachineAttacksRow GrazerRam = new("grazer_ram", "Ram", "charge", "front", 4.0, 20.0, 20.0, 1.2, 0.5, 1.2, 5.0, 0.0, 6.0, "ram");
-    public static readonly System.Collections.Generic.IReadOnlyList<MachineAttacksRow> All = new[] { WatcherBite, WatcherTailSweep, WatcherEyeBolt, StriderRearKick, StriderCharge, GrazerRotorSweep, GrazerRam };
+    public static readonly MachineAttacksRow SawtoothBite = new("sawtooth_bite", "Bite", "melee", "front", 0.0, 3.0, 35.0, 1.2, 0.35, 0.2, 1.8, 0.0, 3.0, "lunge_bite");
+    public static readonly MachineAttacksRow SawtoothPounce = new("sawtooth_pounce", "Pounce", "charge", "front", 5.0, 9.0, 45.0, 1.2, 0.6, 0.6, 6.0, 0.0, 6.0, "pounce");
+    public static readonly MachineAttacksRow SawtoothCharge = new("sawtooth_charge", "Charge", "charge", "front", 9.0, 30.0, 40.0, 1.2, 0.7, 1.5, 8.0, 0.0, 8.0, "charge");
+    public static readonly MachineAttacksRow ScrapperLaserBurst = new("scrapper_laser_burst", "Laser burst", "ranged", "front", 8.0, 35.0, 8.0, 1.0, 0.9, 0.6, 4.0, 60.0, 0.0, "laser_aim");
+    public static readonly MachineAttacksRow ScrapperBite = new("scrapper_bite", "Bite", "melee", "front", 0.0, 2.2, 15.0, 1.2, 0.3, 0.2, 1.4, 0.0, 2.0, "lunge_bite");
+    public static readonly MachineAttacksRow ScrapperLunge = new("scrapper_lunge", "Lunge", "charge", "front", 3.0, 8.0, 18.0, 1.2, 0.4, 0.5, 4.0, 0.0, 4.0, "lunge");
+    public static readonly MachineAttacksRow BroadheadCharge = new("broadhead_charge", "Charge", "charge", "front", 6.0, 30.0, 40.0, 1.2, 0.8, 1.6, 7.0, 0.0, 10.0, "charge");
+    public static readonly MachineAttacksRow BroadheadHeadbutt = new("broadhead_headbutt", "Headbutt", "melee", "front", 0.0, 3.5, 30.0, 1.2, 0.5, 0.3, 2.2, 0.0, 7.0, "headbutt");
+    public static readonly MachineAttacksRow BroadheadStomp = new("broadhead_stomp", "Stomp", "melee", "any", 0.0, 3.0, 25.0, 1.2, 0.6, 0.3, 4.0, 0.0, 5.0, "stomp");
+    public static readonly System.Collections.Generic.IReadOnlyList<MachineAttacksRow> All = new[] { WatcherBite, WatcherTailSweep, WatcherEyeBolt, StriderRearKick, StriderCharge, GrazerRotorSweep, GrazerRam, SawtoothBite, SawtoothPounce, SawtoothCharge, ScrapperLaserBurst, ScrapperBite, ScrapperLunge, BroadheadCharge, BroadheadHeadbutt, BroadheadStomp };
 }
