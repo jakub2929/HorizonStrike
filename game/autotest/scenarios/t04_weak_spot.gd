@@ -64,9 +64,10 @@ func _run(ctx):
 			c_weak = str(cw[0])
 	var shot_a := await _shot(ctx, a, "body")
 	await ctx.wait(Combat.shot_interval(ctx, "glock"))
-	var shot_b := await _shot(ctx, b, weak)
+	var weak_min: float = 0.5 * o.num(o.weapon("glock", "damage")) * o.num(o.weapon("glock", "headshot_mult"))
+	var shot_b := await _shot(ctx, b, weak, weak_min)
 	await ctx.wait(Combat.shot_interval(ctx, "glock"))
-	var shot_c := await _shot(ctx, c, c_weak) if c != null and c_weak != "" else {}
+	var shot_c := await _shot(ctx, c, c_weak, weak_min) if c != null and c_weak != "" else {}
 	data.body_shot = shot_a
 	data.weak_shot = shot_b
 	data.weak_shot_grazer = shot_c
@@ -116,7 +117,7 @@ func _run(ctx):
 	return true
 
 
-func _shot(ctx, m: Node, part: String) -> Dictionary:
+func _shot(ctx, m: Node, part: String, min_damage: float = 0.0) -> Dictionary:
 	var before := float(m.get("health"))
 	# line of sight from the camera to the point we shoot at; when something else is in the way (a tree, another
 	# machine) the player moves around the target at the same distance (8 directions) before firing
@@ -142,7 +143,22 @@ func _shot(ctx, m: Node, part: String) -> Dictionary:
 	await ctx.physics_frames(2)
 	var cam: Camera3D = ctx.camera()
 	var cam_pos: Vector3 = cam.global_position if cam != null else ctx.player_pos()
-	var d: Dictionary = await Combat.shoot(ctx, InputSim.new(ctx), m)
+	# CS inaccuracy (spread + first-shot inaccuracy) at 10 m can put a bullet beside a small weak spot: a shot that
+	# misses, or (aimed at a weak spot) does less than min_damage = body-level damage, is retried - 3 shots at most,
+	# waiting for the accuracy to recover; earlier shots are recorded, the measured damage is the last shot's
+	var inp = InputSim.new(ctx)
+	var d: Dictionary = {}
+	var misses := []
+	for attempt in 3:
+		d = await Combat.shoot(ctx, inp, m)
+		if not d.fired or (d.hit and float(d.damage) >= min_damage):
+			break
+		misses.append(snappedf(float(d.damage), 0.01))
+		if is_instance_valid(m) and float(m.get("health")) <= 0.0:
+			break
+		await ctx.wait(Combat.shot_interval(ctx, "glock"))
+		await _aim(ctx, m, part)
+		await ctx.physics_frames(2)
 	var miss_by := ""
 	if not d.hit:
 		# report what the shot line meets now (the bullet itself has CS inaccuracy)
@@ -158,8 +174,8 @@ func _shot(ctx, m: Node, part: String) -> Dictionary:
 		var dd := cam_pos.distance_to(box.get_endpoint(i))
 		dmin = minf(dmin, dd)
 		dmax = maxf(dmax, dd)
-	return {"hit": d.hit, "fired": d.fired, "ammo": d.ammo, "damage": before - after,
-		"health_before": before, "health_lost": before - after, "distance_m": snappedf(dist, 0.01), "distance_from": how,
+	return {"hit": d.hit, "fired": d.fired, "ammo": d.ammo, "damage": float(d.damage), "earlier_shots_damage": misses,
+		"health_before": float(d.health_before), "health_lost": before - after, "distance_m": snappedf(dist, 0.01), "distance_from": how,
 		"aabb_distance_m": [snappedf(dmin, 0.01), snappedf(dmax, 0.01)],
 		"line_of_sight": los.clear, "first_hit": los.by, "blocked_by_before_moving": moves, "miss_blocked_by": miss_by}
 
@@ -234,4 +250,44 @@ static func _los(ctx, m: Node, to: Vector3, part: String = "body") -> Dictionary
 	var who: String = (owner_m as Node).name if owner_m is Node else ("a node under the target" if mine else "no machine")
 	var label := "%s (part '%s'%s of %s)" % [n.name, hit_part, ", weak" if hit_weak else "", who]
 	var ok: bool = mine and (hit_part == part if part != "body" else (hit_part != "" and not hit_weak))
+	if not ok and mine and part != "body" and hit_part != "" and not hit_weak and n is CollisionObject3D:
+		# first hit is a body box of the target: the weak spot counts only if its hitbox lies INSIDE that box where the
+		# ray meets it (the game's rule: weak wins inside an enclosing body box), not behind it
+		var ex2: Array[RID] = q.exclude.duplicate()
+		for co in m.find_children("*", "CollisionObject3D", true, false):
+			if (co as Node).has_meta("part") and not bool((co as Node).get_meta("weak", false)):
+				ex2.append((co as CollisionObject3D).get_rid())
+		var q2 := PhysicsRayQueryParameters3D.create(q.from, q.to)
+		q2.exclude = ex2
+		q2.collide_with_areas = true
+		var hit2: Dictionary = ctx.runner.get_viewport().get_world_3d().direct_space_state.intersect_ray(q2)
+		var n2: Variant = hit2.get("collider")
+		if n2 is Node and str((n2 as Node).get_meta("part", "")) == part and (n2 as Node).get_meta("machine", null) == m:
+			var inside := _inside_shapes(n as CollisionObject3D, hit2.position)
+			label += "; next: %s at %.2f m further, %s it" % [(n2 as Node).name, (hit2.position as Vector3).distance_to(hit.position), "inside" if inside else "behind"]
+			ok = inside
 	return {"clear": ok, "by": label}
+
+
+static func _inside_shapes(co: CollisionObject3D, p: Vector3) -> bool:
+	## is p inside one of the box/sphere/capsule shapes of co (hitboxes are simple shapes)
+	for c in co.get_children():
+		if not (c is CollisionShape3D) or (c as CollisionShape3D).shape == null:
+			continue
+		var cs := c as CollisionShape3D
+		var lp: Vector3 = cs.global_transform.affine_inverse() * p
+		var sh := cs.shape
+		if sh is BoxShape3D:
+			var h: Vector3 = (sh as BoxShape3D).size * 0.5 + Vector3(0.01, 0.01, 0.01)
+			if absf(lp.x) <= h.x and absf(lp.y) <= h.y and absf(lp.z) <= h.z:
+				return true
+		elif sh is SphereShape3D:
+			if lp.length() <= (sh as SphereShape3D).radius + 0.01:
+				return true
+		elif sh is CapsuleShape3D:
+			var cap := sh as CapsuleShape3D
+			var half := maxf(0.0, cap.height * 0.5 - cap.radius)
+			var on_axis := Vector3(0, clampf(lp.y, -half, half), 0)
+			if lp.distance_to(on_axis) <= cap.radius + 0.01:
+				return true
+	return false
