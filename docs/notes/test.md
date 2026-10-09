@@ -110,6 +110,21 @@ Aligned with hra's in-progress code (read-only look at the hra worktree, not mer
   inflated number (it evicted ring-5 cells early). Fix: report the bytes written by that job only; hra could also
   re-anchor on its background folder scan instead of keeping the delta.
 
+- F6 still open on main e8f117d (CellConverter.cs:168 unchanged): full dev run 2 `Game.cache_bytes()` max 6 352 MiB vs
+  folder max 761 MiB, cap 3 261 MiB.
+- F7 (hra) t06, real data, full dev run 2: the herd flees at once (0.05 s) but two of three Grazers are back to
+  `graze` before 10 s; mean distance 31.9 -> 60.3 m (+28.4 m < 30 m). Earlier runs: +36 m and +50 m. machines sheet
+  grazer flee_distance_m = 80, run_speed 9 m/s -> fleeing should last until ~80 m away. Flaky until the flee keeps
+  going to flee_distance_m.
+- F3 resolved on main (D36): Watchers spawn with 90 HP.
+- Observation (svet/hra, not a test criterion): herd_landscape.png – terrain albedo mostly white (snow) and vegetation
+  renders as vertical textured slabs; Grazers cover only 1-5 % of the frame at 40-60 m (sheet distance).
+
+## Runs on main with hra merged (dev editor build, real data, cache copy C:\meshy\_tools\cache-test-real)
+- T1 acceptance (`--mock-data --autotest t01,t03 --out C:\meshy\_tools\autotest-dev`): ExitCode 0, t01 + t03 PASS.
+- Full run 2 (`C:\meshy\_tools\autotest-dev\full2`): 12/14 PASS; FAIL t10 (F6), t06 (F7).
+  t09: bootstrap_seconds 75.1, 333.5 MiB at world_ready (start cell only), 749.0 MiB after the 3x3 (9.4 s later).
+
 ## Pre-merge integration runs (hra 4ea177b snapshot, dev editor build)
 | id | name | mock | real data | key details (real) |
 |---|---|---|---|---|
