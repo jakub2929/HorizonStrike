@@ -204,3 +204,8 @@ Full per-site table: `docs/notes/svet.md`. No placement references `ai/groups`, 
   6dff49e8-b36e-4d0d-b9df-7960ebc8ccbc (slug horizon-strike-2) instead of linking the existing listing; the tools
   cannot delete drafts or attach a repo to an existing listing (user can delete the empty one in Studio).
 - 2026-10-09 User approved publishing; publish(6e2ecdda...) -> in_review.
+- 2026-10-09 LIVE: mod_status "live; live version 0.1.0", release 0.1.0 live, one click yes. Public page
+  https://melty.gg/m/horizon-strike returns 200 without login; 3 screenshots in order buy_wheel (cover, media
+  55e12aea), watcher_alert, herd_landscape; full description text present; "Made by EM", MIT; mashup_info: open for
+  remixes. History scan before push: 135 commits / 557 blobs, no game-derived files. melty.json holds no listing or
+  GitHub reference (link to horizon-strike-2 is server-side; user deletes that draft).
