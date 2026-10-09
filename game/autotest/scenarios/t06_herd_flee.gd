@@ -1,0 +1,136 @@
+extends "res://autotest/lib/scenario.gd"
+## t06 Herd flees on alert: a Grazer herd (>= herd_size_min) 30 m away, AI on, player crouched and undetected;
+## one Glock shot into the air (noise radius weapons.glock.suspicion_radius_m). Within 3 s every member flees,
+## after 10 s the mean distance grew by >= 30 m, and no Grazer damaged the player.
+
+const Combat := preload("res://autotest/lib/combat.gd")
+const Sites := preload("res://autotest/lib/sites.gd")
+
+const DIST_M := 30.0
+const FLEE_WITHIN_S := 3.0
+const WAIT_S := 10.0
+const GROW_M := 30.0
+
+
+func _init() -> void:
+	timeout_s = 1500.0
+
+
+func _run(ctx):
+	if not check("world_ready", await ctx.need_world(1400.0)):
+		return false
+	var g: Node = ctx.game
+	var p: Node = ctx.player
+	if not api_check(ctx.missing_api(g, ["player", "machines"], ["teleport", "aim_at", "fire", "equip", "spawn_machine"]) + ctx.missing_api(p, ["health"])):
+		return false
+	var o = ctx.oracle
+	var need: int = o.i(o.machine("grazer", "herd_size_min"))
+	var herd: Array = await _find_herd(ctx, need)
+	if not check("herd of >= %d grazers" % need, herd.size() >= need, "%d" % herd.size()):
+		return false
+	for m in herd:
+		if "ai_enabled" in m:
+			m.set("ai_enabled", true)
+	var center := _centroid(herd)
+	var placed: Dictionary = await Sites.place_player_facing(ctx, center, DIST_M, ctx.player_pos() - center)
+	data.placement = {"distance_m": DIST_M, "line_of_sight": placed.get("los")}
+	await _crouch(ctx, p, true)
+	await Combat.equip(ctx, "glock")
+	await ctx.wait(2.0)
+
+	var calm := ["idle", "patrol", "graze"]
+	var sus_thr: float = o.f(o.machine("grazer", "suspicious_threshold"))
+	var before := herd.map(func(m): return {"state": str(m.get("state")), "suspicion": m.get("suspicion")})
+	data.herd_before = before
+	check("setup: herd undetected (calm states, suspicion < %s)" % str(sus_thr), herd.all(func(m): return calm.has(str(m.get("state"))) and float(m.get("suspicion")) < sus_thr), str(before))
+	var d0 := _mean_dist(ctx, herd)
+	var health0 := float(p.get("health"))
+	var dmg_rec = ctx.record(g, "player_damaged")
+
+	# expected suspicion from the shot at the herd distance (systems suspicion.shot_gain_*), for the details
+	var radius: float = o.f(o.weapon("glock", "suspicion_radius_m"))
+	var gc: float = o.f(o.system("suspicion.shot_gain_center"))
+	var ge: float = o.f(o.system("suspicion.shot_gain_edge"))
+	data.design_shot_gain_at_herd = snappedf(gc - (gc - ge) * clampf(d0 / radius, 0.0, 1.0), 0.001) if d0 <= radius else 0.0
+	data.alert_threshold = o.machine("grazer", "alert_threshold")
+
+	var marker := Node3D.new()
+	marker.name = "AutotestSkyMarker"
+	ctx.runner.add_child(marker)
+	marker.global_position = ctx.player_pos() + Vector3(0, 60, 0) + ctx.forward() * 5.0
+	await ctx.call_api(g, "aim_at", [marker, "body"])
+	await ctx.physics_frames(2)
+	var shot: Variant = await ctx.call_api(g, "fire")
+	marker.queue_free()
+	data.shot = shot
+	var t_shot := Time.get_ticks_msec()
+	var fled_at := {}
+	while (Time.get_ticks_msec() - t_shot) / 1000.0 < WAIT_S:
+		await ctx.frames(1)
+		var t := (Time.get_ticks_msec() - t_shot) / 1000.0
+		for i in herd.size():
+			if not fled_at.has(i) and is_instance_valid(herd[i]) and str(herd[i].get("state")) == "flee":
+				fled_at[i] = snappedf(t, 0.01)
+	var d1 := _mean_dist(ctx, herd)
+	data.fled_at_s = fled_at
+	data.states_after = herd.map(func(m): return str(m.get("state")) if is_instance_valid(m) else "freed")
+	data.mean_distance_m = [snappedf(d0, 0.1), snappedf(d1, 0.1)]
+	var all_fast := fled_at.size() == herd.size() and fled_at.values().all(func(t): return t <= FLEE_WITHIN_S)
+	check("within %d s every herd member state == flee" % int(FLEE_WITHIN_S), all_fast, "%d/%d fled, times %s" % [fled_at.size(), herd.size(), str(fled_at.values())])
+	check("after %d s the mean distance grew by >= %d m" % [int(WAIT_S), int(GROW_M)], d1 - d0 >= GROW_M, "%.1f -> %.1f m" % [d0, d1])
+	check("no grazer damaged the player", float(p.get("health")) >= health0 and dmg_rec.events.is_empty(), "health %s -> %s" % [str(health0), str(p.get("health"))])
+	await _crouch(ctx, p, false)
+	return true
+
+
+func _find_herd(ctx, need: int) -> Array:
+	var site: Dictionary = Sites.find_site(ctx, "grazer", need)
+	if not site.is_empty():
+		data.site = {"cell": str(site.cell), "site": site.site, "orig_type": site.orig_type, "count": site.count}
+		var found: Array = await Sites.go_near_site(ctx, site, "grazer", need)
+		check("grazer herd present at the real site %s" % site.site, found.size() >= need, "%d found" % found.size())
+		return found
+	note("no grazer herd site in cache cells %s (mock data?) - spawned %d grazers" % [str(Sites.SITE_CELLS), need])
+	data.site = {"spawned": true}
+	var out := []
+	for i in need:
+		var m: Node = await ctx.spawn_ahead("grazer", DIST_M + 3.0 * i, -10.0 + 10.0 * i, true)
+		if m != null:
+			out.append(m)
+	return out
+
+
+func _crouch(ctx, p: Node, on: bool) -> void:
+	## crouch through the game's input action when it exists, else the player's property
+	if InputMap.has_action("crouch"):
+		if on:
+			Input.action_press("crouch")
+		else:
+			Input.action_release("crouch")
+		data.crouch = "input action crouch"
+	elif "crouching" in p:
+		p.set("crouching", on)
+		data.crouch = "player.crouching"
+	else:
+		data.crouch = "unavailable"
+		if on:
+			note("no crouch action or player.crouching - stood instead")
+	await ctx.physics_frames(3)
+
+
+static func _centroid(ms: Array) -> Vector3:
+	var c := Vector3.ZERO
+	for m in ms:
+		c += (m as Node3D).global_position
+	return c / maxf(1.0, ms.size())
+
+
+static func _mean_dist(ctx, ms: Array) -> float:
+	var pp: Vector3 = ctx.player_pos()
+	var s := 0.0
+	var n := 0
+	for m in ms:
+		if is_instance_valid(m):
+			s += (m as Node3D).global_position.distance_to(pp)
+			n += 1
+	return s / maxf(1.0, n)
