@@ -16,6 +16,7 @@ const Log := preload("res://core/log.gd")
 const Sheets := preload("res://core/sheets.gd")
 const MeshLib := preload("res://world/mesh_library.gd")
 const TerrainMaterial := preload("res://world/terrain_material.gd")
+const PipelineWatch := preload("res://world/pipeline_watch.gd")
 
 const MAX_S := 30.0
 const FAST_MS := 40.0
@@ -81,6 +82,11 @@ func _process(_delta: float) -> void:
 func _finish() -> void:
 	# freed a few nodes per frame by the world (828 instances and 6 skinned machines at once were a 0.5 s frame)
 	var w: Node = get_parent()
+	# what was drawn here, for world/pipeline_watch.gd to tell apart from what still compiles in play
+	PipelineWatch.register(_stage)
+	for m in _machines:
+		if is_instance_valid(m):
+			PipelineWatch.register(m)
 	for m in _machines:
 		if is_instance_valid(m):
 			if w and w.has_method("bury"):
