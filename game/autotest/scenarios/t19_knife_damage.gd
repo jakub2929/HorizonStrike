@@ -1,7 +1,8 @@
 extends "res://autotest/lib/scenario.gd"
 ## t19 Knife damage = default knife; inspect plays for every knife. For every ok knife: choose it through the Esc menu
-## (Esc, click "Knife", click its row, Esc), a fresh Watcher (AI off, full health and armor) 1.2 m ahead, Game.aim_at
-## its body (setup, like mouse look), one slash with the left mouse button; then F (inspect key).
+## (Esc, click "Knife", click its row, Esc), a fresh Watcher (AI off, full health and armor) 1.2 m ahead, the camera
+## turned by mouse motion onto a body point the knife trace meets first within its reach (lib/hitcheck.gd aim_body),
+## one slash with the left mouse button (a miss is pressed again); then F (inspect key).
 ## Expected slash: knife damage through the CS armor rule (machine armor > 0):
 ##   health damage = damage x armor_ratio x combat.armor_ratio_scale (armor lost (damage - that) x armor_bonus; when
 ##   that exceeds the armor left the rest goes to health) x upgrades damage multiplier (progression reset = 1)
@@ -9,6 +10,7 @@ extends "res://autotest/lib/scenario.gd"
 
 const InputSim := preload("res://autotest/lib/inputsim.gd")
 const KnifeMenu := preload("res://autotest/lib/knifemenu.gd")
+const HitCheck := preload("res://autotest/lib/hitcheck.gd")
 const DIST_M := 1.2
 
 
@@ -71,12 +73,25 @@ func _run(ctx):
 		var exp_dmg := _expected(dmg, ar, ars, bonus, armor0)
 		var n0: int = hits.events.size()
 		var tries := 0
+		var presses := 0
 		var dealt := -1.0
 		var weak := false
-		while tries < 4 and dealt < 0.0:
+		var aims := []
+		var reach: float = float(o.f(o.system("combat.knife_reach_m")))
+		while tries < 6 and dealt < 0.0:
 			tries += 1
-			await ctx.call_api(g, "aim_at", [m, "body"])
-			await ctx.physics_frames(1)
+			# the camera onto a body point the knife's trace meets first as a non-weak body hitbox within its reach
+			# (relative mouse motion); none: one step closer (setup) and look again
+			var a: Dictionary = await HitCheck.aim_body(ctx, inp, m, reach - 0.15)
+			aims.append({"ok": a.get("ok"), "dist": a.get("dist"), "by": str(a.get("by", a.get("why", "")))})
+			if not a.get("ok", false):
+				var to: Vector3 = (m as Node3D).global_position - ctx.player_pos()
+				to.y = 0.0
+				if to.length() > 0.5:
+					await ctx.call_api(g, "teleport", [ctx.player_pos() + to.normalized() * minf(0.3, to.length() - 0.5)])
+				await ctx.wait(0.3)
+				continue
+			presses += 1
 			await inp.tap("fire")
 			await ctx.physics_frames(3)
 			for e in hits.events.slice(n0):
@@ -84,13 +99,8 @@ func _run(ctx):
 					dealt = float(e.args[1])
 					weak = bool(e.args[2])
 			if dealt < 0.0:
-				# out of reach: one step closer (setup), then again after the knife interval
-				var to: Vector3 = (m as Node3D).global_position - ctx.player_pos()
-				to.y = 0.0
-				if to.length() > 0.9:
-					await ctx.call_api(g, "teleport", [ctx.player_pos() + to.normalized() * 0.3])
 				await ctx.wait(float(o.f(o.system("combat.knife_primary_interval_s"))) + 0.1)
-		rec.slash = {"dealt": snappedf(dealt, 0.01), "expected": snappedf(exp_dmg, 0.01), "weak": weak, "armor_before": armor0, "health_before": health0, "presses": tries}
+		rec.slash = {"dealt": snappedf(dealt, 0.01), "expected": snappedf(exp_dmg, 0.01), "weak": weak, "armor_before": armor0, "health_before": health0, "presses": presses, "aims": aims}
 		ctx.despawn(m)
 		# inspect: F, then watch the viewmodel's current clip
 		await ctx.wait(0.6)

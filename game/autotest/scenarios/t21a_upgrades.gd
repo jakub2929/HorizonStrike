@@ -31,7 +31,12 @@ static func body_hit(ctx, inp, scn) -> Dictionary:
 	var out := {"ok": false, "armor_before": m.get("armor"), "health_before": m.get("health")}
 	var interval: float = load("res://autotest/lib/combat.gd").shot_interval(ctx, WEAPON)
 	for attempt in 6:
-		await inp.aim_at_point(HitCheck.target_point(m, "body"), 0.002, 120)
+		# a body point whose shot line first meets a non-weak body hitbox (lib/hitcheck.gd aim_body), by mouse motion
+		var a: Dictionary = await HitCheck.aim_body(ctx, inp, m)
+		out.aim = str(a.get("by", a.get("why", "")))
+		if not a.get("ok", false):
+			await ctx.wait(0.3)
+			continue
 		var n0: int = hits.events.size()
 		await inp.tap("fire")
 		await ctx.physics_frames(3)

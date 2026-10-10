@@ -20,6 +20,7 @@ func _run(ctx):
 	var g: Node = ctx.game
 	if not api_check(ctx.missing_api(g, ["machines", "player"], ["teleport", "aim_at"])):
 		return false
+	await Sites.ensure_cells(ctx)   # fresh cache: the site cell converts when the player goes there
 	var site: Dictionary = Sites.find_site(ctx, "grazer", NEED, ["watcher"])
 	if site.is_empty():
 		site = Sites.find_site(ctx, "grazer", NEED)

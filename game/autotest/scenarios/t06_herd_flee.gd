@@ -39,6 +39,7 @@ func _run(ctx):
 		var gy: Variant = await ctx.ground_y(away.x, away.z)
 		away.y = float(gy) + 0.3 if gy != null else away.y + 30.0
 		await ctx.call_api(g, "teleport", [away])
+		await _await_ground(ctx)
 		var calmed: bool = await ctx.wait_until(func(): return herd.all(func(m): return is_instance_valid(m) and calm.has(str(m.get("state")))), 90.0)
 		note("herd was disturbed at arrival; calm after waiting: %s" % str(calmed))
 	var sus_thr: float = o.f(o.machine("grazer", "suspicious_threshold"))
@@ -59,6 +60,7 @@ func _run(ctx):
 		var by: Variant = await ctx.ground_y(back.x, back.z)
 		back.y = float(by) + 0.3 if by != null else back.y + 30.0
 		await ctx.call_api(g, "teleport", [back])
+		await _await_ground(ctx)
 		await ctx.wait_until(func(): return herd.all(func(m): return is_instance_valid(m) and calm.has(str(m.get("state"))) and float(m.get("suspicion")) < sus_thr * 0.5), 90.0)
 	data.placement = {"distance_m": DIST_M, "line_of_sight": placed.get("los")}
 
@@ -116,6 +118,11 @@ func _run(ctx):
 
 
 func _find_herd(ctx, need: int) -> Array:
+	# the real herd site: on a fresh cache its cell is converted only when the player goes there (spawned grazers near the
+	# start settlement flee into walls and slopes - the release suite's 30.7 -> 49.0 m)
+	var cells: Dictionary = await Sites.ensure_cells(ctx)
+	if not cells.is_empty():
+		data.site_cells_requested = cells
 	# a herd without guards nearby: a Watcher guarding the herd would alert it and attack the player (setup noise)
 	var site: Dictionary = Sites.find_site(ctx, "grazer", need, ["watcher"])
 	if site.is_empty():
@@ -161,6 +168,20 @@ func _crouch(ctx, p: Node, on: bool) -> void:
 	if on:
 		for k in ["crouched", "crouching"]:
 			if k in p:
+				# the key is held; the player crouches on his next movement step, which the game skips after a teleport
+				# until the ground of that cell is loaded (player.gd _hold_until_ground) - give it that time
+				var t0 := Time.get_ticks_msec()
+				var ok: bool = await ctx.wait_until(func(): return p.get(k) == true, 30.0)
+				if not data.has("crouch_wait_s"):
+					data.crouch_wait_s = []
+				data.crouch_wait_s.append(snappedf((Time.get_ticks_msec() - t0) / 1000.0, 0.01))
+				if not ok:
+					# why the held key did nothing (read-only state)
+					var g: Node = ctx.game
+					data.crouch_blocked = {"key_pressed": Input.is_action_pressed("crouch"), "gameplay_input_allowed": g.call("gameplay_input_allowed"),
+						"paused": ctx.tree.paused, "dead": p.get("dead"), "frozen": p.get("frozen"), "scripted": p.get("scripted"),
+						"hold_until_ground": p.get("_hold_until_ground"), "on_floor": p.call("is_on_floor"), "pos": str(ctx.player_pos()),
+						"world_has_ground": g.get("world").call("has_ground_at", ctx.player_pos()) if g.get("world") != null else null}
 				check("setup: player crouched (%s)" % data.crouch, p.get(k) == true, "player.%s = %s" % [k, str(p.get(k))])
 				break
 
@@ -185,3 +206,15 @@ static func _mean_dist(ctx, ms: Array) -> float:
 
 static func died_rec_has_events(rec) -> bool:
 	return not rec.events.is_empty()
+
+
+func _await_ground(ctx) -> void:
+	## after a setup teleport into a cell that is still loading, the game holds the player in the air without running
+	## his movement (no crouch, no walking) until that cell's ground exists: wait for it (up to 60 s)
+	var p: Node = ctx.player
+	var t0 := Time.get_ticks_msec()
+	await ctx.physics_frames(2)
+	var ok: bool = await ctx.wait_until(func(): return not bool(p.get("_hold_until_ground")) and p.call("is_on_floor"), 60.0)
+	if not data.has("ground_waits_s"):
+		data.ground_waits_s = []
+	data.ground_waits_s.append([snappedf((Time.get_ticks_msec() - t0) / 1000.0, 0.1), ok])
