@@ -10,6 +10,12 @@ const Content := preload("res://core/content.gd")
 const Knives := preload("res://core/knives.gd")
 
 const VM_FOV := 60.0
+## Shot effects are made once and reused (new lights, meshes and materials per shot cost ~8 ms of main thread a
+## shot, 0.3 t24): a flash (light + sprite) per weapon model on its muzzle point, a pool of shells.
+const FLASH_LIGHT_MS := 50
+const FLASH_SPRITE_MS := 40
+const SHELL_POOL := 6
+const SHELL_FLIGHT_S := 0.45
 
 var camera: Camera3D           ## view camera inside the SubViewport (set by setup())
 var main_camera: Camera3D
@@ -26,6 +32,12 @@ var _dip := 0.0
 var _dip_dur := 1.0
 var _draw := 0.0
 var _bob_t := 0.0
+var _flash: Array = []         # [OmniLight3D, MeshInstance3D] shown by the last shot
+var _flash_light_until := 0
+var _flash_sprite_until := 0
+var _shells: Array[MeshInstance3D] = []
+var _shell_i := 0
+var _fx_res := {}              # shared meshes / materials of the shot effects
 
 
 ## Builds CanvasLayer > SubViewportContainer > SubViewport(own world) > Camera3D > self. Returns the layer.
@@ -67,20 +79,93 @@ func setup(main_cam: Camera3D) -> CanvasLayer:
 	camera.current = true
 	svp.add_child(camera)
 	camera.add_child(self)
+	_build_shells()
 	Game.weapon_ready.connect(_on_weapon_ready)
 	return layer
+
+
+func _fx_resources() -> Dictionary:
+	if _fx_res.is_empty():
+		var q := QuadMesh.new()
+		q.size = Vector2(0.09, 0.09)
+		var fm := StandardMaterial3D.new()
+		fm.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		fm.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
+		fm.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		fm.albedo_color = Color(1.0, 0.8, 0.45, 0.9)
+		var c := CylinderMesh.new()
+		c.top_radius = 0.004
+		c.bottom_radius = 0.004
+		c.height = 0.02
+		var sm := StandardMaterial3D.new()
+		sm.albedo_color = Color(0.8, 0.6, 0.25)
+		sm.metallic = 0.8
+		_fx_res = {"flash_mesh": q, "flash_mat": fm, "shell_mesh": c, "shell_mat": sm}
+	return _fx_res
+
+
+func _build_shells() -> void:
+	var r := _fx_resources()
+	for i in SHELL_POOL:
+		var shell := MeshInstance3D.new()
+		shell.name = "Shell%d" % i
+		shell.mesh = r["shell_mesh"]
+		shell.material_override = r["shell_mat"]
+		shell.top_level = true
+		shell.visible = false
+		add_child(shell)
+		_shells.append(shell)
+
+
+## The muzzle flash of a weapon model: a light and a sprite under its muzzle point, hidden until a shot.
+func _attach_flash(pts: Dictionary) -> void:
+	var muzzle: Node3D = pts.get("muzzle", pts.get("flame"))
+	if muzzle == null or muzzle.has_meta("flash"):
+		return
+	var r := _fx_resources()
+	var fl := OmniLight3D.new()
+	fl.light_color = Color(1.0, 0.75, 0.4)
+	fl.omni_range = 2.5
+	fl.light_energy = 3.0
+	fl.visible = false
+	var spr := MeshInstance3D.new()
+	spr.mesh = r["flash_mesh"]
+	spr.material_override = r["flash_mat"]
+	spr.visible = false
+	muzzle.add_child(fl)
+	muzzle.add_child(spr)
+	muzzle.set_meta("flash", [fl, spr])
 
 
 ## Loading screen (world/precompile.gd): load and show a weapon model so its glTF parse and shaders happen there.
 func preload_model(id: String) -> void:
 	var m := _get_model(Knives.content_id(id), id)
 	m.visible = true
+	# the shot effects are drawn here too (their pipelines compile under the loading screen, not at the first shot)
+	if m.has_meta("points"):
+		var pts: Dictionary = m.get_meta("points")
+		var muzzle: Node3D = pts.get("muzzle", pts.get("flame"))
+		if muzzle and muzzle.has_meta("flash"):
+			for n in muzzle.get_meta("flash"):
+				(n as Node3D).visible = true
+	for i in _shells.size():
+		if is_inside_tree() and camera:
+			_shells[i].global_position = camera.global_transform * Vector3(0.02 * i, -0.05, -0.3)
+		_shells[i].visible = true
 
 
 ## End of the loading screen: only the current weapon stays visible.
 func end_preload() -> void:
 	for id in _cache:
 		(_cache[id] as Node3D).visible = (_cache[id] == _current)
+		var pts: Variant = (_cache[id] as Node3D).get_meta("points", {})
+		if pts is Dictionary:
+			var muzzle: Node3D = (pts as Dictionary).get("muzzle", (pts as Dictionary).get("flame"))
+			if muzzle and muzzle.has_meta("flash"):
+				for n in muzzle.get_meta("flash"):
+					(n as Node3D).visible = false
+	for sh in _shells:
+		sh.visible = false
 
 
 ## Draws a weapon (the knife slot shows the selected knife model, core/knives.gd).
@@ -139,7 +224,9 @@ func _setup_real(root: Node3D, id: String) -> void:
 			if String(a).ends_with("idle"):
 				ap.get_animation(a).loop_mode = Animation.LOOP_LINEAR
 	root.set_meta("real", true)
-	root.set_meta("points", _attach_points(root, id))
+	var pts := _attach_points(root, id)
+	root.set_meta("points", pts)
+	_attach_flash(pts)
 	Log.info("viewmodel %s: view.glb, clips %s" % [id, ap.get_animation_list() if ap else []])
 
 
@@ -284,52 +371,56 @@ func _find_skeleton(n: Node) -> Skeleton3D:
 	return null
 
 
-## Muzzle flash at the "muzzle" point (or "flame") and a shell out of the "eject" point.
+## Muzzle flash at the "muzzle" point (or "flame") and a shell out of the "eject" point (made once, reused).
 func _fire_fx() -> void:
 	if _current == null or not _current.has_meta("points"):
 		return
 	var pts: Dictionary = _current.get_meta("points")
 	var muzzle: Node3D = pts.get("muzzle", pts.get("flame"))
 	if muzzle:
-		var fl := OmniLight3D.new()
-		fl.light_color = Color(1.0, 0.75, 0.4)
-		fl.omni_range = 2.5
-		fl.light_energy = 3.0
-		var spr := MeshInstance3D.new()
-		var q := QuadMesh.new()
-		q.size = Vector2(0.09, 0.09)
-		spr.mesh = q
-		var m := StandardMaterial3D.new()
-		m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-		m.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
-		m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-		m.albedo_color = Color(1.0, 0.8, 0.45, 0.9)
-		spr.material_override = m
-		muzzle.add_child(fl)
-		muzzle.add_child(spr)
-		get_tree().create_timer(0.05).timeout.connect(fl.queue_free)
-		get_tree().create_timer(0.04).timeout.connect(spr.queue_free)
+		if not muzzle.has_meta("flash"):
+			_attach_flash(pts)
+		_hide_flash()
+		_flash = muzzle.get_meta("flash")
+		var now := Time.get_ticks_msec()
+		_flash_light_until = now + FLASH_LIGHT_MS
+		_flash_sprite_until = now + FLASH_SPRITE_MS
+		(_flash[0] as Node3D).visible = true
+		(_flash[1] as Node3D).visible = true
 	var eject: Node3D = pts.get("eject")
-	if eject:
-		var shell := MeshInstance3D.new()
-		var c := CylinderMesh.new()
-		c.top_radius = 0.004
-		c.bottom_radius = 0.004
-		c.height = 0.02
-		shell.mesh = c
-		var sm := StandardMaterial3D.new()
-		sm.albedo_color = Color(0.8, 0.6, 0.25)
-		sm.metallic = 0.8
-		shell.material_override = sm
-		shell.top_level = true
-		add_child(shell)
+	if eject and not _shells.is_empty():
+		var shell := _shells[_shell_i]
+		_shell_i = (_shell_i + 1) % _shells.size()
+		if shell.has_meta("tween"):
+			var old: Tween = shell.get_meta("tween")
+			if old and old.is_valid():
+				old.kill()
 		shell.global_transform = eject.global_transform
+		shell.visible = true
 		var dir: Vector3 = (eject.global_transform.basis * (eject.get_meta("forward") as Vector3)).normalized()
 		var tw := shell.create_tween()
 		tw.set_parallel(true)
-		tw.tween_property(shell, "global_position", shell.global_position + dir * 0.35 + Vector3(0, -0.25, 0), 0.45)
-		tw.tween_property(shell, "rotation", shell.rotation + Vector3(6, 3, 0), 0.45)
-		tw.chain().tween_callback(shell.queue_free)
+		tw.tween_property(shell, "global_position", shell.global_position + dir * 0.35 + Vector3(0, -0.25, 0), SHELL_FLIGHT_S)
+		tw.tween_property(shell, "rotation", shell.rotation + Vector3(6, 3, 0), SHELL_FLIGHT_S)
+		tw.chain().tween_callback(shell.hide)
+		shell.set_meta("tween", tw)
+
+
+func _hide_flash() -> void:
+	for n in _flash:
+		if is_instance_valid(n):
+			(n as Node3D).visible = false
+	_flash = []
+
+
+func _update_flash() -> void:
+	if _flash.is_empty():
+		return
+	var now := Time.get_ticks_msec()
+	if now >= _flash_sprite_until and is_instance_valid(_flash[1]):
+		(_flash[1] as Node3D).visible = false
+	if now >= _flash_light_until:
+		_hide_flash()
 
 
 func _find_anim(n: Node) -> AnimationPlayer:
@@ -377,7 +468,9 @@ func play(clip: String) -> void:
 		"fire", "fire2":
 			_kick = 0.3 if played else 1.0
 			if clip == "fire" and str(Sheets.weapon_row(_weapon).get("category", "")) not in ["knife", "grenade", "equipment"]:
+				var t_fx := Time.get_ticks_usec()
 				_fire_fx()
+				load("res://core/shot_stats.gd").part("vm_fire_fx", t_fx)
 		"reload":
 			if not played:
 				_dip = 1.0
@@ -396,6 +489,7 @@ func _process(delta: float) -> void:
 
 func _process_timed(delta: float) -> void:
 	_poll_vm_tasks()
+	_update_flash()
 	if _current == null:
 		return
 	if main_camera and _light:

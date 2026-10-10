@@ -3,6 +3,7 @@ extends RefCounted
 
 const Sheets := preload("res://core/sheets.gd")
 const Progression := preload("res://core/progression.gd")
+const ShotStats := preload("res://core/shot_stats.gd")
 
 
 ## Damage after CS range falloff: damage * range_modifier ^ (distance_u / range_step_u).
@@ -47,6 +48,7 @@ static func player_hit(m: Node, weapon_id: String, base_damage: float, part: Str
 	var alive_before := str(m.get("state")) != "dead"
 	var dmg := base_damage * Progression.damage_mult()
 	var dealt: float
+	var t_hit := Time.get_ticks_usec()
 	var argc := m.get_method_argument_count("take_hit")
 	if argc >= 7:
 		dealt = m.take_hit(weapon_id, dmg, part, weak, hit_pos, hit_normal, silent)
@@ -55,9 +57,12 @@ static func player_hit(m: Node, weapon_id: String, base_damage: float, part: Str
 	else:
 		dealt = m.take_hit(weapon_id, dmg, part, weak)   # machine.gd before stroje's 0.3 signature
 	var killed := alive_before and str(m.get("state")) == "dead"
+	ShotStats.part("take_hit", t_hit)
+	t_hit = Time.get_ticks_usec()
 	var game := _game()
 	if game:
 		game.on_player_hit(m, weapon_id, dealt, part, weak, hit_pos, hit_normal, killed, silent)
+	ShotStats.part("on_player_hit", t_hit)
 	return dealt
 
 
