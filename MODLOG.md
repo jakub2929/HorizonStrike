@@ -311,3 +311,10 @@ Full per-site table: `docs/notes/svet.md`. No placement references `ai/groups`, 
   UV so they hit precompiled pipelines; pipeline_watch logs in-world compiles: none on the route). Release route with
   active throttled conversion: 0 frames > 50 ms, worst 45.3 ms, route 1 % low 83.2; start phase 1 % low 43.2 (risk).
 - Sheet preflight CLEAN (render.* verified from hra H3/H5 evidence, perf.shot_poses from test T1). Version 0.2.0.
+- T6 on release 0.2.0 (quiet machine; test 99e2a9a): 17/19 PASS. t15 FAIL only on one 51.7 ms load frame (cell 1,-2;
+  next worst 45.2); start 80.8 avg / 74.4 1 % low, route 92.5 / 52.5, VRAM 1532 MiB. t16 20/20 runs exit 0, 30 cells
+  each, RSS +0.6 %, but run 1 logged 5 errors (F10: with the cache nearly full, eviction deletes a cell the route needs
+  -> "cell.json missing or invalid", reconverted 2 s later; many "eviction failed"). t13 weak spot first-hit: watcher
+  7, strider 8, grazer 8, sawtooth 4, scrapper 7, broadhead 7 of 8. t14 PASS (buildings 100 % excl. 19 hzd_normal
+  none). Clean 0.1.1 baseline: start 78.4/70.3, route 78.7/46.3, worst load frame 1435 ms, VRAM 1230 MiB.
+  Records final in _tools/records-0.2/final.
