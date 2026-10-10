@@ -24,6 +24,9 @@ internal sealed class Cs2Data
 
     public IReadOnlyList<string> LoadErrors => _loadErrors;
 
+    /// <summary>items_game.txt (KV1), or null when it could not be read.</summary>
+    public KVDocument? Items => _items;
+
     public Cs2Data(Cs2Source src)
     {
         try
