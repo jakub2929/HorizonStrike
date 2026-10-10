@@ -52,3 +52,4 @@ Když nevíš, kde jsi: přečti NOC.md a MODLOG.md a pokračuj od posledního z
 - 10:49 Sloučeno svet: špička konvertoru 1,22 GB při hře / 2,08 GB při bootstrapu (cíle 1,5 / 2,5).
 - 11:18 0.2.0 nahrán jako koncept (release 024c27ab…), SHRNUTI-0.2.md konečné. Čeká na „ano“. Běží 0.3: vykon (nastavení), cs2 (RAM zbraní).
 - 11:33 Analýza t09 554 s: převod buňky 4,-3 trval 132 s (cpu: čtení meshů 151 s, dekódování textur 125 s, BC kódování jen 8,7 s); běh 07:49–08:14 se překrýval s robocopy C:→E: (do 08:27), přičemž HZD archivy i testovací cache jsou na E: → I/O zahlcení. Měřím znovu na klidném stroji s výchozí cache.
+- 11:43 První spuštění 0.2.0 na klidném stroji: 81,9 s do hratelnosti (zbraně CS2 57,6 s, buňka 7,6 s, BC jen ~9 s CPU); throttle až po world ready. Zapsáno do SHRNUTI-0.2.md. Čekám na „ano“ k 0.2.

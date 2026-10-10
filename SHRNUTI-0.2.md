@@ -1,6 +1,6 @@
 # Shrnutí před publikováním – Horizon Strike 0.2.0
 
-**Stav: KONEČNÉ (11:50).** Release 0.2.0 je nahraný na Melty jako KONCEPT. Nic není publikované – čeká na tvoje „ano“.
+**Stav: KONEČNÉ (11:50, doplněno měření prvního spuštění 11:45).** Release 0.2.0 je nahraný na Melty jako KONCEPT. Nic není publikované – čeká na tvoje „ano“.
 Build je ze značky `v0.2.0-rc` (commit 140134b) / větev `release/0.2` a neobsahuje nic z 0.3 (ověřeno: žádné nože,
 XP, menu K, efekty ani grafická nastavení v exportu).
 
@@ -31,8 +31,8 @@ XP, menu K, efekty ani grafická nastavení v exportu).
 - Sawtoothův kanystr pod hrudí jde zasáhnout jako první věc jen z 4–5 směrů z 8 (věrně podle HZD; viz OTAZKY.md).
 - t15 (výkon): 1 % low na trase kolísá kolem limitu 45 fps – na klidném stroji 49,0 / 44,4 / 47,1 (2 ze 3 běhů
   prošly); všechny snímky při načítání pod 50 ms.
-- První spuštění (t09) trvalo v závěrečné sadě 554 s místo 85,5 s – běželo souběžně s prací ostatních agentů a cache
-  byla na pomalejším disku; kód bootstrapu se proti 0.2.0 nezměnil.
+- První spuštění (t09) trvalo v závěrečné sadě 554 s, ale ten běh se překrýval s přesunem 150 GB z C: na E: (na E: leží
+  Horizon i testovací cache) – viz „Měření prvního spuštění“ níže: na klidném stroji 82 s.
 
 ## Autotest (release 0.2.0-final spuštěný jako z Melty + --autotest)
 | # | test | výsledek | klíčová čísla |
@@ -51,6 +51,26 @@ XP, menu K, efekty ani grafická nastavení v exportu).
 | 0.2.0 opakování 1 | 77,1 / 70,6 fps | 85,3 / 49,0 fps | 37,9 ms | 1491 MiB |
 | 0.2.0 opakování 2 | 77,1 / 70,5 fps | 83,9 / 44,4 fps | 35,1 ms | 1491 MiB |
 | 0.2.0 opakování 3 | 77,7 / 70,8 fps | 85,0 / 47,1 fps | 35,2 ms | 1492 MiB |
+
+## Měření prvního spuštění (klidný stroj, čistá cache v %LOCALAPPDATA%\HorizonStrike\cache, build 0.2.0)
+Spuštěno přesně jako z Melty (`--game <CS2>` + `--autotest t01`), výchozí cesta cache ověřeně prázdná před startem.
+| fáze | čas |
+|---|---|
+| převod zbraní CS2 (14 položek, modely, animace, zvuky) | 57,6 s |
+| převod 6 strojů HZD | 1,9 s |
+| hudba a ambience | 1,6 s |
+| index světa | 0,1 s |
+| startovní buňka 4,-3 (terén, 23 093 objektů, textury) | 7,6 s |
+| **bootstrap celkem** | **68,8 s** |
+| načtení světa + předkompilace shaderů (2,7 s) | 13,1 s |
+| **hratelné (world ready) od spuštění** | **81,9 s** |
+- Komprese textur: BC kódování zabere 9,1 s CPU ze ~13 s CPU startovní buňky (běží paralelně, buňka trvá 7,6 s);
+  na celkovém čase prvního spuštění má podíl pod 10 %. Největší položka je převod zbraní z CS2 (70 %).
+- Omezení konvertoru (1 úloha, 2 vlákna) se zapne až po „world ready“ (log: `converter throttled: 1 workers, 2 threads`
+  v 11:42:50.447, po world ready v 11:42:50.437) – během úvodního načítání platí plný výkon.
+- Cache po startu: 422 MB (zbytek okolí se dopřevádí na pozadí; po 3×3 ~0,8 GB).
+- Závěr: první spuštění je pod 2 minuty → bez opravy na release/0.2; řádek v listingu („about 1.5 minutes until you can
+  play“) odpovídá.
 
 ## Záznamy (skutečné soubory)
 - Screenshoty před/po: `C:\meshy\_tools\records-0.2\final\before\{mothers_heart,valley,rocks_close}.png`,
