@@ -392,3 +392,4 @@ Full per-site table: `docs/notes/svet.md`. No placement references `ai/groups`, 
   Bootstrap 27.8 s = CS2 stats 1.6 + knife 4.2 + glock 5.2 (11.8 s) -> machines ~3.4 -> audio 1.7 -> index -> start cell
   9.8 s (sequential); then 11.4 s start-cell insertion before precompile (1.3 s). Next: parallel CS2/HZD bootstrap
   (svet) and a large insertion budget during the loading screen (hra).
+- Merged svet 3c1a25f: CS2 start loadout converts in its own thread while the worker does HZD machines/audio/index/start cell; bootstrap 25–27 s -> 15–18 s (clean cache, shared machine), byte-identical output, peak ~2.05 GB (bootstrap cap).
