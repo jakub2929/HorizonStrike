@@ -78,8 +78,7 @@ func _run(ctx):
 	p.set("invulnerable", false)
 	var hurt = ctx.record(g, "player_hurt")
 	await ctx.wait(1.0)
-	await RenderingServer.frame_post_draw
-	var edge0 := _edge_red(ctx.runner.get_viewport().get_texture().get_image())
+	var edge0 := _edge_red(await _frame(ctx))
 	data.edge_red_before = snappedf(edge0, 0.001)
 	var sc: Node = await ctx.spawn_ahead("scrapper", 9.0, 60.0, true)
 	if not check("scrapper spawned (AI on)", sc != null):
@@ -145,8 +144,7 @@ func _shoot(ctx, inp, hits, m: Node, part: String, names: Dictionary) -> Diction
 		out.hit_pos = ev[0].args[3]
 		out.particles = _particles_at(ctx, ev[0].args[3])
 		# the rendered frame: hitmarker lines at the crosshair and the number label
-		await RenderingServer.frame_post_draw
-		var img: Image = ctx.runner.get_viewport().get_texture().get_image()
+		var img: Image = await _frame(ctx)
 		out.marker_pixels = _marker_pixels(img, ctx, out.style)
 		if nums.get_child_count() > kids0:
 			var l := nums.get_child(nums.get_child_count() - 1) as Label
@@ -236,8 +234,7 @@ func _wait_hurt(ctx, hurt, src: Node, names: Dictionary, timeout_s: float) -> Di
 	out.hurt_sound = bool(st.get("hurt_sound_playing"))
 	out.last_sound = st.get("last_sound")
 	# the rendered frame: the red arc at the indicator's bearing, red screen edge for the vignette
-	await RenderingServer.frame_post_draw
-	var img: Image = ctx.runner.get_viewport().get_texture().get_image()
+	var img: Image = await _frame(ctx)
 	out.arc_pixels = _arc_pixels(img, ctx, deg_to_rad(float(st.get("indicator_bearing_deg", 0.0))), names.DamageIndicator)
 	out.vignette = snappedf(float(g.call("fx_stats").get("vignette_alpha", 0.0)), 0.001)
 	out.vignette_pixels = _edge_red(img) > 0.02
@@ -288,3 +285,11 @@ static func _edge_red(img: Image) -> float:
 			acc += px.r - maxf(px.g, px.b)
 			n += 1
 	return acc / n
+
+
+func _frame(ctx) -> Image:
+	## the frame as rendered (HUD layers included); null with --headless (nothing is drawn, frame_post_draw never comes)
+	if DisplayServer.get_name() == "headless":
+		return null
+	await RenderingServer.frame_post_draw
+	return ctx.runner.get_viewport().get_texture().get_image()
