@@ -12,6 +12,9 @@ extends SceneTree
 ##   godot --headless --path game --script res://dev/machine_bench.gd -- --cache <dir> --machines watcher [--out f.json]
 ##   windowed (no --headless) with --shots <dir>: side-view screenshots at key moments of every phase
 ## Exit code 0 when every machine passes (slide < 5 cm, penetration < 5 cm, all poses ok), else 1.
+## --fx-stress N: impact-effect stress (0.3 S1): N hits per second for 8 s on 6 machines (every 4th on a weak spot,
+## at a hitbox point with its outward normal); PASS when active emitters stay <= fx.impact_sparks.max_active_emitters
+## and the effect cost (spawns + per-frame update, ImpactFx.stats) stays < 1.0 ms per frame on average.
 ## --ai: AI check instead (dev, not the autotest): a stand-in player (setup only) walks up to a group of each machine
 ## type; records the state sequence, attacks (machine.current_attack), radar pings, projectiles and hits, and checks
 ## the archetype's cycle (guard: alert -> attack; herd: alert -> flee, or with defend_charge alert -> attack;
@@ -59,6 +62,9 @@ func _initialize() -> void:
 			"--perf":
 				r.perf = int(nxt)
 				i += 1
+			"--fx-stress":
+				r.fx_stress = int(nxt)
+				i += 1
 		i += 1
 	if r.types.is_empty():
 		r.types = ["watcher", "strider", "grazer"]
@@ -82,6 +88,7 @@ class Runner extends Node:
 	var ai_stand := false         # --ai-stand: stand-in does not walk up
 	var ai_shot := false          # --ai-shot: after 3 s one Glock-like shot into the air (crouched-player herd test)
 	var perf := 0                 # --perf N: N machines (types round-robin) with AI on; animator cost per frame
+	var fx_stress := 0            # --fx-stress N: N impact hits per second
 	var _fake: Node3D
 	var _ai_group: Array = []
 	var _ai_t := 0.0
@@ -130,6 +137,9 @@ class Runner extends Node:
 			_build_view()
 		if perf > 0:
 			_start_perf.call_deferred()
+			return
+		if fx_stress > 0:
+			_start_fx_stress.call_deferred()
 			return
 		if ai:
 			_fake = FakePlayer.new()
@@ -274,6 +284,8 @@ class Runner extends Node:
 			_sk.add_child(_probe)
 			_probe.bone_idx = _ends[0]
 		_sk.skeleton_updated.connect(_on_skeleton_updated)
+		if m.has_signal("machine_killed"):
+			m.machine_killed.connect(func(t, w, wk, sl): _rec["killed"] = [t, w, wk, sl])
 		_an.set("debug_measure", true)
 		_fwd0 = -m.global_transform.basis.z
 		_build_phases()
@@ -393,6 +405,85 @@ class Runner extends Node:
 			",".join(PackedStringArray(types)), frames, wall, us / 1000.0 / maxf(frames, 1), float(us) / maxf(calls, 1), calls, moving])
 		print("PERF parts (us total): %s" % str(Anim.prof_parts))
 		get_tree().quit(0)
+
+	# ------------------------------------------------------------ impact effects stress
+
+	func _start_fx_stress() -> void:
+		var Fx = load("res://machines/fx/impact_fx.gd")
+		var ms: Array = []
+		var kinds := ["watcher", "strider", "grazer", "sawtooth", "scrapper", "broadhead"]
+		for k in kinds.size():
+			var type := str(kinds[k])
+			var meta: Dictionary = {"mock": true}
+			if not mock:
+				var mm: Dictionary = Content.machine_meta(type)
+				if not mm.is_empty():
+					meta = mm
+			var m: Node = Machine.new()
+			m.setup(type, meta)
+			m.ai_enabled = false
+			add_child(m)
+			var pos := Vector3(k * 6.0 - 15.0, 0, 0)
+			m.global_position = Vector3(pos.x, height(pos.x, pos.z) + 0.4, pos.z)
+			ms.append(m)
+		if shots != "":
+			_build_view()
+			_cam.global_position = Vector3(-6.0, height(-6.0, 7.0) + 2.0, 7.0)
+			_cam.look_at(Vector3(-6.0, height(-6.0, 0.0) + 1.2, 0.0), Vector3.UP)
+		await get_tree().create_timer(1.0).timeout
+		var rng := RandomNumberGenerator.new()
+		rng.seed = 7
+		var shot_n := 0
+		var acc := 0.0
+		var t := 0.0
+		var hits := 0
+		var weak_hits := 0
+		var max_active := 0
+		var max_cost := 0.0
+		var cost_sum := 0.0
+		var frames := 0
+		var cap := 0
+		var hit_us := 0
+		while t < 8.0:
+			await get_tree().process_frame
+			var dt := get_process_delta_time()
+			t += dt
+			acc += dt * fx_stress
+			while acc >= 1.0:
+				acc -= 1.0
+				var m: Node = ms[rng.randi() % ms.size()]
+				var weak: bool = hits % 4 == 3 and not m.weak_spots().is_empty()
+				var part := str(m.weak_spots()[0]) if weak else "body"
+				var boxes: Array = m.rig.hitboxes.filter(func(h): return str(h.get_meta("part")) == part)
+				var hb: Node3D = boxes[rng.randi() % boxes.size()] if not boxes.is_empty() else m
+				var normal := Vector3(rng.randf_range(-1, 1), rng.randf_range(0, 1), rng.randf_range(-1, 1)).normalized()
+				m.health = 1.0e9
+				var h0 := Time.get_ticks_usec()
+				m.take_hit("ak47", 30.0, part, weak, hb.global_position, normal)
+				hit_us += Time.get_ticks_usec() - h0
+				hits += 1
+				if weak:
+					weak_hits += 1
+			if shots != "" and shot_n < 3 and t > 2.0 + shot_n * 0.7:
+				var img := get_viewport().get_texture().get_image()
+				if img:
+					DirAccess.make_dir_recursive_absolute(shots)
+					img.save_png(shots.path_join("fx_stress_%d.png" % shot_n))
+				shot_n += 1
+			var st: Dictionary = Fx.stats()
+			cap = int(st["max_active_emitters"])
+			max_active = maxi(max_active, int(st["active_emitters"]))
+			if t > 1.0:
+				frames += 1
+				cost_sum += float(st["cost_ms_avg"])
+				max_cost = maxf(max_cost, float(st["cost_ms_max"]))
+		var avg := cost_sum / maxf(frames, 1)
+		var st2: Dictionary = Fx.stats()
+		var ok := max_active <= cap and avg < 1.0
+		print("FXSTRESS %d hits/s for 8 s: %d hits (%d weak), active emitters max %d / cap %d, spawned %d, reused %d, fx cost avg %.3f ms/frame (max frame %.3f ms), take_hit total %.3f ms/frame, %d frames -> %s" % [fx_stress,
+			hits, weak_hits, max_active, cap, int(st2["spawned"]), int(st2["reused"]), avg, max_cost, hit_us / 1000.0 / maxf(frames, 1),
+			frames, "PASS" if ok else "FAIL"])
+		get_tree().quit(0 if ok else 1)
 
 	# ------------------------------------------------------------ AI check
 
@@ -773,7 +864,9 @@ class Runner extends Node:
 					res = "fail: bone %.0f cm below ground" % (-clear * 100.0)
 				elif float(st["motion_last"]) > 0.01:
 					res = "fail: not settled (%.3f m/frame)" % float(st["motion_last"])
-				poses[name_] = res + " (drop %.2f/%.2f m, lowest bone %.0f cm [%s], settle %.4f m)" % [drop2, _stand_body, clear * 100.0, st.get("clear_bone", "-"), float(st["motion_last"])]
+				elif _m.has_signal("machine_killed") and _rec.get("killed", []) != [_rec["machine"], "ak47", true, false]:
+					res = "fail: machine_killed %s" % str(_rec.get("killed", "not emitted"))
+				poses[name_] = res + " (drop %.2f/%.2f m, lowest bone %.0f cm [%s], settle %.4f m, machine_killed %s)" % [drop2, _stand_body, clear * 100.0, st.get("clear_bone", "-"), float(st["motion_last"]), str(_rec.get("killed", "-"))]
 				continue
 			else:
 				continue

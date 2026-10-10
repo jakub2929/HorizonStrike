@@ -41,3 +41,4 @@ Když nevíš, kde jsi: přečti NOC.md a MODLOG.md a pokračuj od posledního z
 - 09:15 Plan 0.3 sloučen (sheety XP/vylepšení/efekty/bhop, PLAN-0.3.md). Spouštím cs2 K2, hra H1–H5, stroje S1–S2; test dostane 0.3 po T6 0.2.
 - 09:19 Sloučeno cs2 K2: 7 zvuků zásahů z CS2 v cs2/ui/snd (cs2_format 3). Běží: hra H1–H5, stroje S1–S2, test T6 (0.2).
 - 09:21 Zadání 0.3 rozšířeno o optimalizaci (bod 4): měření, grafická nastavení s presety, auto preset, RAM, konvertor idle. Nový agent vykon (měření + nastavení), svet (paměť konvertoru), hra (uvolňování dat buněk).
+- 09:30 Sloučeno stroje S1–S2 (jiskry/úlomky z poolu 32 emitorů, 0,05 ms/snímek; signál machine_killed; take_hit má volitelný 7. parametr silent). T6 0.2: 17/18 PASS, t15 FAIL (jeden snímek 6,8 s na trase), t16 10/20 běhů OK.
