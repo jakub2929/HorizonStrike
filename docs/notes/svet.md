@@ -507,3 +507,12 @@ Sites of the new machines (svet 0.2 V3, hzsconv hzd-sites after site_map type:di
   <= 1.8 GB); throttled cells after bootstrap 4.1-5.8 GB -> 1.23 GB; cold throttled cells in a fresh process
   3.6 GB -> 1.22 GB exact. Converter CPU for bootstrap + 6 cells 226-243 s -> 227-232 s; wall bootstrap 108-178 s
   base vs 112-142 s new; 6 throttled cells 23-46 s vs 23-25 s. Output byte-identical (10 272 cell / mesh / texture files, m27 vs m28).
+
+## 0.3 parallel bootstrap (2026-10-10)
+- Server.Bootstrap: the CS2 start loadout runs on its own thread (bootstrap-cs2; Cs2Session's lock still serialises
+  all CS2 work) while the worker converts machines -> audio -> index -> start area; done when both finish (a CS2
+  error is rethrown after the HZD part). Cells may start after the index as before; knife / weapon jobs also wait
+  for the CS2 part. Progress events of the two parts interleave (the loading bar takes the max).
+- Fresh cache, radius 0 (scratch boot_time.py, machine shared, system CPU 73-79 %): main 27.2 / 24.7 s ->
+  18.0 / 14.9 s (CS2 part 1.8-15.8 s, HZD part done at 14.9-18.0 s); converter CPU 43-44 s -> 47-48 s; peak private
+  1.46-2.05 GB -> 2.05-2.08 GB (bootstrap cap 2048). Outputs byte-identical (2 518 files, b03 vs b04).
