@@ -6,12 +6,12 @@ extends "res://autotest/lib/scenario.gd"
 const InputSim := preload("res://autotest/lib/inputsim.gd")
 const Route := preload("res://autotest/lib/route.gd")
 const Proc := preload("res://autotest/lib/proc.gd")
-const LEG_MAX_S := 25.0
+const LEG_MAX_S := 10.0  # 30 legs + boot must stay well inside the 10 min limit per run (sheet t16)
 const LEG_NO_MULT_S := 8.0
 
 
 func _init() -> void:
-	timeout_s = 540.0
+	timeout_s = 560.0
 
 
 func _run(ctx):

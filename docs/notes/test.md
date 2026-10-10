@@ -373,6 +373,42 @@ t04 FAIL (slot key: current stays ak47), t06 FAIL (crouch key: crouched = false;
   is excluded when its surfaces without a normal map are no more than its glb primitives with a flagged material.
   F8 closed. (Request to hra, optional: keep `extras.hzd_normal` as material meta so the test reads the game's own.)
 
+### T6 on the 0.2.0 release (main 58ad1ae, `C:\meshy\_tools\release\0.2.0`, quiet machine, launched as Melty does + --autotest)
+- 0.1.1 baseline t15 again on the quiet machine (`records-0.2\baseline-t15-h`, only its own parent + converter
+  running): start 78.4 / 70.3 fps, route 78.7 avg / 46.3 1 % low, worst 1435 ms = worst during a cell load, VRAM
+  1229.7 MiB, 10 cells, 0 engine errors. This is the clean baseline (`final\frametimes-0.1.1.csv`).
+- Suite `--autotest t01..t11,s01,s02,s03,t12..t16 --out C:\meshy\_tools\autotest-0.2.0\full-a` (default cache, as
+  a player): 17 of 18 PASS before t16, 0 engine errors in every scenario.
+  - t13 weak spot first hit + hit / weak > body (body-only lines): watcher 7/8 (7/7), strider 8/8 (7/7), grazer 8/8
+    (8/8), sawtooth 4/8 (4/4), scrapper 7/8 power cell (7/7), broadhead 7/8 (7/7).
+  - t14: terrain 16/16, rock 18 525/18 525, building 19 110/19 110 (+19 flagged hzd_normal none), vegetation
+    7 644/7 646.
+  - t15 FAIL (only "no frame > 50 ms while a cell loads": one frame of 51.7 ms at t = 212 s in cell (1,-2); next
+    worst 45.2 / 38.9 ms): start 80.8 / 74.4 fps, route 92.5 avg / 52.5 1 % low, worst 51.7 ms, VRAM 1532.1 MiB,
+    10 cells, 23 loads. Owner hra (time-budgeted insert).
+  - t09: bootstrap 85.5 s, 415.7 MiB at world_ready, 902.6 MiB / 10 cells 45 s later.
+  - t16 in that suite: run 1 exit 0 but needed 513 of its 540 s watchdog, run 2 hit the watchdog -> test bug
+    (15 s legs x 30 + boot). Stopped by exact PID after run 2; t16run legs capped at 10 s (5403e76). The release
+    exe embeds the old t16run, so t16 runs on `C:\meshy\_tools\test-02-build-b` = same main 58ad1ae game code,
+    exported from this branch with the fixed autotest (converter copied from the release).
+- Records with this build: r01 + r03 on test-02-build-b (r01 now sets the pose again after its cells loaded and
+  checks the player stands there; r03 plans the corner from cell heights - collision exists only near the player in
+  0.2), cache = copy of the release's own default cache (`cache-test-02c`); r02 (18 clips) with the release exe.
+  With svet's work cache c54 the valley pose had no ground (player fell 30-41 m) and r03 found no corner path: that
+  cache is partial, not a game fault. All PNG / MP4 checked not blank (3 frames per video).
+- Finding F10 (hra, streaming / cache GC) in t16 run 1 on the default cache (3.6 of 4 GiB used): 5 `[error] cell
+  (x, y) build failed: cell.json missing or invalid` - e.g. (-3,-5): converted 04:11:54, gone when the world built
+  it at 04:12:39 (the GC evicted a cell the route had requested), converted again and loaded 2 s later. Many
+  `[warn] cell (..) eviction failed` lines too. The GC must not evict requested / loading cells.
+- t16 on test-02-build-b (`C:\meshy\_tools\autotest-0.2.0\t16-b`, default cache): 20/20 runs exit 0 with a result,
+  none hung (each ~6 min), 30/30 cells per run, RSS at the end 2743-2838 MB (run 1 2822.5; max +0.6 %), VRAM
+  2088-2124 MB (run 1 2112.6). FAIL only on "0 engine errors in every run": run 1 had the 5 F10 errors, runs 2-20 0.
+  No quit crash in 20 runs (F9 fixed in 0.2.0).
+- Final folder `C:\meshy\_tools\records-0.2\final\`: before\ (3 PNG, 0.1.1), after\ (3 PNG, 0.2.0), video\ (18
+  machine clips from the release exe + cell_crossing.mp4), frametime_0.1_vs_0.2.svg (clean 0.1.1 run h vs 0.2.0
+  suite t15), frametimes-0.1.1.csv / -0.2.0.csv, results.json (suite 18 rows from the release + t16 row from
+  build-b) and the per-run result files.
+
 ## Log
 - 2026-10-09 runner, libs and all 13 scenario scripts written against the documented API; stub verification above.
 - 2026-10-09 pre-merge integration: hra's committed game (branch head 4ea177b, exported with `git archive` into a

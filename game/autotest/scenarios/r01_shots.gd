@@ -45,6 +45,14 @@ func _shot(ctx, g: Node, name: String, pose: Dictionary) -> Dictionary:
 	await ctx.call_api(g, "teleport", [pos])
 	var loaded: bool = await _wait_3x3(ctx, pos, 600.0)
 	await ctx.wait(2.0)
+	# the first teleport can land before the ground there collides (the player then falls through); once the cells
+	# are in, the pose is set again (setup) and must hold
+	var fell: float = pos.y - ctx.player_pos().y
+	if fell > 5.0:
+		note("%s: the player fell %.1f m after the teleport while the cells loaded (ground not collidable yet); pose set again" % [name, fell])
+	await ctx.call_api(g, "teleport", [pos])
+	await ctx.wait(2.0)
+	var drift: float = pos.y - ctx.player_pos().y
 	var eye: Vector3 = ctx.camera().global_position if ctx.camera() != null else pos + Vector3(0, 1.6, 0)
 	var dir := Vector3(-sin(yaw) * cos(pitch), sin(pitch), -cos(yaw) * cos(pitch))
 	var marker := Node3D.new()
@@ -65,7 +73,9 @@ func _shot(ctx, g: Node, name: String, pose: Dictionary) -> Dictionary:
 	var cam: Camera3D = ctx.camera()
 	var info := {"pose": pose, "cells_3x3_loaded": loaded, "screenshot": shot,
 		"camera": str(cam.global_position.round()) if cam != null else ""}
+	info.fell_after_first_teleport_m = snappedf(fell, 0.1)
 	check("%s: 3x3 around the pose loaded" % name, loaded)
+	check("%s: player stands at the pose (within 3 m below it)" % name, drift < 3.0, "%.1f m below the pose" % drift)
 	check("%s: PNG exists (fresh)" % name, shot.get("exists", false) and shot.get("fresh", false), shot.get("path"))
 	check("%s: not blank (luma stddev > 10)" % name, float(shot.get("luma_stddev", 0.0)) > 10.0, str(shot.get("luma_stddev")))
 	return info
