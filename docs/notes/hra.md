@@ -194,7 +194,41 @@ Rules I follow: no class_name lookups across files (everything via preload, so a
   render.terrain_layer_gloss (layer ORM G is gloss: c48 means snow 0.18, rock 0.08, grass 0.05, dirt 0.001) and
   render.terrain_min_roughness 0.6 (snow looked wet). Checked with r01 (C:\meshy\_tools\hra-shots-v1).
 
+## 0.3 (2026-10-10)
+- H1 knives: core/knives.gd (cs2/knives/index.json, ok entries + knives.default; loadout.json {format, knife} in the
+  user dir, persist.unknown_knife_rule), content key "knives/<id>" -> cs2/knives/<id>/ (Content.weapon_dir), the
+  knife slot shows / sounds like the selected model while weapons.gd keeps the weapon id (stats row unchanged);
+  a knife without view.glb yet shows the sheet's model (meta "fallback") and switches when converted. On demand
+  (proto.knives): saved knife first (prio -1), the rest after cells; events reload the index, grow an open list.
+  Esc menu "Knife": ItemList + rotating world.glb preview in its own SubViewport. Logs `knife: selected|equipped|
+  inspect`. Esc now works in automated runs (tests choose through the menu).
+- H2: core/progression.gd (progression.json atomic; level L costs first + step x (L - 1); 15 levels = 20 250 XP);
+  every player hit goes through Combat.player_hit (upgrades.damage before armour / weak multipliers, take_hit with
+  hit_pos, hit_normal, silent); XP only from Game.machine_killed (stroje emits); silent strike = stab + state
+  idle/patrol/graze/scavenge + outside the sight cone, x combat.silent_strike_mult; max health = base + 20 x level
+  (start, respawn). K menu ui/upgrades_menu.gd + Esc entry; HUD LevelLabel / XpBar / LevelUpNotice.
+- H3 bhop (player.gd): window after a landing; keep = no ground friction / accel and take-off = landing speed for
+  jumps 1..N of a chain; clip (jump N+1, every jump at level 0) = friction + clamp to run speed x
+  movement.bhop_clip_speed_mult; log `bhop: keep|clip jump (chain k / N), landing, take-off`.
+- H4 ui/hit_fx.gd (Hitmarker, DamageNumbers, DamageIndicator, Vignette) + audio/feedback_audio.gd (fx.sound_*;
+  cs2/ui/snd/<event after the first dot, lower case, dots -> _>_<n>); aimpunch in player.gd, added to the camera
+  pitch by weapons.gd.
+- Dev drivers (real input, mock data): dev/knife_input.gd, progress_input.gd, bhop_input.gd (speed above run speed =
+  setup push; jumps by key), fx_input.gd (hurt part = damage call with a machine source as setup).
+
 ## Notes for teammates (relay via main)
+- test (0.3 API): `--user-dir <dir>` (settings.json, loadout.json, progression.json there); Game.knife_ids(),
+  Game.knife_selected(), Game.knife_model() (model in hand), Game.knife_last_anim(), Game.last_anim_request();
+  player.knife_id, player.horizontal_speed (m/s), player.aimpunch_deg; viewmodel (player.weapons.viewmodel)
+  clips(), current_clip(); Game.progression (read, Dictionary), Game.set_progression(dict) (setup only);
+  Game.max_health(); Game.fx_stats() (method: hitmarkers, hitmarker_visible, hitmarker_style, numbers,
+  numbers_active, indicators, indicator_visible, indicator_bearing_deg (0 = ahead, + = right), vignette_alpha,
+  sounds, last_sound, hurt_sound_playing, aimpunch_deg, impact = stroje stats(), sparks = impact.spawned);
+  signals machine_killed, player_hit_machine, player_hurt, xp_gained, level_up, progression_changed.
+  Node names: SettingsLayer/.../KnifeButton, KnifePanel, KnifeList (ItemList, metadata = knife id), KnifePreview,
+  KnifeBack, UpgradesButton, DamageNumbersToggle; UpgradesLayer/UpgradesMenu, Upgrade_damage|max_health|bhop,
+  UpgradesClose; HUD LevelLabel, XpBar, LevelUpNotice, Hitmarker, DamageNumbers (Labels), DamageIndicator,
+  Vignette. Keys: K upgrades, F inspect, Esc menu (also in automated runs now).
 - test (t10): real cells outside the start area are ~11 MB (meshes/textures shared), 5 steps east add ~164 MB, so
   cap = bytes + reserve(600) + 300 MiB never evicts (target = cap - reserve). Use e.g. cap = bytes + reserve + 50 MiB
   or more steps; eviction itself is verified with 30 MiB mock cells (dev/scenarios.gd t10: 4 farthest-first).
