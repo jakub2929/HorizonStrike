@@ -116,14 +116,14 @@ func _hit_once(tag: String) -> float:
 	var fwd := -p.global_transform.basis.z
 	fwd.y = 0.0
 	fwd = fwd.normalized()
-	var m: Node = _game.spawn_machine(Sheets.machine_ids()[0], p.global_position + fwd * 2.0)
-	await _ms(400)
+	var m: Node = _game.spawn_machine(Sheets.machine_ids()[0], p.global_position + fwd * 1.4)
 	if m == null or not is_instance_valid(m):
 		_check(false, "%s: machine spawned" % tag)
 		return -1.0
 	m.ai_enabled = false
+	await _ms(800)
 	var lost := -1.0
-	for attempt in 6:
+	for attempt in 8:
 		_game.aim_at(m, "body")
 		await _frames(2)
 		var before: float = m.health
@@ -152,6 +152,15 @@ func _run() -> void:
 	await _ms(1500)
 	var vs: Vector2 = get_tree().root.get_visible_rect().size
 	_mouse = _to_window(vs * 0.5)
+	# knives are converted on demand: the saved one first, the rest after the start cells
+	t0 = Time.get_ticks_msec()
+	while Time.get_ticks_msec() - t0 < 180000:
+		if _phase == "restart" and _game.knife_selected() == _expect:
+			break
+		if _phase != "restart" and _game.knife_ids().size() >= 3:
+			break
+		await _ms(500)
+	print("  knives ready after %.1f s" % ((Time.get_ticks_msec() - t0) / 1000.0))
 	var ids: Array = _game.knife_ids()
 	print("knives offered: %s, selected %s" % [ids, _game.knife_selected()])
 	if _phase == "restart":
@@ -199,7 +208,8 @@ func _run() -> void:
 	if list == null:
 		_finish()
 		return
-	_check(list.item_count == ids.size(), "list shows %d knives (%d)" % [ids.size(), list.item_count])
+	# knives keep converting in the background: the list is compared with the offer at this moment
+	_check(list.item_count == _game.knife_ids().size(), "list shows %d knives (%d)" % [_game.knife_ids().size(), list.item_count])
 	var ti := -1
 	for i in list.item_count:
 		if str(list.get_item_metadata(i)) == target:

@@ -190,6 +190,14 @@ func _build_knife_panel() -> void:
 
 func _open_knives() -> void:
 	Knives.reload()
+	_fill_knife_list()
+	_main_box.visible = false
+	_knife_panel.visible = true
+	_knife_list.grab_focus()
+	_show_preview(Knives.selected())
+
+
+func _fill_knife_list() -> void:
 	_knife_list.clear()
 	var sel := Knives.selected()
 	for k in Knives.available():
@@ -197,10 +205,14 @@ func _open_knives() -> void:
 		_knife_list.set_item_metadata(i, str(k["id"]))
 		if str(k["id"]) == sel:
 			_knife_list.select(i)
-	_main_box.visible = false
-	_knife_panel.visible = true
-	_knife_list.grab_focus()
-	_show_preview(sel)
+
+
+## More knives converted (Main, proto.knives events): an open list grows, the selection stays.
+func refresh_knives() -> void:
+	if _knife_panel and _knife_panel.visible:
+		var scroll := _knife_list.get_v_scroll_bar().value
+		_fill_knife_list()
+		_knife_list.get_v_scroll_bar().value = scroll
 
 
 func _close_knives() -> void:

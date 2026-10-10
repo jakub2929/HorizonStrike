@@ -17,6 +17,7 @@ const PREFIX := "knives/"
 
 static var _index: Array = []      # [{id, name}] of the converted (ok) knives
 static var _failed: Array = []     # ids the converter could not make
+static var _pending: Array = []    # ids listed but not converted yet
 static var _loaded_from := ""      # cache root the index was read from
 
 
@@ -26,10 +27,13 @@ static func index_path() -> String:
 
 ## Reads index.json (again). Missing index = only the default knife.
 static func reload() -> void:
+	var v: Variant = FsUtil.read_json(index_path())
+	if v == null and FileAccess.file_exists(index_path()) and _loaded_from == Game.cache_root:
+		return   # being rewritten by the converter right now: keep the last list
 	_loaded_from = Game.cache_root
 	_index = []
 	_failed = []
-	var v: Variant = FsUtil.read_json(index_path())
+	_pending = []
 	var list: Array = []
 	if typeof(v) == TYPE_ARRAY:
 		list = v
@@ -40,6 +44,9 @@ static func reload() -> void:
 			continue
 		var id := str(e.get("id", ""))
 		if id == "" or id == DEFAULT:
+			continue
+		if str(e.get("state", "")) == "pending":
+			_pending.append(id)   # converted on demand (proto.knives); offered once it is ok
 			continue
 		if not _is_ok(e):
 			_failed.append(id)
@@ -52,7 +59,7 @@ static func reload() -> void:
 	for k in _index:
 		if int(seen[k["name"]]) > 1:
 			k["name"] = "%s (%s)" % [k["name"], k["id"]]
-	Log.info("knives: %d available, %d not converted%s (%s)" % [_index.size(), _failed.size(),
+	Log.info("knives: %d available, %d pending, %d failed%s (%s)" % [_index.size(), _pending.size(), _failed.size(),
 		"" if _failed.is_empty() else " " + str(_failed), index_path() if FileAccess.file_exists(index_path()) else "no index.json"])
 
 
@@ -91,7 +98,12 @@ static func name_of(id: String) -> String:
 	return id
 
 
-## The selected knife model id ("default" when the saved one is not available any more).
+## The saved choice, available or not (it may still be converting).
+static func saved() -> String:
+	return str(Settings.get_value("knife_model", DEFAULT))
+
+
+## The selected knife model id ("default" while the saved one is not available: not converted (yet) or gone).
 static func selected() -> String:
 	var id := str(Settings.get_value("knife_model", DEFAULT))
 	return id if is_available(id) else DEFAULT

@@ -83,6 +83,17 @@ func send(req: Dictionary) -> int:
 			_jobs.append({"id": id, "op": "status", "prio": -2000000, "seq": _seq})
 		"throttle":
 			_events.append({"id": id, "event": "throttled", "workers": int(req.get("workers", 1)), "threads": int(req.get("threads", 2))})
+		"knives":
+			# proto.knives: the mock knives exist since start(): index counts, then one cached done per requested knife
+			var idx: Variant = FsUtil.read_json(cache_root.path_join("cs2/knives/index.json"))
+			var list: Array = idx.get("knives", []) if typeof(idx) == TYPE_DICTIONARY else []
+			var want: Variant = req.get("ids")
+			var ok := list.filter(func(k): return str(k.get("state", "")) == "ok")
+			var queued := ok.filter(func(k): return want == null or (want as Array).has(k.get("id")))
+			_events.append({"id": id, "event": "done", "bytes": 0, "knives": list.size(), "knives_ok": ok.size(),
+				"knives_failed": list.size() - ok.size(), "knives_pending": 0, "queued": queued.size()})
+			for k in queued:
+				_events.append({"id": id, "event": "done", "bytes": 0, "knife": k["id"], "state": "ok", "reason": null, "cached": true})
 		"quit":
 			_events.append({"id": id, "event": "bye"})
 			_quit = true
