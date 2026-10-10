@@ -59,6 +59,8 @@ func _ready() -> void:
 	InputSetup.setup()
 	Settings.load_from(Paths.settings_file(), Sheets.sys_num("cache.default_cap_gib", 4.0))
 	Game.cache_cap_bytes = int(Settings.get_value("cache_cap_bytes", int(4.0 * Settings.GIB)))
+	if args.cache_cap_mib > 0.0:
+		Game.cache_cap_bytes = int(args.cache_cap_mib * 1048576.0)   # this run only, not saved
 	Game.cache_root = Paths.norm(args.cache_dir) if args.cache_dir != "" else Paths.default_cache(args.mock_data)
 	Log.info("cache %s, cap %d bytes" % [Game.cache_root, Game.cache_cap_bytes])
 	get_tree().auto_accept_quit = false
