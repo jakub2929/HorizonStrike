@@ -313,6 +313,12 @@ public static class CellConverter
     private static WorldMeshes? _meshes;
     private static string? _meshesRoot;
 
+    /// <summary>Drops the shared-mesh exporter (its resolver, decoded images and per-process mesh / texture state).</summary>
+    public static void ReleaseShared()
+    {
+        lock (MeshesLock) { _meshes = null; _meshesRoot = null; }
+    }
+
     /// <summary>One shared-mesh exporter per cache root (dedupes meshes across cells and workers).</summary>
     private static WorldMeshes Meshes(ConvContext ctx, Resolver res)
     {
