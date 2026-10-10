@@ -492,3 +492,6 @@ Full per-site table: `docs/notes/svet.md`. No placement references `ai/groups`, 
   Test-cache hazard: a parent test process and its child both start converters on the same --cache-dir (test03-cache-1
   start cell 4_-3 broken since 21:02: only cell.json left) – give children their own cache or no converter.
 - User decisions: Low RAM 2.67 GB accepted; 0.3.0 is uploaded as a draft only after 0.2.0 passes Melty review.
+- Local tag v0.3.0 moved (user approved; never pushed) from 1afd437 to v0.3.0-rc5 (8d81c38), the commit the 0.3.0
+  package is built from. History scan origin/main 330c108..main + v0.3.0-rc5: 134 new blobs, code/text only, no binary,
+  no game-derived file. Before the Melty upload: re-run inspect_package, validate_recipe and one_click_check on the rc5 zip.
