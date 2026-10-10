@@ -549,6 +549,7 @@ func apply_render_settings() -> void:
 	_env.fog_height_density = Sheets.sys_num("render.fog_height_falloff", 0.0) * 0.02
 	_env.volumetric_fog_enabled = Sheets.sys_bool("render.volumetric_fog", false)
 	get_viewport().mesh_lod_threshold = Sheets.sys_num("render.lod_threshold_px", 12.0)
+	GraphicsSettings.attach_environment(_env, _sun)   # GRAPHICS HOOK (vykon): SSAO/SSR/vol. fog, sun shadows, LOD bias
 	if args and args.gfx_low:
 		# dev measurement only (until the GraphicsSettings presets exist): a manual low configuration
 		get_viewport().scaling_3d_mode = Viewport.SCALING_3D_MODE_FSR

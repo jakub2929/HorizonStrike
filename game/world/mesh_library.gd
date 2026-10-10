@@ -197,7 +197,7 @@ static func _map_names(m: Dictionary) -> Array:
 func _load_image(tex_name: String) -> Image:
 	var dds := tex_dir.path_join(tex_name + ".dds")
 	if FileAccess.file_exists(dds):
-		return load_dds(dds)
+		return GraphicsSettings.world_texture(load_dds(dds))   # GRAPHICS HOOK (vykon): texture quality (half = top mip dropped)
 	var path := tex_dir.path_join(tex_name + ".png")
 	if not FileAccess.file_exists(path):
 		return null

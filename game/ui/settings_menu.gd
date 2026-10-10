@@ -108,6 +108,7 @@ func _ready() -> void:
 	knife.text = "Knife"
 	knife.pressed.connect(_open_knives)
 	box.add_child(knife)
+	box.add_child(preload("res://ui/graphics_menu.gd").make_button(self))   # GRAPHICS HOOK (vykon): Esc menu entry "Graphics"
 	var resume := Button.new()
 	resume.name = "ResumeButton"
 	resume.text = "Resume"
