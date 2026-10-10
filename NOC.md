@@ -25,3 +25,4 @@ Když nevíš, kde jsi: přečti NOC.md a MODLOG.md a pokračuj od posledního z
 - 01:46 Sloučeno test: t14 PASS (budovy 99,5 % hrubě / 100 % po vyřazení hzd_normal none). Běží: hra (F9 + segfault + throttle). Další: T6.
 - 01:46 Kontrola záznamů: videa a snímky nejsou prázdné (snímky Sawtooth death, Mother's Heart před/po prohlédnuty). Snímky „po“ a video průchodu jsou z buildu před hra H4–H8 → v T6 pořídit znovu na finálním buildu. Vzdálený vodopád/útes má barevné pruhy (chybný materiál) – menší vada. Běží: hra.
 - 02:02 test: baseline 0.1.1 běh g (zašuměný, běžely jiné procesy). Čisté srovnání + T6 až na klidném stroji po hra. Běží: hra.
+- 02:44 Sloučeno hra: pád při ukončení/segfault opraven (0 pádů ve 105 bězích), throttle zapojen. Zbývá: 3 snímky >50 ms (4 nepředkompilované pipeline + synchronní zápis logu) → hra. Pak T6.

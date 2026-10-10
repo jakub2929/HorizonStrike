@@ -64,9 +64,12 @@ var _far_none := {}                # cells without an HLOD (not asked again)
 var last_work := ""                # --profile-cells: what the streaming main-thread work did last frame (steps > 1 ms)
 var _finish_detail := ""
 var _free_tasks: Array = []        # worker tasks dropping finished cells' prepared data
+var _task_info := {}               # task id -> [kind, progress Array (written by the worker)] for quit diagnostics
+var _stuck := false                # a worker task did not finish at quit (see Main.quit_game)
 
 
 func setup(root: String, idx: Dictionary, conv: Node) -> void:
+	MeshLib.cancelled = false
 	cache_root = root
 	index = idx
 	cell_size = float(idx.get("cell_size", Sheets.sys_num("streaming.cell_size_m", 512.0)))
@@ -293,6 +296,8 @@ func _on_converter_event(e: Dictionary) -> void:
 			if request_ids.has(id):
 				requested.erase(request_ids[id])
 				request_ids.erase(id)
+		"throttled":
+			Log.info("converter throttled: %d workers, %d threads" % [int(e.get("workers", 0)), int(e.get("threads", 0))])
 		"status":
 			_status_pending = false
 			_converter_idle = int(e.get("pending", 1)) == 0 and int(e.get("running", 1)) == 0
@@ -309,11 +314,15 @@ func _start_build(c: Vector2i) -> void:
 	var out: Array = [{}]
 	var lib := meshes
 	var job := {"result": {}, "stage": "prepare", "out": out, "t0": Time.get_ticks_msec(), "task": -1}
+	var prog: Array = ["queued"]
 	job["task"] = WorkerThreadPool.add_task(func():
+		prog[0] = "started"
 		var tw := Time.get_ticks_usec()
-		var r: Dictionary = CellBuilder.prepare(dir, lib)
+		var r: Dictionary = CellBuilder.prepare(dir, lib, prog)
 		r["prepare_wall_ms"] = (Time.get_ticks_usec() - tw) / 1000.0
-		out[0] = r, false, "cell %s" % c)
+		out[0] = r
+		prog[0] = "done", false, "cell %s" % c)
+	_task_info[job["task"]] = ["prepare %s" % c, prog]
 	building[c] = job
 	profiler.begin(c)
 
@@ -327,6 +336,7 @@ func _poll_builds() -> void:
 		if not WorkerThreadPool.is_task_completed(job["task"]):
 			continue
 		WorkerThreadPool.wait_for_task_completion(job["task"])
+		_task_info.erase(job["task"])
 		job["result"] = job["out"][0]
 		job["stage"] = "ready"
 		var data: Dictionary = job["result"]
@@ -376,6 +386,7 @@ func _main_thread_work(delta: float) -> void:
 			if not WorkerThreadPool.is_task_completed(fj["task"]):
 				continue
 			WorkerThreadPool.wait_for_task_completion(fj["task"])
+			_task_info.erase(fj["task"])
 			_far_jobs.erase(c)
 			var fd: Dictionary = fj["out"][0]
 			if fd.is_empty():
@@ -391,6 +402,7 @@ func _main_thread_work(delta: float) -> void:
 	_collision_ring(delta, deadline)
 	last_work += "collision %.1f | " % ((Time.get_ticks_usec() - tc) / 1000.0)
 	while not _free_tasks.is_empty() and WorkerThreadPool.is_task_completed(_free_tasks[0]):
+		_task_info.erase(_free_tasks[0])
 		WorkerThreadPool.wait_for_task_completion(_free_tasks.pop_front())
 	tc = Time.get_ticks_usec()
 	var freed := 0
@@ -494,7 +506,13 @@ func _finish_insert(ins: RefCounted) -> void:
 	ins.data = {}
 	data = {}
 	job.clear()
-	_free_tasks.append(WorkerThreadPool.add_task(func(): holder.clear(), false, "free cell data"))
+	var fprog: Array = ["queued"]
+	var ft := WorkerThreadPool.add_task(func():
+		fprog[0] = "started"
+		holder.clear()
+		fprog[0] = "done", true, "free cell data")
+	_free_tasks.append(ft)
+	_task_info[ft] = ["free cell data %s" % c, fprog]
 
 
 ## Object collision exists only within streaming.collision_radius_m of the player: buckets (CellBuilder
@@ -594,7 +612,12 @@ func _update_far(pc: Vector2i, unload_r: int) -> void:
 			break
 		var out: Array = [{}]
 		var dir := cell_dir(c)
-		_far_jobs[c] = {"out": out, "task": WorkerThreadPool.add_task(func(): out[0] = CellBuilder.prepare_far(dir), false, "far cell %s" % c)}
+		var prog: Array = ["queued"]
+		_far_jobs[c] = {"out": out, "task": WorkerThreadPool.add_task(func():
+			prog[0] = "started"
+			out[0] = CellBuilder.prepare_far(dir)
+			prog[0] = "done", true, "far cell %s" % c)}
+		_task_info[_far_jobs[c]["task"]] = ["far %s" % c, prog]
 
 
 ## Frees a node tree a few nodes per frame (leaves first) instead of all at once. disable_collision: every
@@ -641,7 +664,13 @@ func _unload(c: Vector2i) -> void:
 		drop.append(_col[c])
 	_col.erase(c)
 	# collision buckets (tens of thousands of transforms) and heights: a worker drops the last reference (~15 ms here)
-	_free_tasks.append(WorkerThreadPool.add_task(func(): drop.clear(), false, "free unloaded cell data"))
+	var uprog: Array = ["queued"]
+	var ut := WorkerThreadPool.add_task(func():
+		uprog[0] = "started"
+		drop.clear()
+		uprog[0] = "done", true, "free unloaded cell data")
+	_free_tasks.append(ut)
+	_task_info[ut] = ["free unloaded %s" % c, uprog]
 	spawner.on_cell_unloaded(c)
 	if node:
 		_bury(node)
@@ -651,6 +680,7 @@ func _unload(c: Vector2i) -> void:
 ## Never leave worker tasks running into shutdown (they run GDScript lambdas). Any quit (also a bare SceneTree.quit)
 ## passes here before the converter node exits: stop the converter first, then wait (bounded) for the workers.
 func _exit_tree() -> void:
+	MeshLib.cancelled = true   # workers stop at their next mesh / phase
 	if converter and converter.has_method("stop"):
 		converter.stop()
 	var t0 := Time.get_ticks_msec()
@@ -664,12 +694,20 @@ func _exit_tree() -> void:
 	for c in _far_jobs:
 		tasks.append(_far_jobs[c]["task"])
 	for t in tasks:
-		while not WorkerThreadPool.is_task_completed(t) and Time.get_ticks_msec() - t0 < 10000:
+		while not WorkerThreadPool.is_task_completed(t) and Time.get_ticks_msec() - t0 < 60000:
 			OS.delay_msec(5)
 		if WorkerThreadPool.is_task_completed(t):
 			WorkerThreadPool.wait_for_task_completion(t)
 		else:
-			Log.warn("world exit: worker task %d still running after 10 s, not waiting for it" % t)
+			var ti: Array = _task_info.get(t, ["?", ["?"]])
+			Log.warn("world exit: worker task %d (%s, state %s) still running after 60 s" % [t, ti[0], ti[1][0]])
+			_stuck = true
+	Log.info("world exit: %d worker tasks finished in %d ms" % [tasks.size(), Time.get_ticks_msec() - t0])
+	if _stuck:
+		# never let the engine free scripts and resources under a running worker (that crashed with 0xC0000005):
+		# everything worth keeping is on disk already, so the process ends here with the quit's exit code
+		Log.warn("world exit: terminating the process instead of a teardown under a running worker")
+		OS.kill(OS.get_process_id())
 	building.clear()
 	_size_task = -1
 
@@ -701,6 +739,7 @@ func _add_bytes(n: int) -> void:
 func _poll_size() -> void:
 	if _size_task >= 0 and WorkerThreadPool.is_task_completed(_size_task):
 		WorkerThreadPool.wait_for_task_completion(_size_task)
+		_task_info.erase(_size_task)
 		_cache_bytes = int(_size_result[0]) + _delta_since_scan
 		_size_task = -1
 
@@ -713,7 +752,12 @@ func _refresh_size_async() -> void:
 	var root := cache_root
 	var res := _size_result
 	_delta_since_scan = 0
-	_size_task = WorkerThreadPool.add_task(func(): res[0] = FsUtil.dir_bytes(root), false, "cache size")
+	var sprog: Array = ["queued"]
+	_size_task = WorkerThreadPool.add_task(func():
+		sprog[0] = "started"
+		res[0] = FsUtil.dir_bytes(root)
+		sprog[0] = "done", true, "cache size")
+	_task_info[_size_task] = ["cache size", sprog]
 
 
 func _room_for_requests() -> bool:
