@@ -36,3 +36,4 @@ Když nevíš, kde jsi: přečti NOC.md a MODLOG.md a pokračuj od posledního z
 - 07:46 Sloučeno hra (F10 + vzhled + kolize po krocích). Release 0.2.0-final postaven, preflight CLEAN. Běží: test – finální T6 (cache na E:\meshy_work), offload na E: dobíhá.
 - 08:38 Offload hotov: robocopy přesunul 120 složek na E:\meshy_offload (rc 0/1 = úspěch), C: má 170 GB volných. Běží: test (finální T6).
 - 08:55 Nové zadání 0.3 (výběr nožů) → docs/BRIEF-0.3.md. Pořadí: dokončit 0.2 (T6 → koncept → SHRNUTI-0.2), paralelně 0.3 ve větvích (cs2: nože v konvertoru; hra: menu + výběr).
+- 09:08 Zadání 0.3 rozšířeno (XP a vylepšení, BHOP levely, efekty zásahů) → docs/BRIEF-0.3.md.
