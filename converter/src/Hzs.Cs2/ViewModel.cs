@@ -29,12 +29,19 @@ internal static class ViewModel
     private static readonly (string Name, string[] Prefixes)[] ClipRules =
     [
         ("draw", ["draw_"]),
-        ("idle", ["idle_"]),
+        ("idle", ["idle_", "idle1_"]),
         ("fire", ["shoot1_", "shoot_", "light_miss1_", "throw_overhand_", "throw_"]),
         ("fire2", ["heavy_miss1_"]),
         ("pullpin", ["pullpin_"]),
         ("reload", ["reload_"]),
         ("inspect", ["lookat01_", "lookat_"]),
+    ];
+
+    /// <summary>Further inspect variants (knives: e.g. the butterfly has lookat01..03).</summary>
+    private static readonly (string Name, string[] Prefixes)[] ExtraInspectRules =
+    [
+        ("inspect2", ["lookat02_"]),
+        ("inspect3", ["lookat03_"]),
     ];
 
     /// <summary>All clips referenced by a graph (recursing into nested graphs), in first-seen order.</summary>
@@ -57,10 +64,10 @@ internal static class ViewModel
         return result;
     }
 
-    public static List<ChosenClip> ChooseClips(Cs2Source src, IReadOnlyList<string> clips, Log log)
+    public static List<ChosenClip> ChooseClips(Cs2Source src, IReadOnlyList<string> clips, Log log, bool extraInspects = false)
     {
         var chosen = new List<ChosenClip>();
-        foreach (var (name, prefixes) in ClipRules)
+        foreach (var (name, prefixes) in extraInspects ? ClipRules.Concat(ExtraInspectRules) : ClipRules)
         {
             string? pick = null;
             foreach (var prefix in prefixes)
