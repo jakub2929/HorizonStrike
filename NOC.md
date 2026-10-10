@@ -50,3 +50,4 @@ Když nevíš, kde jsi: přečti NOC.md a MODLOG.md a pokračuj od posledního z
 - 10:14 Sloučeno hra RAM (uvolňování meshů/textur s poslední buňkou, 0 duplicit) + diagnostika pomalých snímků. Běží: test t16 (17/20), vykon (nastavení), svet (špička RAM konvertoru).
 - 10:33 T6 0.2: 18/19 (t16 20/20 OK). t15 se znovu pustí 3× na klidném stroji po záznamech. Sloučeno hra I/O mimo hlavní vlákno.
 - 10:49 Sloučeno svet: špička konvertoru 1,22 GB při hře / 2,08 GB při bootstrapu (cíle 1,5 / 2,5).
+- 11:18 0.2.0 nahrán jako koncept (release 024c27ab…), SHRNUTI-0.2.md konečné. Čeká na „ano“. Běží 0.3: vykon (nastavení), cs2 (RAM zbraní).
