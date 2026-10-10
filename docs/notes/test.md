@@ -400,6 +400,14 @@ t04 FAIL (slot key: current stays ak47), t06 FAIL (crouch key: crouched = false;
   (x, y) build failed: cell.json missing or invalid` - e.g. (-3,-5): converted 04:11:54, gone when the world built
   it at 04:12:39 (the GC evicted a cell the route had requested), converted again and loaded 2 s later. Many
   `[warn] cell (..) eviction failed` lines too. The GC must not evict requested / loading cells.
+- t16 on test-02-build-b (`C:\meshy\_tools\autotest-0.2.0\t16-b`, default cache): 20/20 runs exit 0 with a result,
+  none hung (each ~6 min), 30/30 cells per run, RSS at the end 2743-2838 MB (run 1 2822.5; max +0.6 %), VRAM
+  2088-2124 MB (run 1 2112.6). FAIL only on "0 engine errors in every run": run 1 had the 5 F10 errors, runs 2-20 0.
+  No quit crash in 20 runs (F9 fixed in 0.2.0).
+- Final folder `C:\meshy\_tools\records-0.2\final\`: before\ (3 PNG, 0.1.1), after\ (3 PNG, 0.2.0), video\ (18
+  machine clips from the release exe + cell_crossing.mp4), frametime_0.1_vs_0.2.svg (clean 0.1.1 run h vs 0.2.0
+  suite t15), frametimes-0.1.1.csv / -0.2.0.csv, results.json (suite 18 rows from the release + t16 row from
+  build-b) and the per-run result files.
 
 ## Log
 - 2026-10-09 runner, libs and all 13 scenario scripts written against the documented API; stub verification above.

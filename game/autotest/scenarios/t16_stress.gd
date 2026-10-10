@@ -67,5 +67,5 @@ func _run(ctx):
 		for key in ["rss_end_mb", "vram_end_mb"]:
 			if base.get(key) != null and r.get(key) != null and float(r[key]) > float(base[key]) * 1.15:
 				drift.append("run %d %s %s > %s" % [r.run, key, str(r[key]), str(snappedf(float(base[key]) * 1.15, 0.1))])
-	check("RSS and VRAM at the end of each run within +15 %% of run 1", drift.is_empty() and base.get("rss_end_mb") != null, str(drift) if not drift.is_empty() else "run 1: rss %s MB, vram %s MB" % [str(base.get("rss_end_mb")), str(base.get("vram_end_mb"))])
+	check("RSS and VRAM at the end of each run within +15 % of run 1", drift.is_empty() and base.get("rss_end_mb") != null, str(drift) if not drift.is_empty() else "run 1: rss %s MB, vram %s MB" % [str(base.get("rss_end_mb")), str(base.get("vram_end_mb"))])
 	return true
