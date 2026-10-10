@@ -207,3 +207,10 @@ included). Weak spots, attack origins, hit FX and muzzle flashes are always look
 - Protocol op `{"id":N,"op":"throttle","workers":W,"threads":T}` -> `{"id":N,"event":"throttled",...}`; serve runs at
   BelowNormal priority; `status` reports workers/threads. Game: workers 1 / threads 2 in-world, workers 2 on the
   loading screen. cell.json `sheets` = hash of sheet values affecting cell output (stale cells reconvert).
+
+## 0.3 revisions (2026-10-10)
+- Knives: cache/cs2/knives/index.json ({format, cs2_build, selection, knives:[{id, classname, def_index, display_name,
+  dir, state ok|failed|pending, reason, clips, bytes}]}) + cs2/knives/<id>/ with the weapon layout (meta.json,
+  view.glb clips draw/idle/fire/fire2/inspect[/inspect2/3], world.glb, anim_events.json, icon.svg, snd/). Knife list
+  comes from items_game via the sheet row knives.selection (no list in code). Protocol op
+  `{"op":"knives","ids":[...],"prio":N}` (on demand, after bootstrap, throttled); CLI `hzsconv knives`.

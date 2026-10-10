@@ -328,3 +328,9 @@ Full per-site table: `docs/notes/svet.md`. No placement references `ai/groups`, 
   Jolt builds 16 trimesh shapes when a body enters -> each new shape now built in its own step (unverified at commit).
 - Disk C: filled (0.95 GB free) by ~186 GB of agents' test caches -> 120 folders moved (not deleted) to
   E:\meshy_offload\_tools (OTAZKY.md). New test caches go to E:\meshy_work\.
+- 0.3 started (docs/BRIEF-0.3.md). Branch `release-0.2` marks the 0.2.0 release state (779dbe1).
+- Merged cs2 a83b4a2: 22/22 CS2 knives convert (Knife, Knife T, Bayonet, Classic, Flip, Gut, Karambit, M9 Bayonet,
+  Huntsman, Falchion, Bowie, Butterfly, Shadow Daggers, Paracord, Survival, Ursus, Navaja, Nomad, Stiletto, Talon,
+  Skeleton, Kukri), 132.2 MiB, 45 s, on demand via the knives op. weapon_knifegg (Arms Race golden knife) is excluded
+  by the selection rule (no used_by_classes). Knife finishes cannot be converted: CS2 composite materials (vcompmat)
+  are built by shaders and VRF 20 does not evaluate them – default finish only (3 attempts).
