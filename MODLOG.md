@@ -468,3 +468,17 @@ Full per-site table: `docs/notes/svet.md`. No placement references `ai/groups`, 
   in a frame where the world's work stayed within 1.5 x streaming.main_thread_budget_ms (max wait 1 s) (hra 3aabbfb).
   t25 High dev worst load frame 77.7 / 57.9 -> 45.9 / 39.0 ms. Remaining atomic costs: mesh_library.release of one
   cell 17–30 ms, collision shape build up to 10–12 ms (candidates if the margin is not enough).
+- rc3 suite (release, as Melty launches + --autotest): functional 25/25 PASS; perf t15 PASS (start 127.7/110.1, route
+  164.2/68.5 fps, worst load 33.2 ms), t24 PASS (115.3/81.9 fps, worst 18.6 ms), t27 PASS (60.0 fps, GPU 931 -> 449
+  ms/s), t25 High PASS (158.0/61.4 fps, worst load 38.9 ms, RAM 2743 MiB, VRAM 1753), t25 Low GPU 3.33 ms and VRAM
+  1471 MiB PASS, RAM 2667 MiB FAIL (D66); t16 5/5 (RSS 2556–2624 MB, VRAM 1227 MB, 0 errors); records r05–r09 into
+  C:\meshy\_tools\records-0.3 (r06 inspect clips trimmed 5.43 -> 4.5 s).
+- r08 bhop video lost speed (take-off 6.35, landing ~1.3 m/s): with --fixed-fps 30 two physics steps share a frame and
+  the strafe view correction ran per physics step (overshoot). Now per drawn frame + checks (level 5 > 1.3 x run speed,
+  level 0 keeps run speed): rc4 level 0 max 7.17 m/s, level 5 max 9.70 m/s. Tag v0.3.0-rc4.
+- Version strings were still 0.2.0 (main.gd VERSION, exe file/product version, hzsconv) -> 0.3.0; tag v0.3.0 on
+  release/0.3. Package HorizonStrike-0.3.0.zip, 222 entries (same list as 0.2.0), 83 111 653 B, sha256 99319de3…;
+  Melty validate_recipe valid, one_click_check yes (not uploaded: 0.2.0 still in Melty review). Smoke on v0.3.0: t01,
+  t03, t17, t26 PASS; t22 FAIL once while the user worked on the PC (focus loss releases held keys) – rerun pending.
+- Menu screenshots show rows of light rounded boxes behind the dimmed Esc/knife/upgrades menus (also in hra's 09:17
+  shot, so since the 0.3 menus); engine screenshot = displayed image. hra investigates (fix-03-menu-boxes).
