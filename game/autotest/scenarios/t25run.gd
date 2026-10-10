@@ -117,6 +117,13 @@ func _run(ctx):
 	data.teleports = walker.teleports
 	data.walked_m = snappedf(walker.walked_m, 1.0)
 	data.cell_loads = rec.loads.size()
+	# reload churn (task C: unload ring): a cell inserted more than once during the run
+	var seen := {}
+	for l in rec.loads:
+		seen[l[1]] = int(seen.get(l[1], 0)) + 1
+	data.cell_reloads = seen.values().reduce(func(a, n): return a + n - 1, 0)
+	data.unload_ring = o.i(o.system("streaming.unload_ring"))
+	data.far_albedo_max_px = o.i(o.system("graphics.far_albedo_max_px"))
 	if not (data.other_load_start as Array).is_empty() or not (data.other_load_end as Array).is_empty():
 		note("other game/converter processes ran during the measurement (dev, shared machine): %s / %s" % [str(data.other_load_start), str(data.other_load_end)])
 

@@ -2,12 +2,13 @@ extends "res://autotest/lib/framerec.gd"
 ## FrameRec plus GPU and CPU time per frame (systems perf.gpu_time_rule) and RAM / VRAM samples (perf.ram_rule), for
 ## t25 and t27. GPU time = measured GPU render time of the root viewport and every SubViewport (the first-person
 ## weapon is drawn by one); CPU time = process + physics + render setup + viewport CPU render times.
-## CSV: t_s, frame_ms, phase, cell, event, vram_mb, gpu_ms, cpu_ms. Memory: start_mem_sampler(ctx) -> mem rows.
+## CSV: t_s, frame_ms, phase, cell, event, vram_mb, gpu_ms, cpu_ms, process_ms, physics_ms, render_cpu_ms. Memory: start_mem_sampler(ctx) -> mem rows.
 
 const Proc := preload("res://autotest/lib/proc.gd")
 
 var gpu: Array = []   # per row of `rows`
 var cpu: Array = []
+var cpu_parts: Array = []   # [process_ms, physics_ms, render_cpu_ms] per row (diagnosis of cpu_ms)
 var mem: Array = []   # [t_s, phase, game_mb, converter_mb, vram_mb]
 var sampling := false
 var _vps: Array = []
@@ -36,24 +37,27 @@ func _process(delta: float) -> void:
 		_vp_scan = t
 		_scan_viewports()
 	var g := 0.0
-	var c := RenderingServer.get_frame_setup_time_cpu()
+	var rc := RenderingServer.get_frame_setup_time_cpu()
 	for rid in _vps:
 		g += RenderingServer.viewport_get_measured_render_time_gpu(rid)
-		c += RenderingServer.viewport_get_measured_render_time_cpu(rid)
-	c += (Performance.get_monitor(Performance.TIME_PROCESS) + Performance.get_monitor(Performance.TIME_PHYSICS_PROCESS)) * 1000.0
+		rc += RenderingServer.viewport_get_measured_render_time_cpu(rid)
+	var pr := Performance.get_monitor(Performance.TIME_PROCESS) * 1000.0
+	var ph := Performance.get_monitor(Performance.TIME_PHYSICS_PROCESS) * 1000.0
 	gpu.append(snappedf(g, 0.001))
-	cpu.append(snappedf(c, 0.001))
+	cpu.append(snappedf(pr + ph + rc, 0.001))
+	cpu_parts.append([snappedf(pr, 0.001), snappedf(ph, 0.001), snappedf(rc, 0.001)])
 
 
 func write_csv(path: String) -> bool:
 	var f := FileAccess.open(path, FileAccess.WRITE)
 	if f == null:
 		return false
-	f.store_line("t_s,frame_ms,phase,cell,event,vram_mb,gpu_ms,cpu_ms")
+	f.store_line("t_s,frame_ms,phase,cell,event,vram_mb,gpu_ms,cpu_ms,process_ms,physics_ms,render_cpu_ms")
 	for i in rows.size():
 		var r: Array = rows[i]
-		f.store_line("%s,%s,%s,%s,%s,%s,%s,%s" % [r[0], r[1], r[2], str(r[3]).replace(",", ";"), str(r[4]).replace(",", ";"), r[5],
-			gpu[i] if i < gpu.size() else "", cpu[i] if i < cpu.size() else ""])
+		var cp: Array = cpu_parts[i] if i < cpu_parts.size() else ["", "", ""]
+		f.store_line("%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s" % [r[0], r[1], r[2], str(r[3]).replace(",", ";"), str(r[4]).replace(",", ";"), r[5],
+			gpu[i] if i < gpu.size() else "", cpu[i] if i < cpu.size() else "", cp[0], cp[1], cp[2]])
 	f.close()
 	return true
 
@@ -73,12 +77,15 @@ func gpu_stats(phase_name: String) -> Dictionary:
 	## GPU / CPU ms per frame (avg, p99) and GPU load = GPU busy ms per wall-clock second over the phase
 	var gs: Array = []
 	var cs: Array = []
+	var parts := [0.0, 0.0, 0.0]
 	var wall_ms := 0.0
 	for i in rows.size():
 		if rows[i][2] != phase_name or i >= gpu.size():
 			continue
 		gs.append(gpu[i])
 		cs.append(cpu[i])
+		for k in 3:
+			parts[k] += float(cpu_parts[i][k])
 		wall_ms += float(rows[i][1])
 	if gs.is_empty():
 		return {"frames": 0}
@@ -89,7 +96,9 @@ func gpu_stats(phase_name: String) -> Dictionary:
 	var k := mini(gs.size() - 1, int(ceil(gs.size() * 0.99)) - 1)
 	return {"gpu_ms_avg": snappedf(gsum / gs.size(), 0.01), "gpu_ms_p99": snappedf(gs[k], 0.01),
 		"cpu_ms_avg": snappedf(csum / cs.size(), 0.01), "cpu_ms_p99": snappedf(cs[k], 0.01),
-		"gpu_busy_ms_per_s": snappedf(gsum / maxf(wall_ms / 1000.0, 0.001), 0.1)}
+		"gpu_busy_ms_per_s": snappedf(gsum / maxf(wall_ms / 1000.0, 0.001), 0.1), "frame_ms_avg": snappedf(wall_ms / gs.size(), 0.01),
+		"process_ms_avg": snappedf(parts[0] / gs.size(), 0.01), "physics_ms_avg": snappedf(parts[1] / gs.size(), 0.01),
+		"render_cpu_ms_avg": snappedf(parts[2] / gs.size(), 0.01)}
 
 
 func mem_stats(phases: Array = []) -> Dictionary:
