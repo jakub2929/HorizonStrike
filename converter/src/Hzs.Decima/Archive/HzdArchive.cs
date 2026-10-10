@@ -58,6 +58,16 @@ public sealed class HzdArchive : IDisposable
         }
     }
 
+    /// <summary>Closes every opened archive set (pack handles, chunk cache, file tables); the next Open re-indexes.</summary>
+    public static void CloseAll()
+    {
+        lock (OpenLock)
+        {
+            foreach (var a in Opened.Values) a.Dispose();
+            Opened.Clear();
+        }
+    }
+
     /// <summary>Normalized archive path: forward slashes, no leading slash, ".core" unless it ends in .core/.stream.</summary>
     public static string Normalize(string path)
     {
