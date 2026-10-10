@@ -46,3 +46,4 @@ Když nevíš, kde jsi: přečti NOC.md a MODLOG.md a pokračuj od posledního z
 - 09:52 Sloučeno hra H1–H5 (nože, XP, vylepšení, bhop, efekty; dev skripty skutečným vstupem OK; smoke OK). Zbývá: hra optimalizace RAM + 6,8s snímek z t15; cs2 dvojí převod nože při souběžných požadavcích.
 - 09:55 Sloučeno cs2: nůž se při souběžných požadavcích převede jen jednou.
 - 10:11 Tag v0.2.0-rc (140134b) + větev release/0.2. Oprava 6,8s záseku půjde na release/0.2 (hra), pak t15 (+t16 5× při změně načítání), build z release/0.2, kontrola že v něm není nic z 0.3, koncept na Melty. Pravidlo t16 5× v CLAUDE.md.
+- 10:14 6,8s snímek: t15 běžel současně s mým přesunem 150 GB C:→E: (do 08:27:44) → pravděpodobně I/O zahlcení. Po t16 znovu t15 na klidném stroji; oprava na release/0.2 jen když se zopakuje.
