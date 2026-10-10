@@ -14,6 +14,7 @@ const Campfire := preload("res://world/campfire.gd")
 const CellProfiler := preload("res://world/cell_profiler.gd")
 const CellInserter := preload("res://world/cell_inserter.gd")
 const PipelineWatch := preload("res://world/pipeline_watch.gd")
+const FrameStats := preload("res://core/frame_stats.gd")
 
 var cache_root := ""
 var index := {}
@@ -223,16 +224,25 @@ func _process(delta: float) -> void:
 
 
 func _process_inner(delta: float) -> void:
+	var t := Time.get_ticks_usec()
 	_mem_timer -= delta
 	if _mem_timer <= 0.0:
 		_mem_timer = MEM_REPORT_S
 		Log.info("mem: %s" % JSON.stringify(memory_report()))
+	FrameStats.add("w_mem", t)
+	t = Time.get_ticks_usec()
 	_poll_builds()
+	FrameStats.add("w_builds", t)
+	t = Time.get_ticks_usec()
 	_main_thread_work(delta)
+	FrameStats.add("w_work", t)
+	t = Time.get_ticks_usec()
 	_stream_timer -= delta
 	if _stream_timer <= 0.0:
 		_stream_timer = 0.25
 		_update_streaming()
+	FrameStats.add("w_streaming", t)
+	t = Time.get_ticks_usec()
 	_poll_size()
 	_size_timer -= delta
 	if _size_timer <= 0.0:
@@ -242,10 +252,13 @@ func _process_inner(delta: float) -> void:
 	if _evict_timer <= 0.0:
 		_evict_timer = 1.0
 		enforce_cap()
+	FrameStats.add("w_size_cap", t)
+	t = Time.get_ticks_usec()
 	# a deferred mesh GC asks the converter again until it is idle and nothing is requested
 	_poll_evict()
 	_poll_trash()
 	_poll_mesh_gc()
+	FrameStats.add("w_evict_trash_gc", t)
 	_gc_timer -= delta
 	if _gc_needed and _gc_timer <= 0.0:
 		_gc_timer = 5.0
@@ -299,10 +312,13 @@ func _update_streaming() -> void:
 			if converter:
 				converter.send({"op": "cancel", "cell": [c.x, c.y]})
 			requested.erase(c)
-	# unload full cells beyond the preset's full-cell ring (their far version shows up to the unload ring)
-	for c in loaded.keys():
-		if cheb(c, pc) > full_r:
-			_unload(c)
+	# unload full cells beyond the preset's full-cell ring (their far version shows up to the unload ring): one per
+	# streaming tick, farthest first - a row of 4 cells in one frame was ~20 ms on top of the machine activation that
+	# comes with entering a new cell (0.3 t25 High, cell 0,-2)
+	var gone: Array = loaded.keys().filter(func(c): return cheb(c, pc) > full_r)
+	if not gone.is_empty():
+		gone.sort_custom(func(a, b): return cheb(a, pc) > cheb(b, pc))
+		_unload(gone[0])
 	_update_far(pc, unload_r)
 	if pc != _last_player_cell:
 		_last_player_cell = pc
@@ -781,7 +797,9 @@ static func _veg_count(veg: Dictionary) -> int:
 
 
 func _unload(c: Vector2i) -> void:
+	var t0 := Time.get_ticks_usec()
 	meshes.release(c)   # meshes, materials and textures no other cell holds leave RAM and VRAM with this cell
+	var t_rel := (Time.get_ticks_usec() - t0) / 1000.0
 	var node: Node = loaded.get(c)
 	loaded.erase(c)
 	_ground.erase(c)
@@ -798,10 +816,12 @@ func _unload(c: Vector2i) -> void:
 		uprog[0] = "done", true, "free unloaded cell data")
 	_free_tasks.append(ut)
 	_task_info[ut] = ["free unloaded %s" % c, uprog]
+	var t_sp := Time.get_ticks_usec()
 	spawner.on_cell_unloaded(c)
+	t_sp = Time.get_ticks_usec() - t_sp
 	if node:
 		_bury(node)
-	Log.info("cell %s unloaded" % c)
+	Log.info("cell %s unloaded in %.1f ms (mesh release %.1f, spawner %.1f)" % [c, (Time.get_ticks_usec() - t0) / 1000.0, t_rel, t_sp / 1000.0])
 	note("unload %s" % c)
 
 

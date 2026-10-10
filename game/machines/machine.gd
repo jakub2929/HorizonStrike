@@ -14,6 +14,7 @@ const MachineRig := preload("res://machines/machine_rig.gd")
 const Projectile := preload("res://machines/projectile.gd")
 const MachineAudio := preload("res://machines/machine_audio.gd")
 const ImpactFx := preload("res://machines/fx/impact_fx.gd")
+const FrameStats := preload("res://core/frame_stats.gd")
 
 ## Emitted once when the machine dies (0.3 S2; XP is computed by hra from it). weak = the killing hit was on a weak
 ## spot, silent = the killing hit was a silent strike (take_hit's `silent`). Also forwarded to Game.machine_killed
@@ -178,7 +179,13 @@ func setup(type: String, machine_meta: Dictionary) -> void:
 				attacks.append(row)
 
 
+## Activation cost of this machine (spawner log): whole _ready and the rig build in it.
+var ready_ms := 0.0
+var rig_ms := 0.0
+
+
 func _ready() -> void:
+	var t_ready := Time.get_ticks_usec()
 	name = "%s_%d" % [machine_type.capitalize(), get_instance_id() % 100000]
 	add_to_group("machines")
 	collision_layer = LAYER_MACHINE
@@ -190,7 +197,9 @@ func _ready() -> void:
 	rig = MachineRig.new()
 	rig.name = "Rig"
 	add_child(rig)
+	var t_rig := Time.get_ticks_usec()
 	rig.build(self, machine_type, meta)
+	rig_ms = (Time.get_ticks_usec() - t_rig) / 1000.0
 	audio = MachineAudio.new()
 	audio.name = "Audio"
 	add_child(audio)
@@ -226,6 +235,7 @@ func _ready() -> void:
 	home = global_position
 	_set_state(_calm_state())
 	Game.register_machine(self)
+	ready_ms = (Time.get_ticks_usec() - t_ready) / 1000.0
 
 
 func _exit_tree() -> void:
@@ -563,6 +573,12 @@ func reset_calm() -> void:
 
 
 func _physics_process(delta: float) -> void:
+	var t0 := Time.get_ticks_usec()
+	_physics_inner(delta)
+	FrameStats.add("mach_physics", t0)
+
+
+func _physics_inner(delta: float) -> void:
 	if state == "dead":
 		_dead_t += delta
 		_apply_gravity(delta)

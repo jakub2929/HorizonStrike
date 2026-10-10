@@ -9,6 +9,7 @@ const Log := preload("res://core/log.gd")
 const FsUtil := preload("res://core/fsutil.gd")
 const Machine := preload("res://machines/machine.gd")
 const Content := preload("res://core/content.gd")
+const FrameStats := preload("res://core/frame_stats.gd")
 
 var world: Node3D
 var sites := {}            # site id -> {id, type, count, pos, radius, cell, alive, members, cleared_at, active}
@@ -18,6 +19,15 @@ var _queue: Array = []     # herd members still to spawn: [site, member index, h
 var _warm: Array = []      # warm-up machines to free next frame
 var _rng := RandomNumberGenerator.new()
 var last_process_ms := 0.0  # this node's whole _process last frame (world/cell_profiler.gd slow frame log)
+## A herd member (~4-6 ms: model instance + hitboxes) enters only in a frame where the world's main-thread work stayed
+## within BUSY_FACTOR x streaming.main_thread_budget_ms (a normal insert step ends just past the budget): on top of a
+## frame with an unsplittable world step (a collision shape build, cell unloads) it made 50-65 ms frames when a cell
+## with several sites came in (0.3 t25 High). Never held longer than SPAWN_MAX_WAIT_S.
+const SPAWN_MAX_WAIT_S := 1.0
+const BUSY_FACTOR := 1.5
+var _queue_wait := 0.0
+var _last_wait := 0.0
+var spawns_held := 0         # frames a queued member waited for a lighter frame (log / tests)
 
 
 func _ready() -> void:
@@ -112,10 +122,18 @@ func _process_inner(delta: float) -> void:
 		if is_instance_valid(m):
 			_remove(m)
 	_warm.clear()
-	# herd members enter one per frame (a whole herd in one frame was a 100+ ms hitch)
+	# herd members enter one per frame (a whole herd in one frame was a 100+ ms hitch), and not in a frame the world
+	# already went over its streaming budget (world processes before this child node)
 	if not _queue.is_empty():
-		var q: Array = _queue.pop_front()
-		_spawn_member(q[0], int(q[1]), int(q[2]), q[3])
+		var busy: bool = world != null and float(world.get("last_process_ms")) > BUSY_FACTOR * Sheets.sys_num("streaming.main_thread_budget_ms", 6.0)
+		if busy and _queue_wait < SPAWN_MAX_WAIT_S:
+			_queue_wait += delta
+			spawns_held += 1
+		else:
+			_last_wait = _queue_wait
+			_queue_wait = 0.0
+			var q: Array = _queue.pop_front()
+			_spawn_member(q[0], int(q[1]), int(q[2]), q[3])
 	_timer -= delta
 	if _timer > 0.0:
 		return
@@ -222,7 +240,11 @@ func _spawn_member(s: Dictionary, i: int, n: int, herd: Array) -> void:
 	var gh: float = world.height_at(pos)
 	if not is_nan(gh):
 		pos.y = gh + 0.2
+	var t0 := Time.get_ticks_usec()
 	var m := spawn(s["type"], pos, s)
+	FrameStats.add("mach_spawn", t0)
+	Log.info("spawner: %s entered in %.1f ms (_ready %.1f, rig %.1f, held %.2f s)" % [m.name, (Time.get_ticks_usec() - t0) / 1000.0,
+		m.ready_ms, m.rig_ms, _last_wait])
 	herd.append(m)
 	m.herd = herd
 
