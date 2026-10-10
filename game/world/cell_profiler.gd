@@ -26,11 +26,32 @@ var _route_wait := 0.0
 var _start_done := false
 var vram_start_mb := -1.0
 var _route_frames := PackedFloat32Array()   # frame times (ms) while walking the route
+var _awaits_prev_ms := 0.0
 var _start_frames := PackedFloat32Array()   # frame times (ms) at the start position before the walk (settle)
 
 
+## Records when the last node's _process of a frame ran (process_priority max): node time = last - first.
+class LastProbe:
+	extends Node
+	var t_us := 0
+
+	func _process(_delta: float) -> void:
+		t_us = Time.get_ticks_usec()
+
+
+var _pf_us := 0            # this frame's process_frame signal (before every node; awaits resume after it)
+var _first_us := 0         # this frame's first node _process (this node)
+var _split := ""           # the previous frame split into awaits / nodes / world / spawner (slow frame log)
+var _last_probe: LastProbe
+
+
 func _ready() -> void:
-	process_priority = -100          # measure the frame before other nodes run this frame
+	process_priority = -2147483648   # the first node every frame: measure the frame before other nodes run
+	get_tree().process_frame.connect(_on_process_frame)
+	_last_probe = LastProbe.new()
+	_last_probe.name = "LastProbe"
+	_last_probe.process_priority = 2147483647
+	add_child(_last_probe)
 	if profile:
 		DisplayServer.window_set_vsync_mode(DisplayServer.VSYNC_DISABLED)
 		for c in Sheets.sys("perf.route_cells"):
@@ -67,16 +88,32 @@ func inserted(c: Vector2i, phases: Dictionary, worker: Dictionary, prepare_wall_
 	r.merge(counts)
 
 
+func _on_process_frame() -> void:
+	_pf_us = Time.get_ticks_usec()
+
+
 func _process(_delta: float) -> void:
 	var now := Time.get_ticks_usec()
 	var dt := (now - _last_usec) / 1000.0 if _last_usec > 0 else 0.0
 	_last_usec = now
+	# where the previous frame's process time went: coroutines / signal handlers resumed on process_frame (test
+	# drivers, awaits) ran before the first node; nodes = first node .. last node (incl. World and Spawner)
+	var prev_split := _split
+	var awaits_ms := (now - _pf_us) / 1000.0 if _pf_us > 0 else 0.0
+	var nodes_prev_ms := (_last_probe.t_us - _first_us) / 1000.0 if _first_us > 0 and _last_probe.t_us >= _first_us else 0.0
+	var sp: Node = world.spawner if world else null
+	var between_ms := (_pf_us - _last_probe.t_us) / 1000.0 if _pf_us > _last_probe.t_us and _last_probe.t_us > 0 else 0.0
+	prev_split = "awaits %.1f ms, nodes %.1f ms (world %.1f, spawner %.1f, top: %s), physics/render/other %.1f ms" % [_awaits_prev_ms, nodes_prev_ms,
+		float(world.last_process_ms) if world else 0.0, float(sp.get("last_process_ms")) if sp and sp.get("last_process_ms") != null else 0.0,
+		load("res://core/frame_stats.gd").top(), between_ms]
+	_awaits_prev_ms = awaits_ms
+	_first_us = now
 	# every run (t15 runs without --profile-cells): a slow frame (from 80 % of the t15 limit, to see the near misses)
 	# names the streaming work and world events before it
 	if dt > 0.8 * float(Sheets.sys_num("perf.max_load_frame_ms", 50.0)) and Game.is_world_ready:
-		Log.info("slow frame %.1f ms; machines %d; previous streaming work: %s; physics %.1f ms, process %.1f ms; recent: %s" % [dt, Game.machines.size(), world.last_work,
+		Log.info("slow frame %.1f ms; machines %d; previous streaming work: %s; physics %.1f ms, process %.1f ms; %s; recent: %s" % [dt, Game.machines.size(), world.last_work,
 			Performance.get_monitor(Performance.TIME_PHYSICS_PROCESS) * 1000.0, Performance.get_monitor(Performance.TIME_PROCESS) * 1000.0,
-			world.recent_events(int(dt) + 50)])
+			prev_split, world.recent_events(int(dt) + 50)])
 		Log.info("  pipelines compiled so far: %s" % pipelines())
 	for c in _active.keys():
 		var r: Dictionary = _active[c]
@@ -95,6 +132,7 @@ func _process(_delta: float) -> void:
 			_start_frames.append(dt)
 	if profile:
 		_walk(_delta)
+	load("res://core/frame_stats.gd").note("profiler", now)
 
 
 func _finish(r: Dictionary) -> void:

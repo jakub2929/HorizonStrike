@@ -21,10 +21,7 @@ static func load_from(path: String, default_cap_gib: float) -> void:
 static func save() -> void:
 	if _path == "":
 		return
-	DirAccess.make_dir_recursive_absolute(_path.get_base_dir())
-	var f := FileAccess.open(_path, FileAccess.WRITE)
-	if f:
-		f.store_string(JSON.stringify(data, "  "))
+	load("res://core/file_writer.gd").write_json(_path, data)   # off the main thread (core/file_writer.gd)
 
 
 static func get_value(key: String, default_value: Variant = null) -> Variant:

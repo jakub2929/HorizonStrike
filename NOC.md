@@ -43,3 +43,9 @@ Když nevíš, kde jsi: přečti NOC.md a MODLOG.md a pokračuj od posledního z
 - 09:21 Zadání 0.3 rozšířeno o optimalizaci (bod 4): měření, grafická nastavení s presety, auto preset, RAM, konvertor idle. Nový agent vykon (měření + nastavení), svet (paměť konvertoru), hra (uvolňování dat buněk).
 - 09:30 Sloučeno stroje S1–S2 (jiskry/úlomky z poolu 32 emitorů, 0,05 ms/snímek; signál machine_killed; take_hit má volitelný 7. parametr silent). T6 0.2: 17/18 PASS, t15 FAIL (jeden snímek 6,8 s na trase), t16 10/20 běhů OK.
 - 09:37 Sloučeno svet: konvertor v nečinnosti 118 MB (cíl ≤300). Zbývá snížit špičku při převodu (4–6 GB) → svet.
+- 09:52 Sloučeno hra H1–H5 (nože, XP, vylepšení, bhop, efekty; dev skripty skutečným vstupem OK; smoke OK). Zbývá: hra optimalizace RAM + 6,8s snímek z t15; cs2 dvojí převod nože při souběžných požadavcích.
+- 09:55 Sloučeno cs2: nůž se při souběžných požadavcích převede jen jednou.
+- 10:11 Tag v0.2.0-rc (140134b) + větev release/0.2. Oprava 6,8s záseku půjde na release/0.2 (hra), pak t15 (+t16 5× při změně načítání), build z release/0.2, kontrola že v něm není nic z 0.3, koncept na Melty. Pravidlo t16 5× v CLAUDE.md.
+- 10:14 6,8s snímek: t15 běžel současně s mým přesunem 150 GB C:→E: (do 08:27:44) → pravděpodobně I/O zahlcení. Po t16 znovu t15 na klidném stroji; oprava na release/0.2 jen když se zopakuje.
+- 10:14 Sloučeno hra RAM (uvolňování meshů/textur s poslední buňkou, 0 duplicit) + diagnostika pomalých snímků. Běží: test t16 (17/20), vykon (nastavení), svet (špička RAM konvertoru).
+- 10:33 T6 0.2: 18/19 (t16 20/20 OK). t15 se znovu pustí 3× na klidném stroji po záznamech. Sloučeno hra I/O mimo hlavní vlákno.

@@ -53,5 +53,44 @@ static func random_stream(dir: String, event: String) -> AudioStream:
 	return load_stream(str(list[_rng.randi_range(0, list.size() - 1)]))
 
 
+## Loads every variant of an event now (loading screen), so the first play in a fight reads nothing from disk.
+static func preload_event(dir: String, event: String) -> int:
+	var n := 0
+	for p in events_in(dir).get(event.to_lower(), []):
+		if load_stream(str(p)) != null:
+			n += 1
+	return n
+
+
+## Loads every sound of a folder now (loading screen).
+static func preload_dir(dir: String) -> int:
+	var n := 0
+	for ev in events_in(dir):
+		n += preload_event(dir, str(ev))
+	return n
+
+
+## Worker-safe load into a caller-owned dict (no shared cache touched); the main thread then calls store().
+static func load_uncached(path: String) -> AudioStream:
+	match path.get_extension().to_lower():
+		"wav":
+			return AudioStreamWAV.load_from_file(path)
+		"mp3":
+			return AudioStreamMP3.load_from_file(path)
+		"ogg":
+			return AudioStreamOggVorbis.load_from_file(path)
+	return null
+
+
+## Main thread: puts a stream loaded on a worker into the cache.
+static func store(path: String, s: AudioStream) -> void:
+	if not _streams.has(path):
+		_streams[path] = s
+
+
+static func is_loaded(path: String) -> bool:
+	return _streams.has(path)
+
+
 static func forget_dir(dir: String) -> void:
 	_dirs.erase(dir)

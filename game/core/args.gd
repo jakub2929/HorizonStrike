@@ -18,6 +18,7 @@ var screenshot_path := ""
 var profile_cells := false    ## --profile-cells: dev, vsync off, walk perf.route_cells, write <logs>/cell_phases.csv
 var quit_after_cells := 0     ## --quit-after-cells <n>: dev, quit after n inserted cells (with --profile-cells)
 var no_converter_throttle := false   ## --no-converter-throttle: dev, keep the loading-screen converter workers in play
+var user_dir := ""            ## --user-dir <dir>: settings.json, loadout.json, progression.json there (tests)
 var cache_cap_mib := 0.0      ## --cache-cap-mib <n>: cache cap for this run only (settings.json is not changed)
 var all := PackedStringArray()
 
@@ -91,6 +92,10 @@ static func parse(list: PackedStringArray) -> RefCounted:
 			"--quit-after-cells":
 				if has_value:
 					a.quit_after_cells = int(nxt)
+					i += 1
+			"--user-dir":
+				if has_value:
+					a.user_dir = nxt
 					i += 1
 			"--cache-cap-mib":
 				if has_value:

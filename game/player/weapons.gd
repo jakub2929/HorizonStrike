@@ -46,6 +46,9 @@ func _ready() -> void:
 	audio = WeaponAudio.new()
 	audio.name = "WeaponAudio"
 	add_child(audio)
+	# the start loadout's sounds (and the selected knife model's) are read from disk now, not at the first shot
+	for id in Sheets.start_loadout_ids():
+		audio.preload_weapon(id)
 
 
 func _t() -> float:
@@ -147,6 +150,12 @@ func is_reloading() -> bool:
 # ------------------------------------------------------------------ per frame
 
 func _process(delta: float) -> void:
+	var t_proc := Time.get_ticks_usec()
+	_process_timed(delta)
+	load("res://core/frame_stats.gd").note("weapons", t_proc)
+
+
+func _process_timed(delta: float) -> void:
 	var id: String = player.current_weapon
 	if id == "":
 		return
@@ -158,7 +167,7 @@ func _process(delta: float) -> void:
 		_punch = _punch.lerp(Vector2.ZERO, clampf(delta * 7.0, 0.0, 1.0))
 		if _t() - _last_shot > 0.5:
 			_spray_index = 0
-	player.camera.rotation = Vector3(deg_to_rad(_punch.x), deg_to_rad(_punch.y), 0)
+	player.camera.rotation = Vector3(deg_to_rad(_punch.x + float(player.aimpunch_deg)), deg_to_rad(_punch.y), 0)
 	_update_reload()
 	if player.dead or not Game.gameplay_input_allowed():
 		return
@@ -179,6 +188,8 @@ func _process(delta: float) -> void:
 	if Input.is_action_just_pressed("inspect") and viewmodel and _reload_end < 0.0:
 		viewmodel.play("inspect")
 		audio.play_event(id, "inspect")
+		if viewmodel.is_knife():
+			Log.info("knife: inspect %s %s" % [viewmodel.knife_model, viewmodel.last_anim if viewmodel.last_anim != "" else "(no inspect clip)"])
 
 
 func select_slot(i: int) -> void:
@@ -343,7 +354,7 @@ func fire(api: bool, secondary: bool = false) -> Dictionary:
 			var part := str(col.get_meta("part", "body"))
 			var weak: bool = col.get_meta("weak", false)
 			var d := Combat.range_falloff(id, dmg, origin.distance_to(pos))
-			var dealt: float = m.take_hit(id, d, part, weak)
+			var dealt: float = Combat.player_hit(m, id, d, part, weak, pos, h.get("normal", Vector3.ZERO))
 			if first_target == null or first_target == m:
 				if first_target == null:
 					res["point"] = pos
@@ -353,8 +364,6 @@ func fire(api: bool, secondary: bool = false) -> Dictionary:
 				res["target"] = m
 				res["part"] = part
 				res["damage"] = float(res["damage"]) + dealt
-			if Game.hud:
-				Game.hud.hitmarker(weak)
 		_tracer(origin + basis * Vector3(0.1, -0.12, -0.6), pos)
 	_penalty += pair(id, "inaccuracy_fire")
 	_recoil(id)
@@ -453,16 +462,20 @@ func _knife(id: String, stab: bool, res: Dictionary) -> Dictionary:
 		var m: Node = col.get_meta("machine")
 		var part := str(col.get_meta("part", "body"))
 		var weak: bool = col.get_meta("weak", false)
-		var dealt: float = m.take_hit(id, dmg, part, weak)
+		# silent strike (combat.silent_strike_rule): a stab on an unaware machine from outside its sight cone - any
+		# knife model, the attack is the knife row's
+		var silent := stab and Combat.is_silent_strike(m, cam.global_position)
+		if silent:
+			dmg *= Sheets.sys_num("combat.silent_strike_mult", 1.0)
+			Log.info("silent strike on %s (%s): %.0f damage before armour" % [m.get("machine_type"), m.get("state"), dmg * Combat.Progression.damage_mult()])
+		var dealt: float = Combat.player_hit(m, id, dmg, part, weak, h["position"], h.get("normal", Vector3.ZERO), silent)
+		res["silent"] = silent
 		res["hit"] = true
 		res["target"] = m
 		res["part"] = part
 		res["damage"] = dealt
 		res["point"] = h["position"]
 		res["distance"] = cam.global_position.distance_to(h["position"])
-		audio.play_event(id, "hit")
-		if Game.hud:
-			Game.hud.hitmarker(weak)
 	return res
 
 

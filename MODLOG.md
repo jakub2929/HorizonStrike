@@ -346,3 +346,28 @@ Full per-site table: `docs/notes/svet.md`. No placement references `ai/groups`, 
   incl. LOH, working set trimmed): idle 4278/4250 MB -> 7/118 MB (working set/private); first request after release
   +0.45 s; optional --idle-exit-s (restart costs ~1.3 s, off by default). Peaks still 4.0-6.4 GB during bootstrap and
   4.5 GB while converting cells -> to reduce.
+- Merged hra H1–H5 (28da446): knife menu (Esc > Knife, rotating 3D preview, loadout.json, on-demand knife conversion,
+  F inspect), XP/levels/points/upgrades (progression.json, K menu + Esc, HUD bar + level-up), silent strike (one stab
+  kills; +130 XP on a watcher), damage upgrade x1.10 per level in Combat, bhop levels per sheet (level 0 clips every jump
+  10.16 -> 6.35 m/s; level N keeps N jumps), player-side effects (hitmarker normal/weak/kill, damage numbers + Esc
+  toggle, direction indicator, vignette, aimpunch, CS2 hit/hurt sounds), test API (--user-dir, knife_id,
+  horizontal_speed, aimpunch_deg, viewmodel clips, Game.progression/set_progression, fx_stats(), signals
+  machine_killed/player_hit_machine/player_hurt/level_up, HUD node names). Esc works in automated runs; settings.json
+  moves with --user-dir.
+- 0.2 release process: tag v0.2.0-rc = 140134b (commit the 0.2.0-final candidate was built from at 07:45), branch
+  release/0.2 from the tag; the 6.8 s t15 frame is fixed on release/0.2, then merged into main. (The earlier branch
+  release-0.2 at 779dbe1 has identical code; release/0.2 is the one used.) Stress run t16: 5x, only when loading/quit
+  code changes (CLAUDE.md).
+- t15 6.8 s frame analysis (hra): the final t15 run had 18 frames > 1 s (up to 14.4 s), also in other processes in the
+  same window, with almost no streaming work in them. The orchestrator's disk offload (robocopy of ~150 GB C: -> E:)
+  ran 07:44–08:27:44, overlapping t15 (08:20:08–08:28:57) -> system-wide I/O stalls are the most likely cause. Plan:
+  re-run t15 on the unchanged 0.2.0-final build on a quiet machine after t16; fix on release/0.2 only if it reproduces.
+- Merged hra 0.3 RAM (142b839, 7ee19bc) + slow-frame diagnostics (4760186): meshes/materials/textures held per cell
+  and released with the last holder (RAM + VRAM), re-prepared on a worker if needed again; dup_mesh/dup_tex counters
+  stay 0; dropped build data freed on a worker; `mem:` report every 15 s. Headless 20-cell route: 1845 meshes released,
+  0 duplicates; static memory 1.2–1.56 GB headless (measurable cell arrays ~165 MB; rest nodes/physics/renderer).
+- Merged hra 2475370: settings/loadout/progression writes on a background thread; eviction checks + rename on a
+  worker; converted-cell size via async scan; knife index re-read on a worker; music/ambience loaded on a worker;
+  hit/weapon sounds preloaded on the loading screen; fixed a quit crash from un-awaited knife-index tasks.
+- 0.2 final T6 suite (release 0.2.0-final): 18/19 PASS – all 14 old + t12, t13, t14 + t16 (20/20 runs, 30 cells each,
+  exit 0, 0 errors, RSS 2.73–2.93 GB, VRAM ~2.11 GB); t15 FAIL on one 6.8 s frame during the disk offload -> re-run 3x.
