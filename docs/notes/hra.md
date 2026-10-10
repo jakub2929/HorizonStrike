@@ -169,6 +169,15 @@ Rules I follow: no class_name lookups across files (everything via preload, so a
   converter route (fresh c48 copy, converter built from the branch): without throttle 1% low 62.6 fps, worst
   145.1 ms, 14 frames > 50 ms, route 82 s; with throttle 1% low 76.0 fps, worst 112.1 ms (right after a profiler
   teleport, 4 new surface pipelines), 3 frames > 50 ms, route 96 s (conversion slower).
+- Log is non-blocking (core/log.gd: queue + writer thread every 25 ms; Main._exit_tree / the stuck-quit path call
+  Log.close(), message screens Log.flush()). A synchronous write+flush was a 101.8 ms frame with the converter busy.
+- world/pipeline_watch.gd logs `pipeline watch: <counts> new key: <instancing | vertex format | material>` for
+  pipelines compiled in play (keys the precompile did not draw). Found: meshes without normals and/or UVs (formats
+  0x1001 / 0x1007 / 0x1011; the precompile quads are 0x1017). MeshLib._complete_layout now gives every surface
+  normals (generated) and UVs (zero) -> no in-world compilation on the route; vram buffers +20 MB.
+- Release (tools/build.ps1, its converter = main), fresh c48 copy, converter active and throttled, 1920x1080:
+  start avg 75.0 fps, 1% low 43.2, worst 34.1 ms; route avg 651.7 fps (empty cells while waiting count), 1% low
+  83.2, worst 45.3 ms, 0 frames > 50 ms (of 57466).
 
 ## Notes for teammates (relay via main)
 - test (t10): real cells outside the start area are ~11 MB (meshes/textures shared), 5 steps east add ~164 MB, so
