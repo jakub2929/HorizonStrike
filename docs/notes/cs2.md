@@ -95,3 +95,15 @@
   bone-local inches -> x 0.0254; bone-local frames are unchanged by the glTF conversion (only roots turn).
   Points render on the muzzle / ejection port / P250 mag / molotov rag in Godot (BoneAttachment3D + offset).
   cs2_format 2 (meta.json). Bones and points refer to view.glb; world.glb stays a static mesh.
+- 0.3 knives 2026-10-10: `hzsconv knives` / serve op `knives` (sheets systems knives.selection, hooks cs2.localization,
+  cs2.knife_graphs, cache.knives, proto.knives). items_game: 23 items with prefab chain `melee`; weapon_knifegg (41)
+  has no used_by_classes -> 22 knives. Knife vdata blocks are keyed by def index ("507") with m_szAnimSkeleton;
+  graph names do not follow item names (gypsy_jackknife -> +navajo, widowmaker -> viewmodel_knife_talon), so the graph
+  is found by the secondary skeleton of its draw clip (largest graph wins: the +variation over the base graph).
+  Knife idles are `idle1_*` (clip rule fallback); inspect2/3 = lookat02/03 (knives only, weapons unchanged).
+  csgo_english.txt has `\"` escapes ValveKeyValue's KV1 parser rejects (line 3097) -> line regex for Tokens.
+  Result (fresh cache E:\meshy_work\cs2-knives-1): 22/22 ok, 45 s incl. index, 132.2 MiB; second run cached (0 bytes).
+  Knives have no fx attachments (holster/inventory/stattrak/nametag only) -> points {} like the sheet knife row.
+  Finishes: CS2 paint kits are composite materials (weapons/paints/**.vcompmat: include chain + loose variables,
+  assembled by CS2's composite shaders from pattern, wear and grunge inputs); VRF 20 does not evaluate them -> not
+  converted, default finish only (3 attempts: paint kit data, vcompmat decompile, VRF composite support).

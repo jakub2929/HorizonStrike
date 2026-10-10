@@ -17,6 +17,7 @@ public static class Program
             Console.WriteLine("""
                 hzsconv 0.2.0 - converts your own CS2 and Horizon Zero Dawn content into a local cache
                   hzsconv cs2      --cs2 <dir> --cache <dir> [--only-stats] [--force] [--only id,id]
+                  hzsconv knives   --cs2 <dir> --cache <dir> [--force] [--only id,id]
                   hzsconv machines --hzd <dir> --cache <dir>
                   hzsconv audio    --hzd <dir> --cache <dir>
                   hzsconv index    --hzd <dir> --cache <dir>
@@ -49,6 +50,10 @@ public static class Program
             switch (args[0])
             {
                 case "cs2": Report(Cs2Converter.ConvertWeapons(ctx, console, Cs2Options.Parse(args))); return 0;
+                case "knives":
+                    var ko = Cs2Options.Parse(args);
+                    Report(Knives.ConvertAll(ctx, console, ko.Only, ko.Force));
+                    return 0;
                 case "machines": Report(HzdConverter.ConvertMachines(ctx, console)); return 0;
                 case "audio": Report(HzdConverter.ConvertAudio(ctx, console)); return 0;
                 case "index": Report(HzdConverter.BuildIndex(ctx, console)); return 0;
@@ -128,6 +133,8 @@ internal sealed class Server
     private sealed record Job(long Id, string Op, int X, int Y, int Radius)
     {
         public int Prio { get; set; }
+        public string? Name { get; init; }                // op knife: knife id
+        public IReadOnlyList<string>? Names { get; init; } // op knives: requested ids (null = all)
     }
 
     public int Run(TextReader input, TextWriter _)
@@ -172,6 +179,13 @@ internal sealed class Server
                             Requeue();
                             _proto.Emit(new JsonObject { ["id"] = j.Id, ["event"] = "cancelled" });
                         }
+                    }
+                    break;
+                case "knives":
+                    {
+                        // {"op":"knives","ids":[..],"prio":100}: index first, then one job per knife (default prio after cells)
+                        var ids = req["ids"] is JsonArray ia ? ia.Select(x => x!.GetValue<string>()).ToList() : null;
+                        Enqueue(new Job(id, "knives", 0, 0, 0) { Prio = req["prio"]?.GetValue<int>() ?? 100, Names = ids });
                     }
                     break;
                 case "throttle":
@@ -239,6 +253,11 @@ internal sealed class Server
                 // throttle: wait until fewer than the allowed number of jobs run (the signal is passed on)
                 while (_running >= _allowed && !_ctx.Ct.IsCancellationRequested) Monitor.Wait(_lock, 200);
                 if (!_queue.TryDequeue(out job, out _)) continue;
+                if (job.Op is "knives" or "knife" && _bootstrapActive > 0 && !_bootstrapped)
+                {
+                    // knife work waits for the bootstrap too (the start of play comes first)
+                    _queue.Enqueue(job, (job.Prio, Interlocked.Increment(ref _seq))); Monitor.Wait(_lock, 200); _signal.Release(); continue;
+                }
                 if (job.Op == "cell")
                 {
                     // cells wait while a bootstrap (index + shared data + start cell) is queued or running
@@ -254,6 +273,13 @@ internal sealed class Server
                 long bytes;
                 var cached = false;
                 if (job.Op == "bootstrap") bytes = Bootstrap(job, sink);
+                else if (job.Op == "knives") { KnivesIndex(job, sink); continue; }
+                else if (job.Op == "knife")
+                {
+                    var (state, reason, wasCached, kb) = Knives.ConvertKnife(_ctx, job.Name!);
+                    _proto.Done(job.Id, kb, new JsonObject { ["knife"] = job.Name, ["state"] = state, ["reason"] = reason, ["cached"] = wasCached });
+                    continue;
+                }
                 else if (HzdConverter.CellUpToDate(_ctx, job.X, job.Y)) { bytes = 0; cached = true; } // converted by this HZD build already
                 else bytes = HzdConverter.ConvertCell(_ctx, job.X, job.Y, sink);
                 _proto.Done(job.Id, bytes, job.Op == "cell" ? new JsonObject { ["cell"] = new JsonArray(job.X, job.Y), ["cached"] = cached } : null);
@@ -271,6 +297,19 @@ internal sealed class Server
                 if (job.Op == "bootstrap") lock (_lock) { _bootstrapActive--; Monitor.PulseAll(_lock); }
             }
         }
+    }
+
+    // index.json (cheap), done event with the counts, then one queued "knife" job per requested knife
+    private void KnivesIndex(Job job, IProgressSink sink)
+    {
+        var index = Knives.BuildIndex(_ctx, sink);
+        var ids = Knives.ConvertibleIds(_ctx).Where(i => job.Names is null || job.Names.Contains(i)).ToList();
+        _proto.Done(job.Id, 0, new JsonObject
+        {
+            ["knives"] = index["knives"]!.AsArray().Count, ["knives_ok"] = Knives.Count(index, "ok"),
+            ["knives_failed"] = Knives.Count(index, "failed"), ["knives_pending"] = Knives.Count(index, "pending"), ["queued"] = ids.Count,
+        });
+        foreach (var k in ids) Enqueue(new Job(job.Id, "knife", 0, 0, 0) { Prio = job.Prio, Name = k });
     }
 
     private long Bootstrap(Job job, IProgressSink sink)
