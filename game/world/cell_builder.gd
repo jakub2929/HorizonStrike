@@ -26,7 +26,7 @@ const Sheets := preload("res://core/sheets.gd")
 const LAYER_WORLD := 1
 
 
-static func prepare(cell_dir: String, meshes: RefCounted) -> Dictionary:
+static func prepare(cell_dir: String, meshes: RefCounted, prog: Array = [""]) -> Dictionary:
 	var out := {"ok": false, "dir": cell_dir}
 	var tp := {}   # worker phase times in ms (profiling, H1)
 	var tw := Time.get_ticks_usec()
@@ -83,8 +83,8 @@ static func prepare(cell_dir: String, meshes: RefCounted) -> Dictionary:
 				if img:
 					img.generate_mipmaps()
 					# runtime BC compression exists only in editor builds (release templates log an error)
-					if key == "albedo" and not img.is_compressed() and OS.has_feature("editor"):
-						img.compress(Image.COMPRESS_S3TC, Image.COMPRESS_SOURCE_SRGB)
+					if key == "albedo":
+						MeshLib.compress_srgb(img)
 			if img:
 				out[key + "_img"] = img
 	# terrain normal maps: "world_xz" = R world X, G world Z (Y rebuilt), else tangent space
@@ -132,6 +132,9 @@ static func prepare(cell_dir: String, meshes: RefCounted) -> Dictionary:
 	tp["instances"] = (Time.get_ticks_usec() - tw) / 1000.0
 	tw = Time.get_ticks_usec()
 	# ---- vegetation scattered from the density map
+	if MeshLib.cancelled:
+		return {"ok": false, "dir": cell_dir, "error": "cancelled"}
+	prog[0] = "scatter"
 	out["vegetation"] = _scatter(cell_dir, info, heights, w, h, origin, size)
 	tp["scatter"] = (Time.get_ticks_usec() - tw) / 1000.0
 	var ids := {}
@@ -144,12 +147,17 @@ static func prepare(cell_dir: String, meshes: RefCounted) -> Dictionary:
 			ids[out["vegetation"][key]["mesh"]] = true
 	out["mesh_ids"] = ids.keys()
 	# parse meshes + decode their textures here, on the worker thread
-	var ms: Dictionary = meshes.prepare(out["mesh_ids"])
+	if MeshLib.cancelled:
+		return {"ok": false, "dir": cell_dir, "error": "cancelled"}
+	prog[0] = "meshes"
+	var ms: Dictionary = meshes.prepare(out["mesh_ids"], prog)
 	tp["mesh_parse"] = ms.get("parse_ms", 0.0)
 	tp["mesh_lod"] = ms.get("lod_ms", 0.0)
 	tp["tex_decode"] = ms.get("tex_ms", 0.0)
 	# meshes another cell's worker is still parsing: wait for them (their AABB/kind plan the chunks)
+	prog[0] = "wait_parsed"
 	meshes.wait_parsed(out["mesh_ids"])
+	prog[0] = "plan"
 	tw = Time.get_ticks_usec()
 	_plan(out, meshes)
 	tp["plan"] = (Time.get_ticks_usec() - tw) / 1000.0
@@ -245,6 +253,8 @@ const FAR_TERRAIN_VERTS := 65
 ## (65 x 65, 8 m) with the cell albedo and the converter's hlod.glb proxy (<= 20k triangles, vertex colours).
 ## {} when the cell has no HLOD.
 static func prepare_far(cell_dir: String) -> Dictionary:
+	if MeshLib.cancelled:
+		return {}
 	var info = FsUtil.read_json(cell_dir.path_join("cell.json"))
 	if typeof(info) != TYPE_DICTIONARY:
 		return {}
@@ -482,6 +492,8 @@ static func _scatter(cell_dir: String, info: Dictionary, heights: PackedFloat32A
 	var rng := RandomNumberGenerator.new()
 	var dx := size / float(w - 1)
 	for entry in species:
+		if MeshLib.cancelled:
+			break
 		var sp: Dictionary = entry[0]
 		var ci: int = entry[1]
 		var target := int(float(entry[2]) * (tree_share if str(sp.get("channel", "")) == "trees" else share))

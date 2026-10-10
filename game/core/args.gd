@@ -17,6 +17,7 @@ var screenshot_at := -1.0     ## --screenshot-at <s> <png>: dev, save a screensh
 var screenshot_path := ""
 var profile_cells := false    ## --profile-cells: dev, vsync off, walk perf.route_cells, write <logs>/cell_phases.csv
 var quit_after_cells := 0     ## --quit-after-cells <n>: dev, quit after n inserted cells (with --profile-cells)
+var no_converter_throttle := false   ## --no-converter-throttle: dev, keep the loading-screen converter workers in play
 var all := PackedStringArray()
 
 
@@ -84,6 +85,8 @@ static func parse(list: PackedStringArray) -> RefCounted:
 					i += 2
 			"--profile-cells":
 				a.profile_cells = true
+			"--no-converter-throttle":
+				a.no_converter_throttle = true
 			"--quit-after-cells":
 				if has_value:
 					a.quit_after_cells = int(nxt)

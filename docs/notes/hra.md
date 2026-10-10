@@ -157,6 +157,18 @@ Rules I follow: no class_name lookups across files (everything via preload, so a
   LOD threshold 12 px (render.lod_threshold_px), FXAA, 2048 shadow atlas.
 - Release, converted format-8 route, 1920x1080, no vsync: route avg 98.4 fps, 1% low 46.0, worst 48.7 ms, 0 frames
   > 50 ms; vram at start 1425 MB.
+- Quit crash (0xC0000005 after "quitting", test F9 and the "rare segfault"): World._exit_tree gave up on a running
+  cell prepare after 10 s and the engine freed scripts/resources under it. Now MeshLib.cancelled stops prepare /
+  prepare_far / wait_parsed early, short tasks (free, size, far) are high priority (low-priority slots are few),
+  every task records its progress (`_task_info`) and quit waits up to 60 s; a still-stuck task is logged and the
+  process ends itself (OS.kill own pid = exit 0) instead of a teardown under it. The script logger is removed in
+  Main._exit_tree. Real-start quit loops: before 1/30 and 1/30 crashed; after 40/40, 15/15 (quit at 12 s), 20/20
+  (quit at 8 s) and 30/30 mock smoke without a crash. No backtrace: the crash printed no handler output.
+- Converter throttle (proto.throttle): loading screen keeps --workers, world_ready sends workers/threads from
+  streaming.converter_workers_play / _threads_play (1 / 2); --no-converter-throttle for comparison. Active
+  converter route (fresh c48 copy, converter built from the branch): without throttle 1% low 62.6 fps, worst
+  145.1 ms, 14 frames > 50 ms, route 82 s; with throttle 1% low 76.0 fps, worst 112.1 ms (right after a profiler
+  teleport, 4 new surface pipelines), 3 frames > 50 ms, route 96 s (conversion slower).
 
 ## Notes for teammates (relay via main)
 - test (t10): real cells outside the start area are ~11 MB (meshes/textures shared), 5 steps east add ~164 MB, so

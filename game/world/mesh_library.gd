@@ -40,9 +40,11 @@ func _init(meshes_dir: String) -> void:
 # ------------------------------------------------------------------ worker thread
 
 ## Returns worker time per phase in ms {parse_ms, lod_ms, tex_ms} for the meshes this call actually prepared.
-func prepare(ids: Array) -> Dictionary:
+func prepare(ids: Array, prog: Array = [""]) -> Dictionary:
 	var st := {"parse_ms": 0.0, "lod_ms": 0.0, "tex_ms": 0.0}
 	for raw_id in ids:
+		if cancelled:
+			break
 		var id := str(raw_id)
 		_mutex.lock()
 		var done := _parsed.has(id) or _built.has(id)
@@ -51,11 +53,14 @@ func prepare(ids: Array) -> Dictionary:
 		_mutex.unlock()
 		if done:
 			continue
+		prog[0] = "mesh read " + id
 		var t0 := Time.get_ticks_usec()
 		var p := GlbReader.read(dir.path_join(id + ".glb"), false)
 		var t1 := Time.get_ticks_usec()
 		if not p.is_empty():
+			prog[0] = "mesh tangents " + id
 			_add_tangents(p)
+			prog[0] = "mesh lods " + id
 			_generate_lods(p)
 			if _wants_trimesh(p):
 				p["faces"] = _faces(p)
@@ -68,6 +73,7 @@ func prepare(ids: Array) -> Dictionary:
 		_mutex.unlock()
 		if p.is_empty():
 			continue
+		prog[0] = "mesh textures " + id
 		var t2 := Time.get_ticks_usec()
 		for m in p["materials"]:
 			for n in _map_names(m):
@@ -179,9 +185,25 @@ func _load_image(tex_name: String) -> Image:
 	if not img.is_compressed():
 		img.generate_mipmaps()
 		# runtime BC compression exists only in editor builds (release templates log an error)
-		if OS.has_feature("editor"):
-			img.compress(Image.COMPRESS_S3TC, Image.COMPRESS_SOURCE_SRGB)
+		compress_srgb(img)
 	return img
+
+
+## Runtime S3TC compression of PNG caches (editor builds only; DDS caches never get here) is serialised: the
+## engine's compressor is lazily set up and parallelises internally, several cell workers entering it at once is
+## a race we do not need.
+static var _compress_mutex := Mutex.new()
+## Set when the game quits: worker preparation stops at the next mesh / phase so no worker still runs GDScript
+## while the engine tears the scripts down (a cell prepare took 10+ s; quitting during one crashed the process).
+static var cancelled := false
+
+
+static func compress_srgb(img: Image) -> void:
+	if not OS.has_feature("editor") or img.is_compressed():
+		return
+	_compress_mutex.lock()
+	img.compress(Image.COMPRESS_S3TC, Image.COMPRESS_SOURCE_SRGB)
+	_compress_mutex.unlock()
 
 
 ## DDS file -> Image (block-compressed formats stay compressed; the full mip chain comes from the file). null on error.
@@ -412,7 +434,7 @@ func has_shape(id: String) -> bool:
 func wait_parsed(ids: Array, timeout_ms: int = 20000) -> void:
 	var t0 := Time.get_ticks_msec()
 	for raw_id in ids:
-		while is_pending(str(raw_id)) and Time.get_ticks_msec() - t0 < timeout_ms:
+		while is_pending(str(raw_id)) and Time.get_ticks_msec() - t0 < timeout_ms and not cancelled:
 			OS.delay_msec(2)
 
 
