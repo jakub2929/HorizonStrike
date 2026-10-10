@@ -383,3 +383,8 @@ Full per-site table: `docs/notes/svet.md`. No placement references `ai/groups`, 
   (bootstrap 68.8 s: CS2 weapons 57.6 s, machines 1.9 s, audio 1.6 s, index 0.1 s, start cell 7.6 s; BC encode 9.1 s
   CPU of ~13 s in the start cell); converter throttle only after world ready. The 554 s t09 run overlapped the
   150 GB robocopy onto E: (HZD + test cache on E:). No release/0.2 change needed.
+- Merged cs2 91eec4f + 542eb67: CS2 weapons phase memory median 1955 -> 1378 MB (-30 %) and 67.3 -> 59.5 s (3 texture
+  slots; byte-identical output); bootstrap converts only the start loadout (sheet start_loadout: knife, glock) + stats
+  of all 14 items + UI (cs2 --bootstrap 10.9–12.6 s); other weapons via `{"op":"weapons","ids":[...],"prio":N}` with
+  per-weapon progress/done {weapon, state, reason, cached, bytes}, one CS2 item at a time, deduped, throttled;
+  cs2/weapons/state.json; cs2_format 4. Background set of 12 weapons ~69 s.
