@@ -36,8 +36,9 @@ const UNAWARE_STATES := ["idle", "patrol", "graze", "scavenge"]
 
 ## Every hit the player deals to a machine goes through here (0.3): the damage upgrade multiplies the base damage
 ## (upgrades.damage, before the machine's armour and weak-spot multipliers), the machine takes the hit (hit point and
-## normal for its sparks: frozen take_hit(weapon_id, base_damage, part, is_weak, hit_pos, hit_normal)), then Game
-## awards XP for a kill and drives the hit effects. silent = a silent strike (the caller multiplied the damage).
+## normal for its sparks, silent for its machine_killed: take_hit(weapon_id, base_damage, part, is_weak, hit_pos,
+## hit_normal, silent)), then Game drives the hit effects (XP comes from Game.machine_killed). silent = a silent
+## strike (the caller multiplied the damage).
 ## Returns the health damage dealt.
 static func player_hit(m: Node, weapon_id: String, base_damage: float, part: String, weak: bool,
 		hit_pos: Vector3 = Vector3.INF, hit_normal: Vector3 = Vector3.ZERO, silent: bool = false) -> float:
@@ -46,7 +47,10 @@ static func player_hit(m: Node, weapon_id: String, base_damage: float, part: Str
 	var alive_before := str(m.get("state")) != "dead"
 	var dmg := base_damage * Progression.damage_mult()
 	var dealt: float
-	if m.get_method_argument_count("take_hit") >= 6:
+	var argc := m.get_method_argument_count("take_hit")
+	if argc >= 7:
+		dealt = m.take_hit(weapon_id, dmg, part, weak, hit_pos, hit_normal, silent)
+	elif argc >= 6:
 		dealt = m.take_hit(weapon_id, dmg, part, weak, hit_pos, hit_normal)
 	else:
 		dealt = m.take_hit(weapon_id, dmg, part, weak)   # machine.gd before stroje's 0.3 signature

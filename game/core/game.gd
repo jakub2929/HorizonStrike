@@ -179,13 +179,18 @@ func set_progression(d: Dictionary) -> void:
 	progression_changed.emit()
 
 
-## From core/combat.gd player_hit: effects signal, XP for a kill (machines.xp_reward + weak / silent bonuses).
-func on_player_hit(m: Node, weapon_id: String, dealt: float, _part: String, weak: bool, hit_pos: Vector3, _hit_normal: Vector3,
-		killed: bool, silent: bool) -> void:
+## From core/combat.gd player_hit: the effects signal.
+func on_player_hit(m: Node, _weapon_id: String, dealt: float, _part: String, weak: bool, hit_pos: Vector3, _hit_normal: Vector3,
+		killed: bool, _silent: bool) -> void:
 	player_hit_machine.emit(m, dealt, weak, hit_pos, killed)
-	if not killed:
-		return
-	var type := str(m.get("machine_type"))
+
+
+func _ready() -> void:
+	machine_killed.connect(_on_machine_killed)
+
+
+## XP for a kill (machines.xp_reward + weak / silent bonuses), from the one machine_killed signal (machine._die).
+func _on_machine_killed(type: String, weapon_id: String, weak: bool, silent: bool) -> void:
 	var xp := Progression.kill_xp(type, weak, silent)
 	var reason := "%s kill with %s%s%s" % [type, weapon_id, ", weak spot" if weak else "", ", silent strike" if silent else ""]
 	var ups := Progression.add_xp(xp, reason)
