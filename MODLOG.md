@@ -388,3 +388,7 @@ Full per-site table: `docs/notes/svet.md`. No placement references `ai/groups`, 
   of all 14 items + UI (cs2 --bootstrap 10.9–12.6 s); other weapons via `{"op":"weapons","ids":[...],"prio":N}` with
   per-weapon progress/done {weapon, state, reason, cached, bytes}, one CS2 item at a time, deduped, throttled;
   cs2/weapons/state.json; cs2_format 4. Background set of 12 weapons ~69 s.
+- First launch on main (0.3 work, quiet machine, clean %LOCALAPPDATA% cache): world ready 39.82 s (0.2.0: 81.9 s).
+  Bootstrap 27.8 s = CS2 stats 1.6 + knife 4.2 + glock 5.2 (11.8 s) -> machines ~3.4 -> audio 1.7 -> index -> start cell
+  9.8 s (sequential); then 11.4 s start-cell insertion before precompile (1.3 s). Next: parallel CS2/HZD bootstrap
+  (svet) and a large insertion budget during the loading screen (hra).
