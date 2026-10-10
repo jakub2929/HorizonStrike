@@ -474,3 +474,16 @@ Sites of the new machines (svet 0.2 V3, hzsconv hzd-sites after site_map type:di
   SDF_Layered effect with no texture bindings, RF_FloorGlass wedges, BSP tunnel / cradle pieces, snow drifts).
 - After (cache-svetwork/c54, 5x5 around 4,-3): building 312 078 / 314 160 = 99.3 % (100 % with the hzd_normal none
   materials excluded), rock 100.0 %, vegetation 100.0 %; 35 997 fewer building instances (invisible helpers).
+
+## 0.3 converter memory (2026-10-10)
+- Measured (scratch mem_probe.py, serve, bootstrap radius 1 + 6 cells, caches under E:\meshy_work\svet):
+  before: bootstrap peak 6425 MB working set / 6415 MB private, cells 4718 / 4680 MB, idle 60 s later still
+  4278 / 4250 MB (nothing was ever released: static archive set + chunk cache, shared mesh exporter with its resolver
+  and images, uncompacted heap).
+- In-process release (Hzs.Decima.Memory.ReleaseCaches from Server.IdleWatch after --idle-release-s, default 5 s):
+  CellConverter.ReleaseShared, HzdArchive.CloseAll, LOH CompactOnce + 2x GC.Collect(Aggressive, compacting),
+  SetProcessWorkingSetSize(-1, -1). After: idle 7 MB working set / 118 MB private (log: private 4312 -> 121 MB).
+  Peaks while converting unchanged (bootstrap 4.0 GB, cells 4.5 GB in that run).
+- Cost of the next request: in-process release + archive re-open about +0.45 s (cell 0.55 s vs 0.11 s warm);
+  idle exit (--idle-exit-s, event {"event":"idle_exit","idle_s":N}, exit code 0) + restart about 1.3 s until the
+  first cell is done. Default: release in-process, no exit (hooks proto.idle).

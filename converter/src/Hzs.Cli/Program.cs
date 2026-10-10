@@ -22,7 +22,7 @@ public static class Program
                   hzsconv audio    --hzd <dir> --cache <dir>
                   hzsconv index    --hzd <dir> --cache <dir>
                   hzsconv cell     --hzd <dir> --cache <dir> --cell X,Y
-                  hzsconv serve    --cs2 <dir> --hzd <dir> --cache <dir> [--workers N]
+                  hzsconv serve    --cs2 <dir> --hzd <dir> --cache <dir> [--workers N] [--idle-release-s N] [--idle-exit-s N]
                 """);
             return args.Length == 0 ? 2 : 0;
         }
@@ -62,7 +62,7 @@ public static class Program
                     Report(HzdConverter.ConvertCell(ctx, x, y, console));
                     return 0;
                 case "serve":
-                    return new Server(ctx, opt.Workers).Run(Console.In, Console.Out);
+                    return new Server(ctx, opt.Workers, opt.IdleReleaseS, opt.IdleExitS).Run(Console.In, Console.Out);
                 default:
                     Console.Error.WriteLine($"unknown command {args[0]}");
                     return 2;
@@ -84,7 +84,7 @@ public static class Program
     }
 }
 
-internal sealed record Options(string? Cs2, string? Hzd, string? Cache, string? LogDir, (int, int)? Cell, int Workers)
+internal sealed record Options(string? Cs2, string? Hzd, string? Cache, string? LogDir, (int, int)? Cell, int Workers, int IdleReleaseS = 5, int IdleExitS = 0)
 {
     public static Options Parse(string[] a)
     {
@@ -100,7 +100,9 @@ internal sealed record Options(string? Cs2, string? Hzd, string? Cache, string? 
             cell = (int.Parse(p[0]), int.Parse(p[1]));
         }
         return new Options(Get("--cs2"), Get("--hzd"), Get("--cache"), Get("--log-dir"), cell,
-            int.TryParse(Get("--workers"), out var w) ? Math.Max(1, w) : 2);
+            int.TryParse(Get("--workers"), out var w) ? Math.Max(1, w) : 2,
+            int.TryParse(Get("--idle-release-s"), out var ir) ? Math.Max(0, ir) : 5,
+            int.TryParse(Get("--idle-exit-s"), out var ie) ? Math.Max(0, ie) : 0);
     }
 }
 
@@ -118,11 +120,16 @@ internal sealed class Server
     private long _seq;
     private int _allowed;  // jobs that may run at once (op "throttle"); <= _workers
     private int _running;  // jobs running now
+    private readonly int _idleReleaseS, _idleExitS;
+    private long _lastActivity = Environment.TickCount64; // last request or finished job
+    private bool _released = true;                          // caches already released since the last activity
     private bool _bootstrapped;
     private int _bootstrapActive; // queued or running bootstrap jobs: cells wait for them (start area first)
 
-    public Server(ConvContext ctx, int workers)
+    public Server(ConvContext ctx, int workers, int idleReleaseS = 5, int idleExitS = 0)
     {
+        _idleReleaseS = idleReleaseS;
+        _idleExitS = idleExitS;
         _ctx = ctx;
         _workers = workers;
         _allowed = workers;
@@ -144,6 +151,7 @@ internal sealed class Server
         catch (Exception ex) { _ctx.Log.Warn($"process priority: {ex.Message}"); }
         var threads = Enumerable.Range(0, _workers).Select(i => new Thread(Worker) { IsBackground = true, Name = $"conv{i}", Priority = ThreadPriority.BelowNormal }).ToList();
         threads.ForEach(t => t.Start());
+        new Thread(IdleWatch) { IsBackground = true, Name = "idle", Priority = ThreadPriority.BelowNormal }.Start();
         string? line;
         while ((line = input.ReadLine()) is not null)
         {
@@ -153,6 +161,7 @@ internal sealed class Server
             catch (Exception ex) { _proto.Error(-1, $"bad request: {ex.Message}"); continue; }
             var id = req["id"]?.GetValue<long>() ?? -1;
             var op = req["op"]?.GetValue<string>() ?? "";
+            lock (_lock) { _lastActivity = Environment.TickCount64; _released = false; }
             switch (op)
             {
                 case "bootstrap":
@@ -292,7 +301,7 @@ internal sealed class Server
             }
             finally
             {
-                lock (_lock) { _running--; Monitor.PulseAll(_lock); }
+                lock (_lock) { _running--; _lastActivity = Environment.TickCount64; _released = false; Monitor.PulseAll(_lock); }
                 if (job.Op == "cell") lock (_lock) _runningCells.Remove((job.X, job.Y));
                 if (job.Op == "bootstrap") lock (_lock) { _bootstrapActive--; Monitor.PulseAll(_lock); }
             }
@@ -310,6 +319,42 @@ internal sealed class Server
             ["knives_failed"] = Knives.Count(index, "failed"), ["knives_pending"] = Knives.Count(index, "pending"), ["queued"] = ids.Count,
         });
         foreach (var k in ids) Enqueue(new Job(job.Id, "knife", 0, 0, 0) { Prio = job.Prio, Name = k });
+    }
+
+    /// <summary>
+    /// Nothing queued, nothing running: after --idle-release-s seconds the converter releases its caches (archive set,
+    /// mesh exporter, compacted heap, trimmed working set; the next job re-opens the archives). With --idle-exit-s N
+    /// (default 0 = never) it then announces {"event":"idle_exit","idle_s":N} and exits with code 0; the game starts it
+    /// again on its next request.
+    /// </summary>
+    private void IdleWatch()
+    {
+        while (!_ctx.Ct.IsCancellationRequested)
+        {
+            Thread.Sleep(1000);
+            lock (_lock)
+            {
+                var idle = _queue.Count == 0 && _running == 0 && _pendingCells.Count == 0 && _bootstrapActive == 0;
+                if (!idle) continue;
+                var idleS = (Environment.TickCount64 - _lastActivity) / 1000.0;
+                if (!_released && _idleReleaseS > 0 && idleS >= _idleReleaseS)
+                {
+                    // under the lock: no worker can start a job while the caches go away
+                    var before = System.Diagnostics.Process.GetCurrentProcess().PrivateMemorySize64;
+                    Hzs.Decima.Memory.ReleaseCaches();
+                    var after = System.Diagnostics.Process.GetCurrentProcess().PrivateMemorySize64;
+                    _released = true;
+                    _ctx.Log.Info($"idle {idleS:F0} s: released caches, private bytes {before >> 20} -> {after >> 20} MB");
+                }
+                if (_idleExitS > 0 && idleS >= _idleExitS)
+                {
+                    _proto.Emit(new JsonObject { ["event"] = "idle_exit", ["idle_s"] = _idleExitS });
+                    _ctx.Log.Info($"idle {idleS:F0} s: exit (idle_exit)");
+                    Console.Out.Flush();
+                    Environment.Exit(0);
+                }
+            }
+        }
     }
 
     private long Bootstrap(Job job, IProgressSink sink)
