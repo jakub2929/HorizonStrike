@@ -68,6 +68,35 @@ var _finish_detail := ""
 var _free_tasks: Array = []        # worker tasks dropping finished cells' prepared data
 var _task_info := {}               # task id -> [kind, progress Array (written by the worker)] for quit diagnostics
 var _stuck := false                # a worker task did not finish at quit (see Main.quit_game)
+const EVICT_RETRY_MS := 30000      # a cell that could not be evicted (in use) is skipped this long
+const EVICT_FRESH_S := 10.0        # files written this recently: a converter is still at the cell
+const EVICT_PER_CALL := 4          # cells tried per enforce_cap() (it runs every second; renames cost main-thread time)
+var _evict_retry := {}             # Vector2i -> ticks ms before which evict() leaves the cell alone
+var _trash_running: Array = [false]   # the worker emptying <cache>/trash is running
+var _trash_pin: Array = []            # trash folders whose cell.json meshes are to be pinned (next trash worker)
+var _trash_out: Array = []            # the trash worker's pins until _poll_trash() applied them
+var _gc_running: Array = [false]      # the mesh GC worker is running
+var _gc_out: Array = []               # its result slot until _poll_mesh_gc() applied it
+var _events: Array = []               # [ticks ms, text] of the last second's world events (slow frame log)
+var _col_worst := ""                  # slowest collision op of this frame (slow frame log)
+
+
+## Records a world event for the slow frame log (cell_profiler.gd).
+func note(text: String) -> void:
+	var now := Time.get_ticks_msec()
+	_events.append([now, text])
+	while not _events.is_empty() and now - int(_events[0][0]) > 1000:
+		_events.pop_front()
+
+
+## Events of the last `ms` milliseconds, oldest first ("-" when none).
+func recent_events(ms: int) -> String:
+	var now := Time.get_ticks_msec()
+	var out := PackedStringArray()
+	for e in _events:
+		if now - int(e[0]) <= ms:
+			out.append("%s (%d ms ago)" % [e[1], now - int(e[0])])
+	return ", ".join(out) if not out.is_empty() else "-"
 
 
 func setup(root: String, idx: Dictionary, conv: Node) -> void:
@@ -82,6 +111,7 @@ func setup(root: String, idx: Dictionary, conv: Node) -> void:
 	for c in Game.cells_on_disk():
 		on_disk[c] = true
 	_cache_bytes = FsUtil.dir_bytes(root)
+	_empty_trash()   # cell folders evicted by a run that ended before its trash was deleted
 	if converter:
 		converter.event_received.connect(_on_converter_event)
 	spawner = Spawner.new()
@@ -196,6 +226,8 @@ func _process(delta: float) -> void:
 		_evict_timer = 1.0
 		enforce_cap()
 	# a deferred mesh GC asks the converter again until it is idle and nothing is requested
+	_poll_trash()
+	_poll_mesh_gc()
 	_gc_timer -= delta
 	if _gc_needed and _gc_timer <= 0.0:
 		_gc_timer = 5.0
@@ -290,6 +322,7 @@ func _on_converter_event(e: Dictionary) -> void:
 				_add_bytes(cb)
 				_size_timer = 0.0
 				Log.info("cell %s converted (folder %d bytes, reported %d, cache %d)" % [c, cb, int(e.get("bytes", 0)), _cache_bytes])
+				note("converted %s" % c)
 				enforce_cap()
 		"error":
 			if request_ids.has(id):
@@ -348,7 +381,11 @@ func _poll_builds() -> void:
 		var data: Dictionary = job["result"]
 		if not data.has("info"):
 			building.erase(c)
-			Log.error("cell %s build failed: %s" % [c, data.get("error", "?")])
+			if not FileAccess.file_exists(cell_dir(c).path_join("cell.json")):
+				# this game never deletes a cell it builds (protected_cells); another instance sharing the cache can
+				Log.warn("cell %s left the disk before its build (another game instance evicted it?); converting it again" % c)
+			else:
+				Log.error("cell %s build failed: %s" % [c, data.get("error", "?")])
 			on_disk.erase(c)
 
 
@@ -403,10 +440,11 @@ func _main_thread_work(delta: float) -> void:
 				add_child(fn)
 				far[c] = fn
 				Log.info("far cell %s shown (HLOD %s)" % [c, fd.has("hlod_surfaces")])
+				note("far %s shown" % c)
 			break
 	var tc := Time.get_ticks_usec()
 	_collision_ring(delta, deadline)
-	last_work += "collision %.1f | " % ((Time.get_ticks_usec() - tc) / 1000.0)
+	last_work += "collision %.1f%s | " % [(Time.get_ticks_usec() - tc) / 1000.0, (" (" + _col_worst + ")") if _col_worst != "" else ""]
 	while not _free_tasks.is_empty() and WorkerThreadPool.is_task_completed(_free_tasks[0]):
 		_task_info.erase(_free_tasks[0])
 		WorkerThreadPool.wait_for_task_completion(_free_tasks.pop_front())
@@ -529,6 +567,8 @@ func _collision_ring(delta: float, deadline: int) -> void:
 	if _col_timer <= 0.0:
 		_col_timer = Sheets.sys_num("streaming.collision_update_s", 0.5)
 		_plan_collision_ops()
+	_col_worst = ""
+	var worst_us := 0
 	while not _col_ops.is_empty() and Time.get_ticks_usec() < deadline:
 		var op: Array = _col_ops[0]
 		var c: Vector2i = op[0]
@@ -538,6 +578,7 @@ func _collision_ring(delta: float, deadline: int) -> void:
 		var cc: Dictionary = _col[c]
 		var key: Vector2i = op[1]
 		var t0 := Time.get_ticks_usec()
+		var what := str(op[2])
 		match str(op[2]):
 			"add":
 				if (cc["bodies"] as Dictionary).has(key):
@@ -550,7 +591,10 @@ func _collision_ring(delta: float, deadline: int) -> void:
 						missing = str(it[0])
 						break
 				if missing != "":
-					meshes.get_shape(missing)
+					var sh: Shape3D = meshes.get_shape(missing)
+					if sh != null:
+						_warm_shape(sh)
+					what = "shape %s (%d tris)" % [missing, int(meshes.info(missing).get("tris", 0))]
 				else:
 					# then one body (<= SHAPES_PER_BODY shapes) per step: making all of a dense bucket at once was 15+ ms
 					_col_ops.pop_front()
@@ -567,13 +611,31 @@ func _collision_ring(delta: float, deadline: int) -> void:
 					for b in CellBuilder.make_bucket_bodies(items, meshes):
 						cc["bodies"][key].append(b)
 						(cc["parent"] as Node).add_child(b)
+					what = "body of %d shapes (%s)" % [items.size(), ", ".join(items.map(func(it): return str(it[0]).left(8)))]
 			_:
 				_col_ops.pop_front()
 				for b in cc["bodies"].get(key, []):
 					if is_instance_valid(b):
 						_graveyard.append(b)
 				cc["bodies"].erase(key)
-		profiler.add_main(c, "collision", (Time.get_ticks_usec() - t0) / 1000.0)
+		var us := Time.get_ticks_usec() - t0
+		if us > worst_us:
+			worst_us = us
+			_col_worst = "slowest op %s %.1f ms" % [what, us / 1000.0]
+		profiler.add_main(c, "collision", us / 1000.0)
+
+
+## Jolt builds a shape (trimesh BVH) when the first body using it enters the tree and keeps it with the Shape3D: a
+## bucket body with 16 new trimeshes was a 42 ms step (t15). A throwaway single-shape body (no layers) builds each
+## new shape in its own step; the graveyard frees the body within the budget.
+func _warm_shape(sh: Shape3D) -> void:
+	var b := StaticBody3D.new()
+	b.collision_layer = 0
+	b.collision_mask = 0
+	var o := b.create_shape_owner(b)
+	b.shape_owner_add_shape(o, sh)
+	add_child(b)
+	_graveyard.append(b)
 
 
 func _plan_collision_ops() -> void:
@@ -681,6 +743,7 @@ func _unload(c: Vector2i) -> void:
 	if node:
 		_bury(node)
 	Log.info("cell %s unloaded" % c)
+	note("unload %s" % c)
 
 
 ## Never leave worker tasks running into shutdown (they run GDScript lambdas). Any quit (also a bare SceneTree.quit)
@@ -775,19 +838,20 @@ func _room_for_requests() -> bool:
 	return _cache_bytes <= cap - reserve
 
 
-## Protected cells (cache.protected): within load_ring of the player, lead cells, queued or converting cells.
+## Protected cells (cache.protected): within request_ring of the player, lead cells, queued or converting cells,
+## cells being built, loaded cells and far cells being read.
 func protected_cells() -> Dictionary:
 	var out := {}
 	var pp := player_pos()
 	var load_r := int(Sheets.sys_num("streaming.load_ring", 1))
-	for c in ring(cell_of(pp), load_r):
+	var req_r := maxi(int(Sheets.sys_num("streaming.request_ring", 2)), load_r)
+	for c in ring(cell_of(pp), req_r):
 		out[c] = true
 	for c in ring(cell_of(pp + player_vel() * Sheets.sys_num("streaming.lead_time_s", 60.0)), load_r):
 		out[c] = true
-	for c in requested:
-		out[c] = true
-	for c in building:
-		out[c] = true
+	for d in [requested, building, loaded, _far_jobs]:
+		for c in d:
+			out[c] = true
 	return out
 
 
@@ -802,9 +866,10 @@ func enforce_cap() -> void:
 		return
 	var prot := protected_cells()
 	var pc := cell_of(player_pos())
+	var now := Time.get_ticks_msec()
 	var cands: Array = []
 	for c in on_disk:
-		if not prot.has(c):
+		if not prot.has(c) and int(_evict_retry.get(c, 0)) <= now:
 			cands.append(c)
 	cands.sort_custom(func(a, b):
 		var da := cheb(a, pc)
@@ -812,31 +877,115 @@ func enforce_cap() -> void:
 		if da != db:
 			return da > db
 		return int(loaded_at.get(a, 0)) < int(loaded_at.get(b, 0)))
+	var n := 0
 	for c in cands:
-		if _cache_bytes <= target:
+		if _cache_bytes <= target or n >= EVICT_PER_CALL:
 			break
 		evict(c)
+		n += 1
 	_gc_needed = true
 	_query_status()
 
 
+## A cell folder leaves in one step: it is renamed into <cache>/trash (Windows refuses that while any file in it is
+## open - the converter writing it, a reader in another game instance) and the trash is deleted on a worker. So a
+## cell is either complete on disk or gone, never a folder without cell.json (F10: "build failed: cell.json missing").
+## A cell that cannot go now is skipped for EVICT_RETRY_MS with the reason logged.
 func evict(c: Vector2i) -> void:
 	var dir := cell_dir(c)
+	if not DirAccess.dir_exists_absolute(dir):
+		on_disk.erase(c)
+		Log.info("cell %s is no longer on disk (removed by another game instance); dropped from the cache list" % c)
+		return
+	var busy := _cell_busy(dir)
+	if busy != "":
+		_evict_retry[c] = Time.get_ticks_msec() + EVICT_RETRY_MS
+		Log.info("cell %s not evicted now: %s (retry in %d s)" % [c, busy, EVICT_RETRY_MS / 1000])
+		return
 	var bytes := FsUtil.dir_bytes(dir)
 	var cj := dir.path_join("cell.json")
-	if converter and FileAccess.file_exists(cj) and float(FileAccess.get_modified_time(cj)) >= float(converter.started_unix) - 2.0:
-		var info = FsUtil.read_json(cj)
-		if typeof(info) == TYPE_DICTIONARY:
-			_cell_refs(info, _pinned_meshes, _pinned_tex)
+	# converted by the running converter: its meshes stay (the converter would not write them again); the cell.json
+	# (MBs) is parsed by the trash worker, not here
+	var pin: bool = converter != null and FileAccess.file_exists(cj) and float(FileAccess.get_modified_time(cj)) >= float(converter.started_unix) - 2.0
+	var trash_root := cache_root.path_join("trash")
+	DirAccess.make_dir_recursive_absolute(trash_root)
+	var trash := trash_root.path_join("cell_%d_%d_%d" % [c.x, c.y, Time.get_ticks_usec()])
+	var err := DirAccess.rename_absolute(dir, trash)
+	if err != OK:
+		_evict_retry[c] = Time.get_ticks_msec() + EVICT_RETRY_MS
+		Log.info("cell %s not evicted now: folder in use (rename error %d, retry in %d s)" % [c, err, EVICT_RETRY_MS / 1000])
+		return
+	if pin:
+		_trash_pin.append(trash)
 	if loaded.has(c):
-		_unload(c)
-	if FsUtil.remove_tree(dir, cache_root.path_join("hzd/cells")):
-		_add_bytes(-bytes)
-		on_disk.erase(c)
-		Log.info("cell %s evicted (%d bytes, cache %d, cap %d)" % [c, bytes, _cache_bytes, Game.cache_cap_bytes])
-		Game.cell_evicted.emit(c)
-	else:
-		Log.warn("cell %s eviction failed" % c)
+		_unload(c)   # only a direct call (dev tools); enforce_cap() never picks a loaded cell
+	_evict_retry.erase(c)
+	_add_bytes(-bytes)
+	on_disk.erase(c)
+	Log.info("cell %s evicted (%d bytes, cache %d, cap %d)" % [c, bytes, _cache_bytes, Game.cache_cap_bytes])
+	note("evict %s" % c)
+	Game.cell_evicted.emit(c)
+	_empty_trash()
+
+
+## Why a cell folder must not go now ("" = it may): a converter's temporary file in it or a write in the last
+## EVICT_FRESH_S seconds (a converter - this game's or another instance's - is still writing it).
+func _cell_busy(dir: String) -> String:
+	var d := DirAccess.open(dir)
+	if d == null:
+		return "folder not readable"
+	var now := Time.get_unix_time_from_system()
+	for f in d.get_files():
+		var ext := f.get_extension().to_lower()
+		if ext == "tmp" or ext == "part":
+			return "converter file %s in it" % f
+		if now - float(FileAccess.get_modified_time(dir.path_join(f))) < EVICT_FRESH_S:
+			return "written %d s ago" % int(now - float(FileAccess.get_modified_time(dir.path_join(f))))
+	return ""
+
+
+## Deletes <cache>/trash on a worker (cell folders renamed there by evict(); leftovers from a crash are retried at the
+## next eviction). Pinned folders' cell.json are read first; _poll_trash() pins their meshes. The cache size follows
+## from the next folder scan.
+func _empty_trash() -> void:
+	var trash_root := cache_root.path_join("trash")
+	if not DirAccess.dir_exists_absolute(trash_root) or _trash_running[0]:
+		return
+	var pins := _trash_pin.duplicate()
+	_trash_pin.clear()
+	var tprog: Array = ["queued"]
+	var running: Array = [true]
+	var out: Array = [{}]
+	_trash_running = running
+	_trash_out = out
+	var t := WorkerThreadPool.add_task(func():
+		tprog[0] = "started"
+		var m := {}
+		var tx := {}
+		for p in pins:
+			var info = FsUtil.read_json(str(p).path_join("cell.json"))
+			if typeof(info) == TYPE_DICTIONARY:
+				_cell_refs(info, m, tx)
+		out[0] = {"meshes": m, "tex": tx}
+		for sub in DirAccess.get_directories_at(trash_root):
+			FsUtil.remove_tree(trash_root.path_join(sub), trash_root)
+		tprog[0] = "done"
+		running[0] = false, true, "empty cache trash")
+	_free_tasks.append(t)
+	_task_info[t] = ["empty cache trash", tprog]
+
+
+## Main thread: pins the meshes of evicted cells the running converter made; trash that came in meanwhile goes next.
+func _poll_trash() -> void:
+	if _trash_running[0]:
+		return
+	if not _trash_out.is_empty():
+		var r: Dictionary = _trash_out[0]
+		_trash_out = []
+		_pinned_meshes.merge(r.get("meshes", {}))
+		_pinned_tex.merge(r.get("tex", {}))
+	if not _trash_pin.is_empty():
+		_empty_trash()
 
 
 func _query_status() -> void:
@@ -861,51 +1010,89 @@ static func _cell_refs(info: Dictionary, used: Dictionary, used_tex: Dictionary)
 
 
 ## Deletes hzd/meshes/* that no cell on disk references and the running converter has not converted (only while
-## the converter is idle and no conversion is requested; otherwise it is retried).
+## the converter is idle and no conversion is requested; otherwise it is retried). Reading every cell.json and
+## deleting runs on a worker (on the main thread it was a 50 ms frame with a full cache); _poll_mesh_gc() then drops
+## the deleted meshes from the library.
 func _mesh_gc() -> void:
-	if not requested.is_empty():
+	# evicted cells' pins must be in first (the trash worker reads them)
+	if not requested.is_empty() or _gc_running[0] or _trash_running[0] or not _trash_pin.is_empty() or not _trash_out.is_empty():
 		return
 	_gc_needed = false
+	var dirs: Array = []
+	for c in on_disk:
+		dirs.append(cell_dir(c))
 	var used := _pinned_meshes.duplicate()
 	var used_tex := _pinned_tex.duplicate()
-	for c in on_disk:
-		var info = FsUtil.read_json(cell_dir(c).path_join("cell.json"))
-		if typeof(info) != TYPE_DICTIONARY:
-			return   # unreadable cell.json: keep everything (the next eviction asks again)
-		_cell_refs(info, used, used_tex)
-	var mdir := cache_root.path_join("hzd/meshes")
-	var d := DirAccess.open(mdir)
-	if d == null:
+	var root := cache_root
+	var since := Time.get_unix_time_from_system() - 5.0
+	var out: Array = [{}]
+	var running: Array = [true]
+	var gprog: Array = ["queued"]
+	_gc_running = running
+	_gc_out = out
+	var t := WorkerThreadPool.add_task(func():
+		gprog[0] = "started"
+		out[0] = _mesh_gc_work(root, dirs, used, used_tex, since)
+		gprog[0] = "done"
+		running[0] = false, true, "mesh gc")
+	_free_tasks.append(t)
+	_task_info[t] = ["mesh gc", gprog]
+	note("mesh gc started")
+
+
+## Main thread: applies a finished mesh GC (library entries of deleted meshes, cache size).
+func _poll_mesh_gc() -> void:
+	if _gc_out.is_empty() or _gc_running[0]:
 		return
+	var r: Dictionary = _gc_out[0]
+	_gc_out = []
+	for id in r.get("forget", []):
+		meshes.forget(str(id))
+	note("mesh gc applied (%d meshes dropped)" % (r.get("forget", []) as Array).size())
+	_add_bytes(-int(r.get("freed", 0)))
+	if r.has("kept"):
+		Log.info("mesh gc: %s, nothing removed" % r["kept"])
+	elif int(r.get("removed", 0)) > 0:
+		Log.info("mesh gc: removed %d unreferenced meshes/textures (%d bytes)" % [int(r["removed"]), int(r["freed"])])
+
+
+## Worker: files written after `since` (a conversion that started meanwhile) are kept.
+static func _mesh_gc_work(root: String, dirs: Array, used: Dictionary, used_tex: Dictionary, since: float) -> Dictionary:
+	for dir in dirs:
+		if MeshLib.cancelled:
+			return {"kept": "cancelled"}
+		if not DirAccess.dir_exists_absolute(str(dir)):
+			continue   # evicted since the GC started: its meshes are not needed for it
+		var info = FsUtil.read_json(str(dir).path_join("cell.json"))
+		if typeof(info) != TYPE_DICTIONARY:
+			return {"kept": "unreadable %s/cell.json" % str(dir).get_file()}   # the next eviction asks again
+		_cell_refs(info, used, used_tex)
+	var forget: Array = []
 	var removed := 0
 	var freed := 0
-	for f in d.get_files():
-		if not f.ends_with(".glb"):
-			continue
-		var id := f.get_basename()
-		if used.has(id):
+	var mdir := root.path_join("hzd/meshes")
+	for f in DirAccess.get_files_at(mdir):
+		if not f.ends_with(".glb") or used.has(f.get_basename()):
 			continue
 		var p := mdir.path_join(f)
+		if float(FileAccess.get_modified_time(p)) >= since:
+			continue
 		var sz := FsUtil.file_bytes(p)
 		if DirAccess.remove_absolute(p) == OK:
 			removed += 1
 			freed += sz
-			meshes.forget(id)
-	_add_bytes(-freed)
+			forget.append(f.get_basename())
 	# textures referenced by meshes: keep the ones any remaining cell.json lists in `textures`
-	var tdir := cache_root.path_join("hzd/textures")
-	var td := DirAccess.open(tdir)
-	if td and not used_tex.is_empty():
-		for f in td.get_files():
-			if used_tex.has(f.get_basename()) or used_tex.has(f):
+	var tdir := root.path_join("hzd/textures")
+	if not used_tex.is_empty():
+		for f in DirAccess.get_files_at(tdir):
+			if used_tex.has(f.get_basename()) or used_tex.has(f) or f.ends_with(".tmp"):
 				continue
 			var tp := tdir.path_join(f)
-			if tp.ends_with(".tmp") or not FileAccess.file_exists(tp):
+			if not FileAccess.file_exists(tp) or float(FileAccess.get_modified_time(tp)) >= since:
 				continue
 			var sz2 := FsUtil.file_bytes(tp)
 			if DirAccess.remove_absolute(tp) == OK:
 				removed += 1
 				freed += sz2
-				_add_bytes(-sz2)
-	if removed > 0:
-		Log.info("mesh gc: removed %d unreferenced meshes/textures (%d bytes)" % [removed, freed])
+	return {"forget": forget, "removed": removed, "freed": freed}

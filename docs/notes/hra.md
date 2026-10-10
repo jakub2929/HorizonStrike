@@ -178,6 +178,21 @@ Rules I follow: no class_name lookups across files (everything via preload, so a
 - Release (tools/build.ps1, its converter = main), fresh c48 copy, converter active and throttled, 1920x1080:
   start avg 75.0 fps, 1% low 43.2, worst 34.1 ms; route avg 651.7 fps (empty cells while waiting count), 1% low
   83.2, worst 45.3 ms, 0 frames > 50 ms (of 57466).
+- F10 (eviction): protected = request ring + lead cells + requested + building + loaded + far jobs; a folder with a
+  *.tmp/*.part or written in the last 10 s is skipped with a reason (retry 30 s). A cell leaves by one rename into
+  <cache>/trash (Windows refuses while a file is open -> never half deleted; before, remove_tree deleted cell.json
+  first and then failed on an open file -> "cell.json missing" + endless "eviction failed"); trash emptied on a
+  worker (also at start). A cell gone before its build (another instance on the same cache) = warning + reconvert.
+  `--cache-cap-mib N` caps one run without touching settings.json.
+- Mesh GC (reads every cell.json, deletes files) runs on a worker: on the main thread it was 2.8 s frames with a
+  60-cell cache (the t15 51.7 ms frame at 212 s, VRAM -47 MB right after = meshes dropped). Slow frame lines
+  (> perf.max_load_frame_ms) are logged in every run with the world events of the frames before.
+  f8route0 copy, cap 2000 MiB, profiler route: before 2834 / 2922 / 2728 ms frames; after 0 frames > 50 ms,
+  50 evictions, 0 errors.
+- Visuals (records-0.2 after/*): render.ambient_color + render.ambient_sky_contribution 0.35 (snow in shadow was
+  saturated blue); ProceduralSky ground = horizon / haze colour (the grey ground showed beyond the far cells);
+  render.terrain_layer_gloss (layer ORM G is gloss: c48 means snow 0.18, rock 0.08, grass 0.05, dirt 0.001) and
+  render.terrain_min_roughness 0.6 (snow looked wet). Checked with r01 (C:\meshy\_tools\hra-shots-v1).
 
 ## Notes for teammates (relay via main)
 - test (t10): real cells outside the start area are ~11 MB (meshes/textures shared), 5 steps east add ~164 MB, so
