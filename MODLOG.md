@@ -300,3 +300,10 @@ Full per-site table: `docs/notes/svet.md`. No placement references `ai/groups`, 
   flagged extras.hzd_normal="none"); Cauldron composite `_cmp`/`_nmt` plain textures accepted as normals after a pixel
   check; invisible occluder/collision helper geometry no longer exported (~36k building instances fewer);
   vegetation normals 77.5 % -> 100 %. WorldMeshes.Format 6.
+- Merged hra 8762fe3: crash at quit/teardown (and very likely the rare start segfault) = World._exit_tree stopped
+  waiting for a running cell-prepare task after 10 s and the engine freed resources the task still used -> tasks are
+  cancellable (MeshLib.cancelled), short tasks high priority, quit waits up to 60 s, last resort self-kill with exit 0.
+  Runs: before 1/30 + 1/30 crashes; after 0/40 starts, 0/15 quit@12 s, 0/20 quit@8 s, 0/30 mock smokes. Throttle wired
+  (world_ready -> workers 1 / threads 2, rows streaming.converter_workers_play/_threads_play): active-conversion route
+  1 % low 62.6 -> 76.0 fps, frames > 50 ms 14 -> 3, worst 145 -> 112 ms (4 surface pipelines still compile after the
+  precompile; one 101 ms log write under disk contention).
