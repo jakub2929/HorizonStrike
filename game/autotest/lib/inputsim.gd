@@ -119,6 +119,107 @@ func click(canvas_pos: Vector2, button: MouseButton = MOUSE_BUTTON_LEFT) -> void
 	sent.append("click at %s" % str(canvas_pos.round()))
 
 
+# --- UI: Controls by name, lists, wheel (0.3 menus: Esc > Knife, K upgrades) -------------------------------------
+
+func find_control(control_name: String) -> Control:
+	## the first Control with that node name anywhere under the root (menus keep stable names for tests)
+	return ctx.tree.root.find_child(control_name, true, false) as Control
+
+
+func control_center(c: Control) -> Vector2:
+	## canvas position of a Control's centre (its CanvasLayer transform included)
+	return c.get_global_transform_with_canvas() * (c.size * 0.5)
+
+
+func click_control(c: Variant) -> bool:
+	## a left click on a visible Control (node or node name), like a player clicking it; false when not on screen
+	var ctl: Control = find_control(c) if c is String else c as Control
+	if ctl == null or not ctl.is_visible_in_tree():
+		sent.append("click %s: not on screen" % str(c))
+		return false
+	await click(control_center(ctl))
+	sent.append("clicked %s" % ctl.name)
+	return true
+
+
+func wheel(canvas_pos: Vector2, down: bool, notches: int = 1) -> void:
+	## mouse wheel notches over a canvas position
+	await mouse_move(canvas_pos)
+	for i in notches:
+		for pressed in [true, false]:
+			var e := InputEventMouseButton.new()
+			e.button_index = MOUSE_BUTTON_WHEEL_DOWN if down else MOUSE_BUTTON_WHEEL_UP
+			e.pressed = pressed
+			e.factor = 1.0
+			e.position = _cursor
+			e.global_position = _cursor
+			Input.parse_input_event(e)
+		await ctx.frames(2)
+	sent.append("wheel %s x%d" % ["down" if down else "up", notches])
+
+
+func click_list_item(list: ItemList, metadata: String) -> Dictionary:
+	## scrolls the list with the mouse wheel until the item whose metadata is `metadata` is in view, checks that the
+	## list itself reports that item under the cursor point, then clicks it. {ok, index, why}
+	var idx := -1
+	for i in list.item_count:
+		if str(list.get_item_metadata(i)) == metadata:
+			idx = i
+	if idx < 0:
+		return {"ok": false, "index": -1, "why": "%s not in the list (%d items)" % [metadata, list.item_count]}
+	var xf := list.get_global_transform_with_canvas()
+	for step in 80:
+		var sb := list.get_v_scroll_bar()
+		var scroll := sb.value if sb != null and sb.visible else 0.0
+		var local := list.get_item_rect(idx).get_center() - Vector2(0.0, scroll)
+		var margin := 6.0
+		if local.y < margin:
+			await wheel(xf * (list.size * 0.5), false)
+			continue
+		if local.y > list.size.y - margin:
+			await wheel(xf * (list.size * 0.5), true)
+			continue
+		var under := list.get_item_at_position(local, true)
+		if under != idx:
+			return {"ok": false, "index": idx, "why": "item %d under the point instead of %d" % [under, idx]}
+		await click(xf * local)
+		return {"ok": true, "index": idx, "wheel_steps": step}
+	return {"ok": false, "index": idx, "why": "not scrolled into view"}
+
+
+func key_tap(keycode: Key) -> void:
+	## a raw key press + release (keys without a game action, e.g. arrow keys in a list)
+	for pressed in [true, false]:
+		var k := InputEventKey.new()
+		k.keycode = keycode
+		k.physical_keycode = keycode
+		k.pressed = pressed
+		Input.parse_input_event(k)
+		await ctx.frames(3)
+	sent.append("key %s" % OS.get_keycode_string(keycode))
+
+
+# --- movement: synced air strafe (t22) ------------------------------------------------------------------------------
+
+func strafe_look(target_offset_rad: float = 0.0) -> float:
+	## one mouse-motion correction that turns the view onto the player's horizontal velocity (+ offset): with A or D
+	## held the air acceleration is then perpendicular to the velocity, the CS air-strafe speed gain. Returns the yaw
+	## error before the correction (radians).
+	var p: Node = ctx.player
+	if p == null:
+		return 0.0
+	var v: Vector3 = p.get("velocity")
+	if Vector2(v.x, v.z).length() < 0.5:
+		return 0.0
+	var heading := atan2(-v.x, -v.z) + target_offset_rad
+	if headless_look():
+		var err := wrapf(heading - yaw_pitch().x, -PI, PI)
+		var eye: Vector3 = ctx.player_camera().global_position
+		ctx.player.call("look_at_point", eye + Vector3(-sin(heading), 0.0, -cos(heading)) * 10.0)
+		return err
+	return look_step(heading, 0.0, 600.0).x
+
+
 static func slot_action(weapon_id: String) -> String:
 	## CS weapon slots: 1 primary, 2 pistol, 3 knife, 4 grenades (sheet column weapons.slot)
 	var slot := str(WeaponsSheet.ROWS.get(weapon_id, {}).get("slot", ""))
@@ -169,6 +270,12 @@ func look(dx: float, dy: float) -> void:
 	look_events += 1
 
 
+static func headless_look() -> bool:
+	## --headless: no mouse capture, the game's mouse look never turns the camera (aim_at_point / strafe_look fall
+	## back to pointing the camera as setup; the result details say so)
+	return DisplayServer.get_name() == "headless"
+
+
 func capture_for_look() -> bool:
 	## mouse-look reacts only while the mouse is captured (as during play); returns whether it was captured before
 	var was := Input.mouse_mode == Input.MOUSE_MODE_CAPTURED
@@ -217,6 +324,12 @@ func aim_at_point(p: Vector3, tol_rad: float = 0.002, max_frames: int = 240) -> 
 	var cam: Camera3D = ctx.player_camera()
 	if cam == null:
 		return {"ok": false, "why": "no camera"}
+	if headless_look():
+		# --headless has no mouse capture, so mouse-look events are ignored by the game: the camera is pointed as
+		# setup (the same path Game.aim_at uses); windowed runs always turn it by relative mouse motion
+		ctx.player.call("look_at_point", p)
+		await ctx.frames(1)
+		return {"ok": true, "headless_setup_look": true}
 	var err := Vector2(INF, INF)
 	for i in max_frames:
 		var before := yaw_pitch()

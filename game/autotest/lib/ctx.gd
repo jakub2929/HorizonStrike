@@ -17,8 +17,9 @@ class Rec:
 	func _init() -> void:
 		t0 = Time.get_ticks_msec()
 
-	func on(a: Variant = null, b: Variant = null, c: Variant = null, d: Variant = null) -> void:
-		events.append({"t": (Time.get_ticks_msec() - t0) / 1000.0, "args": [a, b, c, d]})
+	func on(a: Variant = null, b: Variant = null, c: Variant = null, d: Variant = null, e: Variant = null, f: Variant = null) -> void:
+		# up to 6 signal arguments (0.3 player_hit_machine has 5: a 4-parameter callable never received it)
+		events.append({"t": (Time.get_ticks_msec() - t0) / 1000.0, "args": [a, b, c, d, e, f]})
 
 
 class ErrLogger extends Logger:
