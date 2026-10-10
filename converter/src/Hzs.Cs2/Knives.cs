@@ -140,6 +140,10 @@ public static partial class Knives
         {
             using var guard = StdoutGuard.Begin(ctx.Log);
             var session = SessionFor(ctx);
+            // another caller may have converted it while this one waited for the session
+            if (!force && ReadIndex(ctx.Cache).OfType<JsonObject>().FirstOrDefault(k => k["id"]?.GetValue<string>() == id) is { } now
+                && IsCurrent(ctx, now, build) && now["state"]?.GetValue<string>() is "ok" or "failed")
+                return (now["state"]!.GetValue<string>(), now["reason"]?.GetValue<string>(), true, 0);
             try
             {
                 var result = session.Assets.Convert(spec);
