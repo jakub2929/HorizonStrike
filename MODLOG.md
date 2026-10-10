@@ -379,3 +379,7 @@ Full per-site table: `docs/notes/svet.md`. No placement references `ai/groups`, 
 - 0.2.0 uploaded to Melty as DRAFT: release 024c27ab-d661-45b7-9226-0ec9dbcb68e8, upload e6a95a38 (zip sha256 abfec3ed…,
   built from v0.2.0-rc, verified free of 0.3 features). t15 re-runs on the quiet machine: 2/3 PASS (route 1 % low 49.0 /
   44.4 / 47.1; load frames <= 37.9 ms). Listing text + new screenshots applied only at publish (they go live at once).
+- 0.2.0 first launch re-measured on a quiet machine, clean default cache (%LOCALAPPDATA%): world ready 81.9 s
+  (bootstrap 68.8 s: CS2 weapons 57.6 s, machines 1.9 s, audio 1.6 s, index 0.1 s, start cell 7.6 s; BC encode 9.1 s
+  CPU of ~13 s in the start cell); converter throttle only after world ready. The 554 s t09 run overlapped the
+  150 GB robocopy onto E: (HZD + test cache on E:). No release/0.2 change needed.
