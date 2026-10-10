@@ -487,3 +487,23 @@ Sites of the new machines (svet 0.2 V3, hzsconv hzd-sites after site_map type:di
 - Cost of the next request: in-process release + archive re-open about +0.45 s (cell 0.55 s vs 0.11 s warm);
   idle exit (--idle-exit-s, event {"event":"idle_exit","idle_s":N}, exit code 0) + restart about 1.3 s until the
   first cell is done. Default: release in-process, no exit (hooks proto.idle).
+
+## 0.3 converter conversion peak (2026-10-10)
+- Measured first (scratch mem_probe2.py: private bytes per bootstrap stage / throttled cells, sampled 250 ms; dev
+  probe HZS_MEMPROBE=1 logs peak private / managed heap per cell phase, the heap breakdown and resolver bytes):
+  the managed heap was almost all large-object heap (2.7 of 2.76 GB) and mostly garbage. Live: a per-job resolver
+  (205-661 MB of core files per cell) plus the mesh exporter's own resolver (up to 570 MB) holding largely the same
+  mesh resources; garbage: evicted / per-job core files, chunk buffers, decoded images - collected only with gen 2,
+  whose budget grows with the live LOH.
+- Fixes: one shared world resolver (CellConverter.SharedResolver, LRU by bytes, perf.converter_resolver_mb 256;
+  evicted files stay weakly reachable and are revived without a re-read until the GC frees them); material images LRU
+  by bytes (perf.converter_image_cache_mb 64, was clear at 48 entries); pooled compressed chunk buffers; memory
+  governor (perf.converter_soft_cap_mb 1200 in play, perf.converter_soft_cap_bootstrap_mb 2048 during bootstrap):
+  above the cap a compacting aggressive collection, at most every 2 s; after each job / bootstrap stage the same
+  when private > cap / 2. Private bytes via GetProcessMemoryInfo (Process.PrivateMemorySize64 snapshots all
+  processes). Textures were already decoded at the needed mip only (MipFor + ReadRange).
+- Result (same machine, other agents loading it 64-74 % CPU, so wall times swing +-40 %; CPU seconds compared):
+  bootstrap radius 1 peak 4.0-4.3 GB -> 2.08 GB exact (CS2 weapons stage alone 1.8-2.0 GB in both builds; HZD stages
+  <= 1.8 GB); throttled cells after bootstrap 4.1-5.8 GB -> 1.23 GB; cold throttled cells in a fresh process
+  3.6 GB -> 1.22 GB exact. Converter CPU for bootstrap + 6 cells 226-243 s -> 227-232 s; wall bootstrap 108-178 s
+  base vs 112-142 s new; 6 throttled cells 23-46 s vs 23-25 s. Output byte-identical (10 272 cell / mesh / texture files, m27 vs m28).

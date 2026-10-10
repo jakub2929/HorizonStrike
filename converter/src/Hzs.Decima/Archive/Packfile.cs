@@ -117,10 +117,15 @@ public sealed class Packfile : IDisposable
     private byte[] GetChunk(int index, in ChunkEntry c)
     {
         if (_cache.TryGet(this, index, out var cached)) return cached;
-        var comp = new byte[c.CompSize];
-        ReadExactly(comp, (long)c.CompOffset);
+        // the compressed block is only needed here: pooled (no large-object garbage per chunk read)
+        var comp = System.Buffers.ArrayPool<byte>.Shared.Rent((int)c.CompSize);
         var raw = new byte[c.DecSize];
-        _oodle.Decompress(comp, raw);
+        try
+        {
+            ReadExactly(comp.AsSpan(0, (int)c.CompSize), (long)c.CompOffset);
+            _oodle.Decompress(comp.AsSpan(0, (int)c.CompSize), raw);
+        }
+        finally { System.Buffers.ArrayPool<byte>.Shared.Return(comp); }
         _cache.Put(this, index, raw);
         return raw;
     }

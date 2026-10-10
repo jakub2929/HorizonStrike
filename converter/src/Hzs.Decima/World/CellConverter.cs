@@ -47,6 +47,7 @@ public static class CellConverter
         try
         {
             progress.Report("terrain", 0, 1);
+            MemProbe.Phase("1 height");
             var terrain = TerrainReader.ReadReal(res, x, y);
             if (terrain is null)
             {
@@ -56,6 +57,7 @@ public static class CellConverter
             File.WriteAllBytes(Path.Combine(tmp, "height.r32"), TerrainReader.ToR32(terrain.Heights));
             string? albedo = null;
             Assets.Image? albedoImg = null;
+            MemProbe.Phase("2 albedo");
             try
             {
                 albedoImg = TerrainReader.ReadAlbedo(res, x, y, texPx);
@@ -67,6 +69,7 @@ public static class CellConverter
             }
             catch (Exception ex) { ctx.Log.Warn($"cell {x},{y}: albedo: {ex.Message}"); }
             string? normal = null, normalSource = null;
+            MemProbe.Phase("3 normal");
             try
             {
                 var (nimg, nsrc) = TerrainReader.ReadNormal(res, x, y, terrain, HzdNames.Int("terrain.normal_px"));
@@ -77,9 +80,11 @@ public static class CellConverter
             progress.Report("terrain", 1, 1);
 
             // static geometry: placements -> shared meshes
+            MemProbe.Phase("4 placements");
             var placements = Assets.Timers.Time("placements", () => new Placements(res, ctx.Log).ForTile(x, y));
             var unique = placements.Select(p => (p.MeshFile, p.MeshUuid)).Distinct().ToList();
             var meshes = Meshes(ctx, res);
+            MemProbe.Phase("5 meshes");
             var ids = new System.Collections.Concurrent.ConcurrentDictionary<(string, Guid), MeshRef?>();
             var done = 0;
             Parallel.ForEach(unique, ConversionLimits.Options(ctx.Ct), u =>
@@ -117,6 +122,7 @@ public static class CellConverter
             }).ToArray());
 
             // procedural vegetation: density map + species (the game scatters)
+            MemProbe.Phase("6 vegetation");
             JsonNode? vegetation = null;
             try
             {
@@ -175,6 +181,7 @@ public static class CellConverter
 
             // water surfaces: the tile's water layer (StaticMeshInstances of water meshes; the game applies its water shader)
             JsonObject? water = null;
+            MemProbe.Phase("7 water");
             try
             {
                 var wp = new Placements(res, ctx.Log).ForLayerFile($"{WorldTiles.TileDir(x, y)}/{HzdNames.Fill("water.layer", ("x", x.ToString()), ("y", y.ToString()))}");
@@ -204,6 +211,7 @@ public static class CellConverter
 
             // terrain material layers: shared layer textures + per-cell blend masks (fallback from HZD world data)
             JsonObject? layers = null;
+            MemProbe.Phase("8 layers");
             try
             {
                 var mpx = HzdNames.Int("terrain.mask_px");
@@ -224,6 +232,7 @@ public static class CellConverter
 
             // culling and distance rendering: occluders + merged coarse LOD proxy (hlod.glb)
             JsonObject? occluders = null, hlod = null;
+            MemProbe.Phase("9 hlod");
             try
             {
                 occluders = CellLod.Occluders(terrain, lodInstances);
@@ -237,6 +246,7 @@ public static class CellConverter
             catch (Exception ex) { ctx.Log.Warn($"cell {x},{y}: occluders / hlod: {ex.Message}"); }
 
             // machine sites (variant B)
+            MemProbe.Phase("10 sites");
             var sites = new RobotSites(res, ctx.Log).ForTile(x, y);
             JsonObject SpawnJson(Spawn sp) => new()
             {
@@ -294,7 +304,8 @@ public static class CellConverter
             throw;
         }
         var bytes = Sizes.DirBytes(target) + Interlocked.Read(ref written.Value);
-        ctx.Log.Info($"cell {x},{y}: {bytes} bytes (cell + new shared meshes/textures), {sw.ElapsedMilliseconds} ms; cpu ms {Assets.Timers.Since(timers)}");
+        ctx.Log.Info($"cell {x},{y}: {bytes} bytes (cell + new shared meshes/textures), {sw.ElapsedMilliseconds} ms; cpu ms {Assets.Timers.Since(timers)}{MemProbe.Report()}{(MemProbe.Enabled ? $"; resolver cell {res.CachedBytes >> 20} loaded {res.LoadedBytes >> 20} MB" : "")}");
+        MemProbe.Phase("-");
         return bytes;
     }
 
@@ -312,19 +323,34 @@ public static class CellConverter
     private static readonly object MeshesLock = new();
     private static WorldMeshes? _meshes;
     private static string? _meshesRoot;
+    private static Resolver? _shared;
 
-    /// <summary>Drops the shared-mesh exporter (its resolver, decoded images and per-process mesh / texture state).</summary>
+    /// <summary>Drops the shared resolver and mesh exporter (core files, decoded images, per-process mesh / texture state).</summary>
     public static void ReleaseShared()
     {
-        lock (MeshesLock) { _meshes = null; _meshesRoot = null; }
+        lock (MeshesLock) { _meshes = null; _meshesRoot = null; _shared = null; }
+    }
+
+    /// <summary>
+    /// The process-wide core-file cache of world conversion (byte-bounded LRU): cell jobs and the shared mesh exporter
+    /// read through it, so a mesh resource the placements touch is not read and held a second time.
+    /// </summary>
+    public static Resolver SharedResolver(Archive.HzdArchive arc)
+    {
+        lock (MeshesLock)
+        {
+            if (_shared is null || _shared.Archive != arc) { _shared = new Resolver(arc, ConversionLimits.ResolverBytes); _meshes = null; }
+            return _shared;
+        }
     }
 
     /// <summary>One shared-mesh exporter per cache root (dedupes meshes across cells and workers).</summary>
     private static WorldMeshes Meshes(ConvContext ctx, Resolver res)
     {
+        var shared = SharedResolver(res.Archive);
         lock (MeshesLock)
         {
-            if (_meshes is null || _meshesRoot != ctx.Cache.Root) { _meshes = new WorldMeshes(new Resolver(res.Archive), ctx.Cache, ctx.Log); _meshesRoot = ctx.Cache.Root; }
+            if (_meshes is null || _meshesRoot != ctx.Cache.Root) { _meshes = new WorldMeshes(shared, ctx.Cache, ctx.Log); _meshesRoot = ctx.Cache.Root; }
             return _meshes;
         }
     }
