@@ -358,3 +358,7 @@ Full per-site table: `docs/notes/svet.md`. No placement references `ai/groups`, 
   release/0.2 from the tag; the 6.8 s t15 frame is fixed on release/0.2, then merged into main. (The earlier branch
   release-0.2 at 779dbe1 has identical code; release/0.2 is the one used.) Stress run t16: 5x, only when loading/quit
   code changes (CLAUDE.md).
+- t15 6.8 s frame analysis (hra): the final t15 run had 18 frames > 1 s (up to 14.4 s), also in other processes in the
+  same window, with almost no streaming work in them. The orchestrator's disk offload (robocopy of ~150 GB C: -> E:)
+  ran 07:44–08:27:44, overlapping t15 (08:20:08–08:28:57) -> system-wide I/O stalls are the most likely cause. Plan:
+  re-run t15 on the unchanged 0.2.0-final build on a quiet machine after t16; fix on release/0.2 only if it reproduces.
