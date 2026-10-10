@@ -139,3 +139,29 @@ anim/speeds/perception thresholds/attacks/herd/flee, machine_attacks.json. Newes
   Verified (copy of c48 = C:\meshy\_tools\stroje\cache-t05a, 1280x720, --fixed-fps 30): watcher walk (frames
   601..814), attack (608..804), death (579..760), grazer walk (603..816); check frames not blank (Y mean 115-133),
   watcher_walk.mp4 trimmed to 7.1 s. Files in C:\meshy\_tools\stroje\showcase\.
+  Caution: launching the game from this worktree used the worktree's converter build; mine predated svet's V3 and
+  rewrote hzd/machines in cache-t05a with old meta (Sawtooth without points). Watcher/Grazer were unaffected; for
+  recordings use a converter built from main (rebuilt 2026-10-10) and a fresh cache copy.
+- 2026-10-10 Sawtooth blaze canister vs t13 (release 0.2.0: 4/8, target >= 6/8) - NOT reached, rig left unchanged.
+  Facts (fresh copy of c48 = C:\meshy\_tools\stroje\cache-t13):
+  - the canister is real geometry (2122 vertices skinned to the weak helper joint); rendered position == hitbox
+    space (rest * bind_pose == identity for that joint), so there is no bind/rest offset.
+  - it hangs 0.6 m below the chest joint: machine space x -0.19..0.19, y 1.13..1.56, z -0.51..0.62, slung under the
+    chest between the front shoulders. Rendered from 8 directions (12 m, eye 1.6 m) with the canister painted red:
+    0, 8, 12, 40, 80, 36, 8, 4 visible pixels (960x540, fov 40) - only thin slivers under the belly show. Shoulder
+    armour plates on the front legs, the neck/head and the hips cover it.
+  - t13's check (first hitbox on the ray is the weak part, or a body box that contains the weak hit point),
+    emulated in a probe (10 m ring, eye 1.7 m, aim at weak_points centres): current rig sawtooth 3/8 (t13 measured
+    4/8), watcher/strider/grazer/scrapper/broadhead 7/8. The passing directions pass only because one huge vertex
+    AABB of the chest bone (1.75 x 3.5 x 3.7 m incl. the tail fins) wraps the canister: the shot crosses 0.8-1.8 m
+    of body.
+  Tried (3 attempts, then stopped per the run rules): (1) weak box fitted to the canister geometry + body boxes split
+  k-d by their vertices (266 boxes): 2/8; (2) + body boxes clipped so none overlaps the weak box: 0/8; (3) weak
+  geometry box only: sawtooth 3/8, scrapper 7 -> 6/8, broadhead 7 -> 5/8. A faithful hitbox cannot make this canister
+  the first thing a standing player's shot meets from 6 of 8 sides, because the mesh itself hides it. The game's own
+  rule (weapons.gd: weak wins within 0.15 m behind the body surface or inside ANY body box of the machine) gives 8/8
+  exact shots (dev/weak_spots.gd, WEAKSPOTS OK); t13's "inside the FIRST hit box" is stricter than the game.
+  Options for the orchestrator: (a) accept Sawtooth 3-4/8 in t13 with this explanation (a belly canister, hit from
+  low angles); (b) a design rule: an enclosed weak part gets a proxy hitbox projected to the nearest body surface
+  (gameplay over fidelity); (c) svet checks whether the canister joint's placement (rest from the initial pose)
+  matches HZD.
