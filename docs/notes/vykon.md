@@ -48,3 +48,27 @@ Source of truth for my running decisions. Newest entries at the bottom of "Log".
   uncapped 106.7 MiB, cap 1024 26.7 MiB, cap 512 6.7 MiB, cap 256 1.7 MiB. 512 (merged) already takes 94 % of the
   saving; 256 would save 5 MiB more and is coarser than a screen pixel at ring 2 (~1 m/px at 1-1.5 km, 1080p).
   Decision: keep 512.
+- Task C unload ring, headless Low (t25run run directly: `--headless -- --autotest t25run --gfx-preset low
+  --fps-limit 0`, same route, dev shared machine; GPU / VRAM / window checks meaningless headless):
+  | run | unload_ring | game WS peak | reloads | worst load frame | converter |
+  | vykon03-c-ring3-1 | 3 | 2221.8 MiB | 0 | 318 ms | converted new cells, peak 1056 MiB (not comparable) |
+  | vykon03-c-ring2-1 | 2 | 1932.3 MiB | 2 of 25 loads | 36.7 ms | idle (warm) |
+  | vykon03-c-ring3-2 | 3 | 2110.7 MiB | 0 of 23 loads | 34.9 ms | idle (warm) |
+  Warm comparison: ring 2 saves 178 MiB (-8.5 %) and adds 2 reloads per 10-cell route. But streaming.unload_ring
+  is also the outer far-cell ring (world._update_far: far cells from render.hlod_from_ring to unload_ring), so 2 also
+  cuts the HLOD horizon from 1.5 km to 1 km. Headless Low peak 2.11 GB is under 2.5 GB with ring 3. Decision: leave
+  3 (sheet unchanged); if the windowed Low run exceeds perf.low_game_ram_max_mb, split a full-cell unload ring from
+  the far ring in world.gd (owner hra) and set the full-cell one to 2.
+- Converter idle (headless runs): working set 5.6-10.0 MiB, private bytes 20.9-21.4 MiB after 15 s idle; peak while
+  converting new cells on the route 1056 MiB. Target 300 MB met by a wide margin.
+- t01 PASS headless (vykon03-t0103-1); t03 FAIL headless: buy wheel opens, prices shown, but the synthetic clicks do
+  not reach the GUI without a window (no "bought" line in the game log). My branch changes no game code outside
+  game/autotest (git diff main -- game ':!game/autotest' ':!game/generated' is empty); t03 must be run windowed.
+- r08clip headless check (no movie): level 5 take-off 10.16 then 10.19 m/s kept for 5 jumps, then clipped to 6.35;
+  level 0 clips at the first landing and decays 6.35 -> 1.55 m/s. My air-strafe input alone did not raise the speed
+  (6.40 m/s on every landing), hence the setup boost to 1.6 x run speed after the first take-off (sheet r08 setup).
+  Clip length counted in physics steps (drawn frames do not advance headless).
+- r07clip headless check: 18 s, 23 hitmarkers / numbers / sparks, 12 player hits, 5 waves (weak-spot AK shots kill a
+  scrapper or watcher in one shot, so a new wave is spawned when one is down). Aim by Game.aim_at as lib/combat.gd;
+  the closed-loop mouse aim missed every shot while aimpunch kicked the view.
+- Paused by the coordinator (windowed): t25 (Low + High), r05, r06, r09 and the movie runs of r07, r08.
