@@ -214,7 +214,7 @@ func _await_ground(ctx) -> void:
 	var p: Node = ctx.player
 	var t0 := Time.get_ticks_msec()
 	await ctx.physics_frames(2)
-	var ok: bool = await ctx.wait_until(func(): return not bool(p.get("_hold_until_ground")) and p.call("is_on_floor"), 60.0)
+	var ok: bool = await ctx.wait_until(func(): return p.get("_hold_until_ground") != true and p.call("is_on_floor"), 60.0)
 	if not data.has("ground_waits_s"):
 		data.ground_waits_s = []
 	data.ground_waits_s.append([snappedf((Time.get_ticks_msec() - t0) / 1000.0, 0.1), ok])

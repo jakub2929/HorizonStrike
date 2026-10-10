@@ -11,6 +11,7 @@ const Combat := preload("res://autotest/lib/combat.gd")
 const InputSim := preload("res://autotest/lib/inputsim.gd")
 const Frame := preload("res://autotest/lib/frame.gd")
 const HitCheck := preload("res://autotest/lib/hitcheck.gd")
+const Sites := preload("res://autotest/lib/sites.gd")
 const DIST_M := 10.0
 
 
@@ -27,7 +28,14 @@ func _run(ctx):
 	var o = ctx.oracle
 	if not check("glock taken with its slot key (%s)" % InputSim.new(ctx).describe(InputSim.slot_action("glock")), await Combat.equip(ctx, "glock"), "current %s" % str(ctx.player.get("current_weapon"))):
 		return false
-	var base: Vector3 = ctx.forward()
+	# a fixed open field and a fixed direction: the result must not depend on where earlier scenarios left the player
+	# (rc2 suite: watchers spawned 10 m ahead of wherever s01 ended, the body shot killed through the eye)
+	ctx.player.set("invulnerable", true)
+	var field: Dictionary = await Sites.go_test_field(ctx, DIST_M + 4.0)
+	data.field = {"pos": str(field.pos), "clear": field.clear, "tried": field.tried, "cells": field.cells}
+	if not field.clear:
+		note("no clear %d m ring near the test field; using %s anyway" % [int(DIST_M + 4.0), str(field.pos)])
+	var base := Vector3(0.0, 0.0, -1.0)
 	var a: Node = await ctx.spawn_ahead("watcher", DIST_M, -6.0, false, base)
 	var b: Node = await ctx.spawn_ahead("watcher", DIST_M, 6.0, false, base)
 	if not check("spawn two watchers", a != null and b != null):
@@ -73,7 +81,7 @@ func _run(ctx):
 	data.weak_shot = shot_b
 	data.weak_shot_grazer = shot_c
 
-	var dmg: float = o.num(o.weapon("glock", "damage"))
+	var dmg: float = o.num(o.weapon("glock", "damage")) * HitCheck.damage_mult(ctx)   # x the damage upgrade of the profile in use (setup state, not changed)
 	var hs: float = o.num(o.weapon("glock", "headshot_mult"))
 	var ar: float = o.num(o.weapon("glock", "armor_ratio"))
 	var ars: float = o.f(o.system("combat.armor_ratio_scale"))
@@ -119,6 +127,7 @@ func _run(ctx):
 
 
 func _shot(ctx, m: Node, part: String, min_damage: float = 0.0) -> Dictionary:
+	await HitCheck.steady(ctx)   # standing still on loaded ground: no jump / move inaccuracy in the measured shot
 	var before := float(m.get("health"))
 	# line of sight from the camera to the point we shoot at; when something else is in the way (a tree, another
 	# machine) the player moves around the target at the same distance (8 directions) before firing
@@ -152,6 +161,7 @@ func _shot(ctx, m: Node, part: String, min_damage: float = 0.0) -> Dictionary:
 		np.y = float(gy) + 0.1 if gy != null else ctx.player_pos().y
 		await ctx.call_api(ctx.game, "teleport", [np])
 		await ctx.physics_frames(3)
+		await HitCheck.steady(ctx)
 	await ctx.physics_frames(2)
 	var cam: Camera3D = ctx.camera()
 	var cam_pos: Vector3 = cam.global_position if cam != null else ctx.player_pos()

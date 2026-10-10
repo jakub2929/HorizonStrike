@@ -12,11 +12,14 @@ const InputSim := preload("res://autotest/lib/inputsim.gd")
 const HitCheck := preload("res://autotest/lib/hitcheck.gd")
 const Combat := preload("res://autotest/lib/combat.gd")
 const Frame := preload("res://autotest/lib/frame.gd")
+const Sites := preload("res://autotest/lib/sites.gd")
 
 const WEAPON := "deagle"
 const RING_M := 10.0
-const SITE := Vector3(2582.0, 178.0, 780.0)  # open snow field south of FE_Antelope_Scout (cell 5,-2)
 const BIG_HP := 100000.0
+
+
+var hit_log = null
 
 
 func _init() -> void:
@@ -40,19 +43,14 @@ func _run(ctx):
 	if not check("%s taken with its slot key" % WEAPON, await inp.equip(WEAPON), str(p.get("current_weapon"))):
 		return false
 	inp.capture_for_look()
-	await ctx.call_api(g, "teleport", [SITE])
-	var c: Variant = ctx.cell_of(SITE)
-	var w: Variant = g.get("world") if "world" in g else null
-	if w is Object and w.has_method("is_cell_loaded") and c != null:
-		await ctx.wait_until(func(): return bool(w.call("is_cell_loaded", c)), 300.0)
-	await ctx.wait(2.0)
-	var gy: Variant = await ctx.ground_y(SITE.x, SITE.z)
-	var center := Vector3(SITE.x, float(gy) if gy != null else SITE.y, SITE.z)
-	var spot: Dictionary = await ctx.clear_spot(center, RING_M)
-	data.spot = {"pos": str(spot.pos), "clear": spot.clear, "tried": spot.tried}
+	# the fixed test field (lib/sites.gd: site cells converted on a fresh cache, its cell loaded, a clear 8-direction ring)
+	var spot: Dictionary = await Sites.go_test_field(ctx, RING_M)
+	data.spot = {"pos": str(spot.pos), "clear": spot.clear, "tried": spot.tried, "cells": spot.cells}
 	if not spot.clear:
-		note("no spot with a clear 8-direction ring within 160 m of %s; using it anyway" % str(center))
-	center = spot.pos
+		note("no spot with a clear 8-direction ring within 160 m of %s; using it anyway" % str(Sites.TEST_FIELD))
+	var center: Vector3 = spot.pos
+	# every hit on a machine during the scenario (t, machine, damage, weak): a hit outside a test shot is reported
+	hit_log = ctx.record(g, "player_hit_machine")
 	var per := {}
 	for mt in MachinesSheet.ROWS:
 		per[mt] = await _machine(ctx, inp, g, o, mt, center)
@@ -78,13 +76,15 @@ func _machine(ctx, inp, g: Node, o, mt: String, center: Vector3) -> Dictionary:
 	ctx.spawned.append(m)
 	if "ai_enabled" in m:
 		m.set("ai_enabled", false)
+	# health far above any shot from the start (setup): a stray hit can not kill it before its 8 directions
+	m.set("health", BIG_HP)
 	await ctx.physics_frames(5)
 	var weak_parts: Array = Array(await ctx.call_api(m, "weak_spots"))
 	info.weak_spots = weak_parts
 	if not check("%s: reports weak spots" % mt, not weak_parts.is_empty(), str(weak_parts)):
 		return info
 	var armor0: float = float(m.get("armor")) if "armor" in m else 0.0
-	var dmg: float = o.num(o.weapon(WEAPON, "damage"))
+	var dmg: float = o.num(o.weapon(WEAPON, "damage")) * HitCheck.damage_mult(ctx)   # x the damage upgrade of the profile in use (setup state, not changed)
 	var hs: float = o.num(o.weapon(WEAPON, "headshot_mult"))
 	var rm: float = o.num(o.weapon(WEAPON, "range_modifier"))
 	var step: float = o.f(o.system("combat.range_step_u"))
@@ -103,8 +103,30 @@ func _machine(ctx, inp, g: Node, o, mt: String, center: Vector3) -> Dictionary:
 		pos.y = float(gy) + 0.05 if gy != null else pos.y
 		await ctx.call_api(g, "teleport", [pos])
 		await ctx.physics_frames(4)
+		await HitCheck.steady(ctx)   # on loaded ground, still: no jump / landing inaccuracy in the shots
 		_refill(ctx)
 		var d := {"deg": 45 * k}
+		if Combat.is_dead(m):
+			# killed outside a test shot (rc2 suite: the Watcher died 0.37 s into its first direction): report the hits
+			# seen so far and put a fresh one at the same place (setup) so the remaining directions still measure
+			var stray: Array = hit_log.events.filter(func(e): return e.args[0] == m).map(func(e): return [snappedf(e.t, 0.01), snappedf(float(e.args[1]), 0.01), e.args[2], e.args[4]])
+			note("%s: dead before direction %d deg; its hits so far %s; respawned" % [mt, 45 * k, str(stray)])
+			info["died_outside_shots"] = info.get("died_outside_shots", []) + [{"deg": 45 * k, "hits": stray}]
+			var at: Vector3 = (m as Node3D).global_position
+			ctx.despawn(m)
+			await ctx.call_api(g, "teleport", [center + Vector3(0, 2.0, 40.0)])
+			m = await ctx.call_api(g, "spawn_machine", [mt, at])
+			if not (m is Node):
+				break
+			ctx.spawned.append(m)
+			if "ai_enabled" in m:
+				m.set("ai_enabled", false)
+			m.set("health", BIG_HP)
+			await ctx.physics_frames(5)
+			await ctx.call_api(g, "teleport", [pos])
+			await ctx.physics_frames(4)
+			await HitCheck.steady(ctx)
+		m.set("health", BIG_HP)
 		# which weak point (of which part) is the first hit from here
 		var target := {}
 		for part in weak_parts:
