@@ -851,6 +851,7 @@ static func make_chunk(spec: Dictionary, meshes: RefCounted) -> MultiMeshInstanc
 	mmi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON if spec["shadow"] else GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	if spec.get("water", false):
 		mmi.material_override = WaterMaterial.get_material()
+	GraphicsSettings.track_chunk(mmi, str(spec["name"]))   # GRAPHICS HOOK (vykon): vegetation distance + density
 	return mmi
 
 

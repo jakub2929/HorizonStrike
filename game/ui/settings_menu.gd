@@ -77,6 +77,7 @@ func _ready() -> void:
 	fs.button_pressed = bool(Settings.get_value("fullscreen", false))
 	fs.toggled.connect(_on_fullscreen)
 	box.add_child(fs)
+	box.add_child(preload("res://ui/graphics_menu.gd").make_button(self))   # GRAPHICS HOOK (vykon): Esc menu entry "Graphics"
 	var resume := Button.new()
 	resume.text = "Resume"
 	resume.pressed.connect(close)
