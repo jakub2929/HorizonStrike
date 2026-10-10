@@ -1,13 +1,14 @@
 # Shrnutí před publikováním – Horizon Strike 0.3.0
 
-**Stav: ROZPRACOVANÉ (2026-10-10 ~21:40).** Balíček `HorizonStrike-0.3.0.zip` je připravený a prošel kontrolami Melty
+**Stav: PŘIPRAVENO K NAHRÁNÍ (2026-10-10 ~21:45).** Balíček `HorizonStrike-0.3.0.zip` je připravený a prošel kontrolami Melty
 (`validate_recipe` platný, `one_click_check` = yes, 222 souborů umístěno, 0 vynecháno). Na Melty zatím NENÍ nahraný:
 0.2.0 je pořád v ruční kontrole Melty (viz „Čeká“). Nic není publikované.
 
-Build: značka `v0.3.0` (větev `release/0.3`), `C:\meshy\_tools\release\0.3.0`, zip
-`C:\meshy\_tools\release\HorizonStrike-0.3.0.zip` (83 111 653 B, sha256 `99319de3…2eed5c8f`). Kontrola balíčku
-(`tools/preflight.py package`): CLEAN – nic ze hry v balíčku. Celá sada testů běžela na `v0.3.0-rc3`/`rc4`; `v0.3.0` se
-od rc4 liší jen čísly verze (hra, exe, konvertor) a od rc3 navíc jen opravou nahrávače videa bhopu (r08).
+Build: značka `v0.3.0-rc5` (větev `release/0.3`), `C:\meshy\_tools\release\0.3.0-rc5`, zip
+`C:\meshy\_tools\release\HorizonStrike-0.3.0.zip` (83 111 716 B, sha256 `45916d5b…2c805493`). Kontrola balíčku
+(`tools/preflight.py package`): CLEAN – nic ze hry v balíčku. Celá sada testů běžela na `v0.3.0-rc3`/`rc4`; rc5 se
+od rc3 liší jen nahrávačem videa bhopu (r08), čísly verze 0.3.0 a jedním řádkem, který schová mřížku pro kompilaci
+shaderů po načítací obrazovce (obdélníčky v menu). Na rc5: t01, t18, t21, t26, r05 PASS; t22 PASS na `v0.3.0`.
 
 ## Co je nového proti 0.2
 - **Nože:** výběr modelu nože z CS2 ve tvé instalaci (22 nožů), Esc → Knife s otáčejícím se 3D náhledem, vlastní
@@ -68,8 +69,7 @@ od rc4 liší jen čísly verze (hra, exe, konvertor) a od rc3 navíc jen opravo
   (level 5: 7,82 → 9,47 → 10,87 → 12,11 → 13,23 m/s, skok 6 ořízne).
 
 ## Záznamy (`C:\meshy\_tools\records-0.3\`)
-- `shots\knife_menu.png`, `shots\upgrades_menu.png` (r05) – **pozor: v pozadí menu jsou řady světlých obdélníčků
-  (vada UI, už od začátku menu 0.3), řeší se – čeká.**
+- `shots\knife_menu.png`, `shots\upgrades_menu.png` (r05, znovu na rc5 – bez obdélníčků).
 - `video\inspect_knife_karambit.mp4`, `…_m9_bayonet.mp4`, `…_butterfly.mp4` (r06, oříznuto na 4,5 s).
 - `video\combat.mp4` (r07, 18,6 s: hitmarkery, čísla, jiskry, zásahy hráče).
 - `video\bhop_l0_vs_l5.mp4` (r08, 10 s vedle sebe; rychlost nabírá hráč jen strafem: level 0 max 7,2 m/s, level 5 max
@@ -83,16 +83,16 @@ od rc4 liší jen čísly verze (hra, exe, konvertor) a od rc3 navíc jen opravo
   namapované soubory (~600 MB, z toho DLL ovladače NVIDIA ~330 MB) a halda Godotu (~1 GB), které na presetu nezávisí –
   Low i High mají stejnou špičku a ani menší prstenec plných buněk ji nesnížil o víc než 25 MB.
 - Nože jen ve výchozím finishi.
-- Obdélníčky v pozadí menu (oprava běží).
+- Opraveno v rc5: řady obdélníčků za menu hned po startu – mřížka ~1200 kvádříků pro kompilaci shaderů 3 m před
+  startovní kamerou se po načítání jen pomalu uvolňovala a nebyla schovaná.
 - Rezerva nejhoršího snímku při načítání je ~11 ms: uvolnění meshů jedné buňky stojí najednou 17–30 ms a stavba
   kolizního tvaru až 12 ms (kandidáti na další optimalizaci).
 - Dřívější známé: zdi a podlahy Cauldronu šedé; Sawtoothův kanystr zasažitelný jako první věc z 5/8 směrů.
 
 ## Čeká
-1. Opravit obdélníčky v pozadí menu a znovu vyfotit r05 (běží).
-2. Melty: 0.2.0 je stále v ruční kontrole („Melty's team will take a look“), na listingu je věta o review.
+1. Melty: 0.2.0 je stále v ruční kontrole („Melty's team will take a look“), na listingu je věta o review.
    Druhá selhaná instalace 0.1.1 nemá v `install_outcomes` žádný důvod (hlášen jen výpadek Melty u jedné) – nic
    nenaznačuje chybu hry.
-3. Nahrát 0.3.0 jako koncept (submit_release) až po schválení 0.2.0 (tvé rozhodnutí); pak
+2. Nahrát 0.3.0 jako koncept (submit_release) až po schválení 0.2.0 (tvé rozhodnutí); pak
    screenshoty a text listingu 0.3 (`docs/listing-0.3.md`) až při publikaci, a „ano“ → publish.
-4. Vrátit tvou cache a profil z `%LOCALAPPDATA%\HorizonStrike\prev-0.3rc-1440` (po posledním okenním běhu).
+- Cache a profil vráceny z `prev-0.3rc-1440` (21:35); testovací profil leží v `prev-0.3rc-testprofile-2135`.
