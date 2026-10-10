@@ -161,6 +161,12 @@ public static partial class Knives
                 reason = ex.Message;
                 ctx.Log.Warn($"knife {id}: {ex}");
             }
+            finally
+            {
+                // one knife at a time: its textures and buffers go before the next one
+                ModelExport.ClearCache();
+                ProcessMemory.CollectNow();
+            }
         }
         ctx.Log.Info($"knife {id}: {state}{(reason is null ? "" : $" ({reason})")}, {bytes / 1024} KiB in {sw.Elapsed.TotalSeconds:F1} s, clips {string.Join(" ", clips)}");
         UpdateEntry(ctx, id, e =>

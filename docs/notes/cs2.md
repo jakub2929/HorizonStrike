@@ -115,3 +115,11 @@
   request id to that job (and raises its priority) and gets the same done event; ConvertKnife re-checks the index
   inside the session lock. Overlap test (selected "knife" prio -1 + all prio 100, fresh E:\meshy_work\cs2-knifedup-1):
   22 conversions, none twice, "knife" done for both requests at 7.4 s, 0 non-JSON lines.
+- 0.3 memory 2026-10-10 (CLI cs2, fresh caches E:\meshy_work\cs2-mem-*, output SHA-256 identical in every run):
+  base 79566b7 A/B median 67.3 s / 1955 MB private peak (single runs up to 2581 MB). Changes: parsed items_game/vdata
+  released after the stats; ProcessMemory.CollectNow (Hzs.Common: finalizers for VRF's undisposed SkiaSharp bitmaps +
+  aggressive LOH compaction) after every VRF export and every item/knife; Glb keeps added views out of BIN until
+  Compact (no whole-buffer copy per texture); VRF export on a ConcurrentExclusiveScheduler with TextureSlots + 1
+  threads (VRF texture tasks continue on TaskScheduler.Current); re-encoded images cached by input hash per item (world
+  and skinned exports of a weapon share textures), re-encode 2 in parallel. A/B 2 vs 3 slots (quiet machine):
+  2 slots 81.6 s / 1224 MB, 3 slots 59.5 s / 1378 MB -> 3 slots (faster than before, -30 % peak).

@@ -48,11 +48,12 @@ public static class Cs2Converter
 
         using var guard = StdoutGuard.Begin(ctx.Log);
         using var src = Cs2Source.Open(ctx.Cs2Dir);
-        var data = new Cs2Data(src);
-        var weapons = StatsConverter.ResolveWeapons(ctx, data);
-        var bytes = StatsConverter.Write(ctx, weapons, StatsConverter.ResolveSystems(ctx, data));
+        var (weapons, bytes) = Stats(ctx, src);
         ctx.Log.Info($"cs2 stats: {ctx.Cache.Cs2WeaponsJson}");
         if (opt.OnlyStats) return bytes;
+        // the parsed items_game / vdata are garbage now: give them back before the models
+        ProcessMemory.CollectNow();
+        LogPeak(ctx, "stats");
 
         var rows = Hzs.Generated.WeaponsSheet.All.Where(r => opt.Only is null || opt.Only.Contains(r.Id)).ToList();
         var sounds = new SoundExport(src, ctx.Log);
@@ -68,6 +69,11 @@ public static class Cs2Converter
             var dirBytes = Sizes.DirBytes(ctx.Cache.Cs2Weapon(rows[i].Id));
             bytes += dirBytes;
             ctx.Log.Info($"{rows[i].Id}: {dirBytes / 1024} KiB in {sw.Elapsed.TotalSeconds:F1} s");
+            // one item at a time: decoded textures (native SkiaSharp bitmaps VRF leaves to the finalizer), GLB buffers
+            // and resources of this item are freed before the next one starts
+            ModelExport.ClearCache();
+            ProcessMemory.CollectNow();
+            LogPeak(ctx, rows[i].Id);
         }
         progress.Report("weapons", rows.Count, rows.Count);
         ctx.Log.Info($"cs2 assets: {rows.Count} items, {problems} problems (see warnings above)");
@@ -78,6 +84,20 @@ public static class Cs2Converter
         }
         else if (full) ctx.Log.Warn("CS2 build id not found (appmanifest_730.acf, steam.inf): the cache will be converted again next time");
         return bytes;
+    }
+
+    // separate method: the parsed CS2 data (items_game is large) is unreachable once the stats are written
+    private static (JsonObject Weapons, long Bytes) Stats(ConvContext ctx, Cs2Source src)
+    {
+        var data = new Cs2Data(src);
+        var weapons = StatsConverter.ResolveWeapons(ctx, data);
+        return (weapons, StatsConverter.Write(ctx, weapons, StatsConverter.ResolveSystems(ctx, data)));
+    }
+
+    private static void LogPeak(ConvContext ctx, string what)
+    {
+        if (ProcessMemory.ProbeEnabled)
+            ctx.Log.Info($"mem {what}: peak private {ProcessMemory.TakePeakMb()} MB, now {ProcessMemory.PrivateBytes() >> 20} MB, collect total {ProcessMemory.CollectMs} ms");
     }
 
     /// <summary>True when the cache already holds weapons converted from this CS2 build.</summary>
