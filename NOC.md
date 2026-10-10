@@ -33,3 +33,4 @@ Když nevíš, kde jsi: přečti NOC.md a MODLOG.md a pokračuj od posledního z
 - 06:12 Průběžné SHRNUTI-0.2.md zapsáno (17/19, opravné kolo běží). Listing 0.2 návrh v docs/listing.md (jen prokázané věci). Viditelné vady ve finálních snímcích (modré stíny, šedý pruh na horizontu, lesklý sníh) předány hra.
 - 06:23 stroje: Sawtooth 3–4/8 je věrné umístění kanystru pod hrudí (3 pokusy, vráceno) → rozhodnutí v OTAZKY.md: ponechat. Běží: hra (F10, 51,7 ms, vzhled).
 - 07:44 hra: F10 opraven (t16 4/4 PASS, 0 chyb), vzhled opraven (stíny, horizont, sníh), t15 1 ze 3 PASS (Jolt staví 16 trimesh naráz → commit 4035952 po jednom, neověřeno). STOP: disk C: plný (0,95 GB) → přesouvám testovací cache na E:\meshy_offload (viz OTAZKY.md). Další: sloučit hra, build, T6 znovu.
+- 07:46 Sloučeno hra (F10 + vzhled + kolize po krocích). Release 0.2.0-final postaven, preflight CLEAN. Běží: test – finální T6 (cache na E:\meshy_work), offload na E: dobíhá.
