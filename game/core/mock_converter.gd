@@ -37,6 +37,10 @@ func start(root: String) -> String:
 	DirAccess.make_dir_recursive_absolute(root)
 	# placeholder glTF meshes are made here on the main thread (they need RenderingServer resources)
 	_mesh_bytes = MockData.write_meshes(root)
+	# mock CS2 knives (0.3) unless the cache or the seed has the converter's real ones
+	var has_real := seed_cache != "" and FileAccess.file_exists(seed_cache.path_join("cs2/knives/index.json"))
+	if not has_real and not FileAccess.file_exists(root.path_join("cs2/knives/index.json")):
+		_mesh_bytes += MockData.write_knives(root)
 	_thread = Thread.new()
 	_thread.start(_worker)
 	Log.info("mock converter started (cache %s)" % root)

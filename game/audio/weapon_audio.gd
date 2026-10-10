@@ -7,6 +7,7 @@ extends Node
 const Sheets := preload("res://core/sheets.gd")
 const SoundLib := preload("res://audio/sound_lib.gd")
 const Content := preload("res://core/content.gd")
+const Knives := preload("res://core/knives.gd")
 
 const POOL := 8
 
@@ -46,16 +47,18 @@ static func sheet_keys(id: String) -> Array:
 	return out
 
 
+## Clip timings of what the weapon slot shows (the selected knife model's own anim_events.json for the knife).
 func _anim_events(id: String) -> Dictionary:
-	if _events_json.has(id):
-		return _events_json[id]
+	var cid := Knives.content_id(id)
+	if _events_json.has(cid):
+		return _events_json[cid]
 	var d := {}
-	var p := Content.weapon_anim_events(id)
+	var p := Content.weapon_anim_events(cid)
 	if p != "":
 		var parsed = JSON.parse_string(FileAccess.get_file_as_string(p))
 		if typeof(parsed) == TYPE_DICTIONARY:
 			d = parsed
-	_events_json[id] = d
+	_events_json[cid] = d
 	return d
 
 
@@ -99,8 +102,12 @@ func _schedule_clip(id: String, clip: String) -> void:
 
 
 func _play(id: String, candidates: Array) -> void:
+	var cid := Knives.content_id(id)
 	for c in candidates:
-		var stream: AudioStream = SoundLib.random_stream(snd_dir(id), str(c))
+		# the knife model's own sound first, the weapon's (default knife) when the model has none of that name
+		var stream: AudioStream = SoundLib.random_stream(snd_dir(cid), str(c))
+		if stream == null and cid != id:
+			stream = SoundLib.random_stream(snd_dir(id), str(c))
 		if stream:
 			var p := _players[_next]
 			_next = (_next + 1) % _players.size()

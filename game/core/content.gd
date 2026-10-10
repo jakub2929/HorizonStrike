@@ -82,7 +82,11 @@ static func machine_leg_chains(type: String) -> Array:
 
 # ------------------------------------------------------------------ weapons
 
+## Weapon id, or "knives/<id>" for a CS2 knife model (core/knives.gd): cs2/knives/<id>/ has the same layout and
+## meta.json contract as cs2/weapons/<id>/ (no sheet row: everything comes from its meta.json).
 static func weapon_dir(id: String) -> String:
+	if id.begins_with("knives/"):
+		return "cs2/" + id
 	return "cs2/weapons/%s" % id
 
 

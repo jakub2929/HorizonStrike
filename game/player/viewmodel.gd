@@ -7,13 +7,17 @@ extends Node3D
 const Log := preload("res://core/log.gd")
 const Sheets := preload("res://core/sheets.gd")
 const Content := preload("res://core/content.gd")
+const Knives := preload("res://core/knives.gd")
 
 const VM_FOV := 60.0
 
 var camera: Camera3D           ## view camera inside the SubViewport (set by setup())
 var main_camera: Camera3D
+var knife_model := ""          ## knife model id shown the last time the knife slot was drawn ("" = not yet)
+var last_anim := ""            ## clip name the last play() started ("" = the model has no such clip)
+var last_anim_request := ""    ## the gameplay clip asked for last (draw, fire, fire2, inspect, ...)
 var _light: DirectionalLight3D
-var _cache := {}               # id -> Node3D
+var _cache := {}               # content key (weapon id or "knives/<id>") -> Node3D
 var _current: Node3D
 var _anim: AnimationPlayer
 var _weapon := ""
@@ -68,7 +72,7 @@ func setup(main_cam: Camera3D) -> CanvasLayer:
 
 ## Loading screen (world/precompile.gd): load and show a weapon model so its glTF parse and shaders happen there.
 func preload_model(id: String) -> void:
-	var m := _get_model(id)
+	var m := _get_model(Knives.content_id(id), id)
 	m.visible = true
 
 
@@ -78,23 +82,46 @@ func end_preload() -> void:
 		(_cache[id] as Node3D).visible = (_cache[id] == _current)
 
 
+## Draws a weapon (the knife slot shows the selected knife model, core/knives.gd).
 func show_weapon(id: String) -> void:
 	_weapon = id
 	if _current:
 		_current.visible = false
-	_current = _get_model(id)
+	var cid := Knives.content_id(id)
+	_current = _get_model(cid, id)
 	_current.visible = true
 	_anim = _current.get_meta("anim") if _current.has_meta("anim") else null
 	_draw = 0.0 if _anim else 1.0
-	if _anim:
-		_play_clip("draw", "idle")
+	last_anim_request = "draw"
+	last_anim = ""
+	if _anim and _play_clip("draw", "idle"):
+		last_anim = _clip_name("draw")
+	if is_knife():
+		knife_model = str(_current.get_meta("knife_model", Knives.model_of(cid)))
+		Log.info("knife: equipped %s" % knife_model)
 
 
-func _get_model(id: String) -> Node3D:
-	if _cache.has(id):
-		return _cache[id]
+func is_knife() -> bool:
+	return str(Sheets.weapon_row(_weapon).get("category", "")) == "knife"
+
+
+## The knife selection changed (Esc menu): a drawn knife is drawn again as the new model.
+func refresh_knife() -> void:
+	if _weapon != "" and is_knife():
+		show_weapon(_weapon)
+
+
+## cid = content key (weapon id or "knives/<id>"), weapon_id = the sheet row (placeholder kind, default model).
+func _get_model(cid: String, weapon_id: String) -> Node3D:
+	if _cache.has(cid):
+		return _cache[cid]
+	var id := cid
 	var root: Node3D = null
-	var path := Content.weapon_view_model(id)
+	var path := Content.weapon_view_model(cid)
+	if path == "" and cid != weapon_id:
+		Log.warn("viewmodel %s: no view.glb, showing %s" % [cid, weapon_id])
+		path = Content.weapon_view_model(weapon_id)
+		id = weapon_id
 	if path != "":
 		var doc := GLTFDocument.new()
 		var st := GLTFState.new()
@@ -116,9 +143,12 @@ func _get_model(id: String) -> Node3D:
 		else:
 			Log.warn("viewmodel %s: view.glb failed to load" % id)
 	if root == null:
-		root = _placeholder(id)
+		root = _placeholder(weapon_id)
+		id = weapon_id
+	if str(Sheets.weapon_row(weapon_id).get("category", "")) == "knife":
+		root.set_meta("knife_model", Knives.model_of(id))
 	add_child(root)
-	_cache[id] = root
+	_cache[cid] = root
 	return root
 
 
@@ -251,6 +281,8 @@ func _play_clip(clip: String, then: String = "idle") -> bool:
 
 func play(clip: String) -> void:
 	var played := _anim != null and _play_clip(clip)
+	last_anim_request = clip
+	last_anim = _clip_name(clip) if played else ""
 	match clip:
 		"fire", "fire2":
 			_kick = 0.3 if played else 1.0

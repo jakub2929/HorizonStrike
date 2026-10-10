@@ -179,6 +179,8 @@ func _process(delta: float) -> void:
 	if Input.is_action_just_pressed("inspect") and viewmodel and _reload_end < 0.0:
 		viewmodel.play("inspect")
 		audio.play_event(id, "inspect")
+		if viewmodel.is_knife():
+			Log.info("knife: inspect %s %s" % [viewmodel.knife_model, viewmodel.last_anim if viewmodel.last_anim != "" else "(no inspect clip)"])
 
 
 func select_slot(i: int) -> void:
