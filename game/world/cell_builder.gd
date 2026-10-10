@@ -285,7 +285,7 @@ static func prepare_far(cell_dir: String) -> Dictionary:
 		if img:
 			if not img.is_compressed() and not img.has_mipmaps():
 				img.generate_mipmaps()
-			out["albedo_img"] = img
+			out["albedo_img"] = GraphicsSettings.far_albedo(img)   # GRAPHICS HOOK (vykon): far terrain albedo at graphics.far_albedo_max_px
 	var p := GlbReader.read(cell_dir.path_join(str(hl.get("file", "hlod.glb"))), false)
 	if not p.is_empty():
 		out["hlod_surfaces"] = p["surfaces"]

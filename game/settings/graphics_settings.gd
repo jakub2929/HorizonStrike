@@ -392,6 +392,19 @@ func _apply_chunk(mmi: MultiMeshInstance3D) -> void:
 		mmi.multimesh.visible_instance_count = -1 if veg_density >= 0.999 else int(round(n * veg_density))
 
 
+## GRAPHICS HOOK target (cell_builder.prepare_far, cell workers): the far terrain (ring >= render.hlod_from_ring,
+## 0.5-1.5 km away) does not need the near cell's full albedo; mips above graphics.far_albedo_max_px are dropped.
+func far_albedo(img: Image) -> Image:
+	if img == null:
+		return img
+	var max_px := int(Sheets.sys_num("graphics.far_albedo_max_px", 512))
+	var levels := 0
+	var m := maxi(img.get_width(), img.get_height())
+	while max_px > 0 and (m >> levels) > max_px:
+		levels += 1
+	return drop_top_mips(img, levels)
+
+
 ## Drops the `levels` largest mip levels of a mipmapped image (any format, block-compressed included): the result
 ## is the same texture at 1/2^levels size, built from the file's own smaller mips. Pure and thread-safe (cell
 ## workers). Images without a full mip chain or that would get smaller than 4 px stay as they are.
