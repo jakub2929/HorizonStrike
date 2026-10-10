@@ -15,7 +15,8 @@ static func meta(rel_path: String) -> Dictionary:
 		return _meta[rel_path]
 	var m = FsUtil.read_json(Game.cache_root.path_join(rel_path))
 	var d: Dictionary = m if typeof(m) == TYPE_DICTIONARY else {}
-	_meta[rel_path] = d
+	if not d.is_empty():
+		_meta[rel_path] = d   # a missing meta.json is read again later (knives are converted while the game runs)
 	return d
 
 

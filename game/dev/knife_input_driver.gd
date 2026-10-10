@@ -94,6 +94,11 @@ func _control_center(c: Control) -> Vector2:
 	return _to_window(c.get_global_rect().get_center())
 
 
+## knives.default: the first entry of the offer.
+func _default() -> String:
+	return str(_game.knife_ids()[0])
+
+
 func _menu() -> Node:
 	return get_tree().root.find_child("SettingsLayer", true, false)
 
@@ -175,11 +180,11 @@ func _run() -> void:
 		await _click(_control_center(_menu_control("KnifeButton")))
 		var l := _menu_control("KnifeList") as ItemList
 		for i in l.item_count:
-			if str(l.get_item_metadata(i)) == "default":
+			if str(l.get_item_metadata(i)) == _default():
 				await _click(_to_window(l.get_global_transform() * l.get_item_rect(i).get_center()))
 		await _click(_control_center(_menu_control("KnifeBack")))
 		await _tap(KEY_ESCAPE)
-		_check(_game.knife_selected() == "default" and _game.knife_model() == "default", "menu back to the default knife (%s, in hand %s)" % [_game.knife_selected(), _game.knife_model()])
+		_check(_game.knife_selected() == _default() and _game.knife_model() == _default(), "menu back to the default knife (%s, in hand %s)" % [_game.knife_selected(), _game.knife_model()])
 		_finish()
 		return
 	_check(ids.size() >= 2, "index.json knives offered (%d incl. default)" % ids.size())
@@ -191,10 +196,10 @@ func _run() -> void:
 	# pick a knife different from the current one, through the menu
 	var target := ""
 	for id in ids:
-		if target == "" and str(id) != _game.knife_selected() and str(id) != "default":
+		if target == "" and str(id) != _game.knife_selected() and str(id) != _default():
 			target = str(id)
 	if target == "":
-		target = "default" if _game.knife_selected() != "default" else ""
+		target = _default() if _game.knife_selected() != _default() else ""
 	_check(target != "", "a knife to switch to")
 	await _tap(KEY_ESCAPE)
 	_check(get_tree().paused, "Esc opens the menu (game paused)")
@@ -238,7 +243,7 @@ func _run() -> void:
 	await _tap(KEY_F)
 	await _frames(3)
 	_check(_game.last_anim_request() == "inspect", "F asks for inspect")
-	if target != "default":
+	if true:
 		_check(str(_game.knife_last_anim()).ends_with("inspect"), "F plays %s's inspect clip ('%s')" % [target, _game.knife_last_anim()])
 	await _ms(2600)
 	var dmg_after := await _hit_once("after")

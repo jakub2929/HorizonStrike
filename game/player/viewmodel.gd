@@ -105,6 +105,25 @@ func is_knife() -> bool:
 	return str(Sheets.weapon_row(_weapon).get("category", "")) == "knife"
 
 
+## The held model stands in for one that was not converted yet.
+func showing_fallback() -> bool:
+	return _current != null and _current.get_meta("fallback", false)
+
+
+## Animation names of the held model (test API).
+func clips() -> PackedStringArray:
+	var out := PackedStringArray()
+	if _anim:
+		for a in _anim.get_animation_list():
+			out.append(String(a))
+	return out
+
+
+## Animation playing on the held model right now ("" = none).
+func current_clip() -> String:
+	return String(_anim.current_animation) if _anim and _anim.is_playing() else ""
+
+
 ## The knife selection changed (Esc menu): a drawn knife is drawn again as the new model.
 func refresh_knife() -> void:
 	if _weapon != "" and is_knife():
@@ -114,14 +133,23 @@ func refresh_knife() -> void:
 ## cid = content key (weapon id or "knives/<id>"), weapon_id = the sheet row (placeholder kind, default model).
 func _get_model(cid: String, weapon_id: String) -> Node3D:
 	if _cache.has(cid):
-		return _cache[cid]
+		var c: Node3D = _cache[cid]
+		# a stand-in for a knife that was still converting: its own model is there now
+		if not (c.get_meta("fallback", false) and Content.weapon_view_model(cid) != ""):
+			return c
+		_cache.erase(cid)
+		if c == _current:
+			_current = null
+		c.queue_free()
 	var id := cid
+	var fallback := false
 	var root: Node3D = null
 	var path := Content.weapon_view_model(cid)
 	if path == "" and cid != weapon_id:
-		Log.warn("viewmodel %s: no view.glb, showing %s" % [cid, weapon_id])
+		Log.info("viewmodel %s: no view.glb (yet), showing %s" % [cid, weapon_id])
 		path = Content.weapon_view_model(weapon_id)
 		id = weapon_id
+		fallback = true
 	if path != "":
 		var doc := GLTFDocument.new()
 		var st := GLTFState.new()
@@ -144,9 +172,10 @@ func _get_model(cid: String, weapon_id: String) -> Node3D:
 			Log.warn("viewmodel %s: view.glb failed to load" % id)
 	if root == null:
 		root = _placeholder(weapon_id)
-		id = weapon_id
+		fallback = cid != weapon_id
+	root.set_meta("fallback", fallback)
 	if str(Sheets.weapon_row(weapon_id).get("category", "")) == "knife":
-		root.set_meta("knife_model", Knives.model_of(id))
+		root.set_meta("knife_model", Knives.model_of(cid))
 	add_child(root)
 	_cache[cid] = root
 	return root

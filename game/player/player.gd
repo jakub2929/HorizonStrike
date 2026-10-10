@@ -20,6 +20,10 @@ var health := 100.0
 var armor := 0.0
 var invulnerable := false
 var speed_mult := 1.0          ## test setup only (perf.stress_speed_mult): scales the CS max speed; movement still by input
+## Knife model id of the knife slot (core/knives.gd; read-only for tests, chosen in the Esc menu).
+var knife_id: String:
+	get:
+		return load("res://core/knives.gd").selected()
 
 var head: Node3D
 var camera: Camera3D

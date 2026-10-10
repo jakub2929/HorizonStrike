@@ -20,8 +20,25 @@ static func log_file() -> String:
 	return logs_dir().path_join("latest.log")
 
 
+## Player files (hooks cache.persistence): settings.json, loadout.json, progression.json live here - the app folder,
+## or --user-dir <dir> (tests keep their profiles apart). Never inside the cache (eviction must not touch them).
+static var user_dir_override := ""
+
+
+static func user_dir() -> String:
+	return user_dir_override if user_dir_override != "" else app_root()
+
+
 static func settings_file() -> String:
-	return app_root().path_join("settings.json")
+	return user_dir().path_join("settings.json")
+
+
+static func loadout_file() -> String:
+	return user_dir().path_join(str(load("res://core/sheets.gd").sys("persist.loadout_file")))
+
+
+static func progression_file() -> String:
+	return user_dir().path_join(str(load("res://core/sheets.gd").sys("persist.progression_file")))
 
 
 static func default_cache(mock: bool) -> String:

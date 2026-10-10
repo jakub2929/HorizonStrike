@@ -59,6 +59,10 @@ func _ready() -> void:
 	_engine_logger = load("res://core/engine_logger.gd").new()
 	OS.add_logger(_engine_logger)
 	InputSetup.setup()
+	if args.user_dir != "":
+		Paths.user_dir_override = Paths.norm(args.user_dir)
+		DirAccess.make_dir_recursive_absolute(Paths.user_dir_override)
+		Log.info("user dir %s" % Paths.user_dir_override)
 	Settings.load_from(Paths.settings_file(), Sheets.sys_num("cache.default_cap_gib", 4.0))
 	Game.cache_cap_bytes = int(Settings.get_value("cache_cap_bytes", int(4.0 * Settings.GIB)))
 	if args.cache_cap_mib > 0.0:
@@ -258,8 +262,7 @@ func _request_knives() -> void:
 	if converter == null or not converter.has_method("send"):
 		return
 	var saved := Knives.saved()
-	if saved != Knives.DEFAULT:
-		_knife_requests[int(converter.send({"op": "knives", "ids": [saved], "prio": -1}))] = true
+	_knife_requests[int(converter.send({"op": "knives", "ids": [saved], "prio": -1}))] = true
 	_knife_requests[int(converter.send({"op": "knives"}))] = true
 	Log.info("knives requested (saved choice %s first)" % saved)
 
@@ -284,7 +287,7 @@ func _on_knife_event(e: Dictionary) -> void:
 		sm.refresh_knives()
 	# the saved knife just became available: a drawn knife turns into it
 	var vm: Node = player.weapons.viewmodel if player and player.get("weapons") else null
-	if vm and vm.is_knife() and str(vm.knife_model) != Knives.selected():
+	if vm and vm.is_knife() and (str(vm.knife_model) != Knives.selected() or vm.showing_fallback()):
 		vm.refresh_knife()
 
 

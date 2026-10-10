@@ -158,7 +158,7 @@ func buy_wheel_item_ids() -> Array[String]:
 # ------------------------------------------------------------------ knife models (0.3, read-only for tests)
 # The choice itself is made through the Esc menu ("Knife": SettingsLayer/SettingsMenu/.../KnifeList) with real input.
 
-## Knife model ids offered in the menu ("default" first, then cs2/knives/index.json entries that converted).
+## Knife model ids offered in the menu (knives.default first, then cs2/knives/index.json entries that converted).
 func knife_ids() -> Array[String]:
 	var out: Array[String] = []
 	for k in Knives.available():
@@ -166,7 +166,7 @@ func knife_ids() -> Array[String]:
 	return out
 
 
-## The selected knife model id (settings.json "knife_model"; "default" = the sheet's own knife).
+## The selected knife model id (loadout.json knife; knives.default while the saved one is not converted).
 func knife_selected() -> String:
 	return Knives.selected()
 

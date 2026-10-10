@@ -241,6 +241,8 @@ func _show_preview(id: String) -> void:
 	_preview_id = id
 	var key := Knives.key_of(id)
 	var path := Content.weapon_world_model(key)
+	if path == "" and id == Knives.default_id():
+		path = Content.weapon_world_model(Knives.knife_weapon())   # the default knife before its own conversion
 	var node: Node3D = null
 	if path != "":
 		var doc := GLTFDocument.new()

@@ -1,28 +1,38 @@
 extends RefCounted
-## CS2 knife models (0.3). cs2/knives/index.json lists the knives the converter made from the player's own CS2
-## (items_game): {"knives": [{id, display_name, state: "ok"|..., reason, dir, clips}]} (also a bare list, name / ok /
-## status); only ok ones are offered, plus the
-## sheet's own knife ("default"). The choice is kept in settings.json ("knife_model") and decides what the knife slot
-## looks and sounds like: Content resolves the key "knives/<id>" to cs2/knives/<id>/ (view.glb, world.glb, meta.json,
-## anim_events.json, icon.svg, snd/). Damage, attack rate, reach and the attack logic stay the sheet's knife row for
-## every model: player/weapons.gd only ever sees the weapon id, never the model.
+## CS2 knife models (0.3). cs2/knives/index.json lists the knives the converter finds in the player's own CS2
+## (items_game): {"knives": [{id, display_name, state: ok|failed|pending, reason, dir, clips}]} (also a bare list,
+## name / ok / status). Only ok ones are offered; knives.default (the index id of weapon_knife) is always offered and
+## shows the weapons sheet's knife model until its own conversion is in.
+## The choice is kept in loadout.json {format: 1, knife} (persist.loadout_file, Paths.user_dir()) and decides what the
+## knife slot looks and sounds like: Content resolves the key "knives/<id>" to cs2/knives/<id>/ (view.glb, world.glb,
+## meta.json, anim_events.json, icon.svg, snd/). Damage, attack rate, reach and the attack logic stay the weapons row
+## knives.selection.stats_row for every model: player/weapons.gd only ever sees the weapon id, never the model.
+## persist.unknown_knife_rule: a saved knife missing or failed in the index falls back to knives.default and the file
+## is rewritten (a pending one is kept: it is being converted on demand).
 
-const Settings := preload("res://core/settings.gd")
 const FsUtil := preload("res://core/fsutil.gd")
 const Sheets := preload("res://core/sheets.gd")
 const Log := preload("res://core/log.gd")
+const Paths := preload("res://core/paths.gd")
 
-const DEFAULT := "default"
 const PREFIX := "knives/"
+const LOADOUT_FORMAT := 1
 
 static var _index: Array = []      # [{id, name}] of the converted (ok) knives
-static var _failed: Array = []     # ids the converter could not make
-static var _pending: Array = []    # ids listed but not converted yet
+static var _states := {}           # id -> state of every index entry
+static var _has_index := false     # an index.json was read
 static var _loaded_from := ""      # cache root the index was read from
+static var _loadout := {}
+static var _loadout_path := ""
 
 
 static func index_path() -> String:
 	return Game.cache_root.path_join("cs2/knives/index.json")
+
+
+static func default_id() -> String:
+	var v: Variant = Sheets.sys("knives.default")
+	return str(v) if v != null and str(v) != "" else "knife"
 
 
 ## Reads index.json (again). Missing index = only the default knife.
@@ -32,8 +42,8 @@ static func reload() -> void:
 		return   # being rewritten by the converter right now: keep the last list
 	_loaded_from = Game.cache_root
 	_index = []
-	_failed = []
-	_pending = []
+	_states = {}
+	_has_index = v != null
 	var list: Array = []
 	if typeof(v) == TYPE_ARRAY:
 		list = v
@@ -43,15 +53,12 @@ static func reload() -> void:
 		if typeof(e) != TYPE_DICTIONARY:
 			continue
 		var id := str(e.get("id", ""))
-		if id == "" or id == DEFAULT:
+		if id == "":
 			continue
-		if str(e.get("state", "")) == "pending":
-			_pending.append(id)   # converted on demand (proto.knives); offered once it is ok
-			continue
-		if not _is_ok(e):
-			_failed.append(id)
-			continue
-		_index.append({"id": id, "name": str(e.get("display_name", e.get("name", id)))})
+		var st := _state(e)
+		_states[id] = st
+		if st == "ok":
+			_index.append({"id": id, "name": str(e.get("display_name", e.get("name", id)))})
 	# CS2 names repeat (the CT and T default knives are both "Knife"): the id tells them apart
 	var seen := {}
 	for k in _index:
@@ -59,17 +66,19 @@ static func reload() -> void:
 	for k in _index:
 		if int(seen[k["name"]]) > 1:
 			k["name"] = "%s (%s)" % [k["name"], k["id"]]
-	Log.info("knives: %d available, %d pending, %d failed%s (%s)" % [_index.size(), _pending.size(), _failed.size(),
-		"" if _failed.is_empty() else " " + str(_failed), index_path() if FileAccess.file_exists(index_path()) else "no index.json"])
+	var counts := {}
+	for id in _states:
+		counts[_states[id]] = int(counts.get(_states[id], 0)) + 1
+	Log.info("knives: %s (%s)" % [counts, index_path() if _has_index else "no index.json"])
 
 
-static func _is_ok(e: Dictionary) -> bool:
+static func _state(e: Dictionary) -> String:
 	for k in ["state", "status"]:
 		if e.has(k):
-			return str(e[k]) == "ok"
+			return str(e[k])
 	if e.has("ok"):
-		return bool(e["ok"])
-	return not e.has("error")
+		return "ok" if bool(e["ok"]) else "failed"
+	return "failed" if e.has("error") else "ok"
 
 
 static func _ensure() -> void:
@@ -77,11 +86,20 @@ static func _ensure() -> void:
 		reload()
 
 
-## Knives to choose from: the default first, then the index order.
+## Knives to choose from: knives.default first, then the converted ones in index order.
 static func available() -> Array:
 	_ensure()
-	var name := str(Sheets.weapon_row(knife_weapon()).get("name", "Knife"))
-	return [{"id": DEFAULT, "name": "%s (default)" % name}] + _index
+	var d := default_id()
+	var out: Array = []
+	var dname := "%s (default)" % str(Sheets.weapon_row(knife_weapon()).get("name", "Knife"))
+	for k in _index:
+		if str(k["id"]) == d:
+			dname = "%s (default)" % str(k["name"]).trim_suffix(" (%s)" % d)
+	out.append({"id": d, "name": dname})
+	for k in _index:
+		if str(k["id"]) != d:
+			out.append(k)
+	return out
 
 
 static func is_available(id: String) -> bool:
@@ -91,52 +109,80 @@ static func is_available(id: String) -> bool:
 	return false
 
 
-static func name_of(id: String) -> String:
-	for k in available():
-		if str(k["id"]) == id:
-			return str(k["name"])
-	return id
+static func state_of(id: String) -> String:
+	_ensure()
+	return str(_states.get(id, "missing"))
+
+
+# ------------------------------------------------------------------ loadout.json
+
+static func _load_loadout() -> void:
+	var p := Paths.loadout_file()
+	if p == _loadout_path:
+		return
+	_loadout_path = p
+	var v: Variant = FsUtil.read_json(p)
+	_loadout = v if typeof(v) == TYPE_DICTIONARY else {}
 
 
 ## The saved choice, available or not (it may still be converting).
 static func saved() -> String:
-	return str(Settings.get_value("knife_model", DEFAULT))
+	_load_loadout()
+	return str(_loadout.get("knife", default_id()))
 
 
-## The selected knife model id ("default" while the saved one is not available: not converted (yet) or gone).
+## The selected knife model id: the saved one when converted, else knives.default (a missing or failed one is
+## replaced in loadout.json, a pending one stays saved).
 static func selected() -> String:
-	var id := str(Settings.get_value("knife_model", DEFAULT))
-	return id if is_available(id) else DEFAULT
+	var s := saved()
+	if is_available(s):
+		return s
+	var st := state_of(s)
+	if _has_index and (st == "missing" or st == "failed"):
+		Log.warn("knife: saved %s is %s in index.json -> %s (loadout.json rewritten)" % [s, st, default_id()])
+		_write_loadout(default_id())
+	return default_id()
 
 
 static func select(id: String) -> bool:
 	if not is_available(id):
 		return false
-	Settings.set_value("knife_model", id)
+	_write_loadout(id)
 	Log.info("knife: selected %s" % id)
 	return true
 
 
-## Content key of what a weapon slot shows: the selected model for a knife-category weapon, else the weapon id.
+static func _write_loadout(id: String) -> void:
+	_load_loadout()
+	_loadout = {"format": LOADOUT_FORMAT, "knife": id}
+	FsUtil.write_json_atomic(_loadout_path, _loadout)
+
+
+# ------------------------------------------------------------------ content keys
+
+## Content key of what a weapon slot shows: "knives/<selected>" for a knife-category weapon, else the weapon id
+## (player/viewmodel.gd shows the weapon's own model when the knife folder has no view.glb yet).
 static func content_id(weapon_id: String) -> String:
 	if str(Sheets.weapon_row(weapon_id).get("category", "")) != "knife":
 		return weapon_id
-	var s := selected()
-	return weapon_id if s == DEFAULT else PREFIX + s
+	return PREFIX + selected()
 
 
-## Knife model id of a content key ("default" for the sheet's own knife).
+## Knife model id of a content key (a weapon id = the default knife shown with the sheet's model).
 static func model_of(cid: String) -> String:
-	return cid.substr(PREFIX.length()) if cid.begins_with(PREFIX) else DEFAULT
+	return cid.substr(PREFIX.length()) if cid.begins_with(PREFIX) else default_id()
 
 
 ## Content key of a knife model id.
 static func key_of(model_id: String) -> String:
-	return knife_weapon() if model_id == DEFAULT else PREFIX + model_id
+	return PREFIX + model_id
 
 
-## The weapons sheet's knife row (category knife).
+## The weapons row every knife uses (knives.selection.stats_row; else the sheet's knife-category row).
 static func knife_weapon() -> String:
+	var sel: Variant = Sheets.sys("knives.selection")
+	if typeof(sel) == TYPE_DICTIONARY and Sheets.weapon_row(str(sel.get("stats_row", ""))).size() > 0:
+		return str(sel["stats_row"])
 	for id in Sheets.weapon_ids():
 		if str(Sheets.weapon_row(id).get("category", "")) == "knife":
 			return str(id)
