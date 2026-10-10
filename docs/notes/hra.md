@@ -247,6 +247,20 @@ Rules I follow: no class_name lookups across files (everything via preload, so a
 - Not changed (owners): one mesh release of a cell can be 17-30 ms (mesh_library.release drops textures/meshes on
   the main thread) and a collision shape build 10-12 ms; both are single steps - candidates for vykon/svet.
 
+### 0.3.0 fix: rows of small squares behind the menus (branch fix-03-menu-boxes from release/0.3 = v0.3.0)
+- Cause: world/precompile.gd's stage (a 24-column grid of 6 cm quads, 0.08 m apart, 3 m in front of the start
+  camera: 384 feature variants + 2 per world material + terrain/water quads) was only handed to the world graveyard
+  at the end of the loading screen, never hidden. The graveyard frees within the streaming budget after cell
+  inserts, so while the request ring keeps inserting - and not at all while a menu pauses the tree - the grid stays
+  in the start view, partly freed (rows of different lengths; grey = dummy-texture variants, textured = real
+  world materials). r05 opens the menus right after the start (waits only for the knife), at the start pose.
+- Fix: `_stage.visible = false` in _finish before it is buried (one visibility pass under the loading screen).
+- Proof (dev editor, `--screenshot-at 12.9`, ~0.6 s after world_ready, start pose): v0.3.0
+  E:\meshy_work\hra03b-start-before4.png shows the grid at x 600-985 px; fix E:\meshy_work\hra03b-start-after1.png
+  clean. r05 after: E:\meshy_work\hra03b-func-1\r05\{knife_menu,upgrades_menu}.png clean; t18, t21 PASS.
+- E:\meshy_work\test03-cache-1 start cell 4_-3 is broken since 21:02 (two processes bootstrapped it at once with the
+  rc3 converter: cell.json only, no height.r32 etc.) - the player falls through the start cell there.
+
 ## Notes for teammates (relay via main)
 - test (0.3 API): `--user-dir <dir>` (settings.json, loadout.json, progression.json there); Game.knife_ids(),
   Game.knife_selected(), Game.knife_model() (model in hand), Game.knife_last_anim(), Game.last_anim_request();
