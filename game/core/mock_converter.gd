@@ -77,6 +77,8 @@ func send(req: Dictionary) -> int:
 					_events.append({"id": j["id"], "event": "cancelled", "cell": [key2.x, key2.y]})
 		"status":
 			_jobs.append({"id": id, "op": "status", "prio": -2000000, "seq": _seq})
+		"throttle":
+			_events.append({"id": id, "event": "throttled", "workers": int(req.get("workers", 1)), "threads": int(req.get("threads", 2))})
 		"quit":
 			_events.append({"id": id, "event": "bye"})
 			_quit = true

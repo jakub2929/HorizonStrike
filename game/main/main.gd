@@ -41,6 +41,7 @@ var _error_shown := false
 var _respawn_left := -1.0
 var _death_pos := Vector3.ZERO
 var _quitting := false
+var _engine_logger: Logger
 var _env: Environment
 var _sky_mat: ProceduralSkyMaterial
 var _sun: DirectionalLight3D
@@ -53,7 +54,8 @@ func _ready() -> void:
 	Log.open(Paths.log_file(), not args.autotest)
 	Log.info("Horizon Strike %s (Godot %s) pid %d" % [VERSION, Engine.get_version_info().get("string", "?"), OS.get_process_id()])
 	Log.info("args: " + args.describe())
-	OS.add_logger(load("res://core/engine_logger.gd").new())
+	_engine_logger = load("res://core/engine_logger.gd").new()
+	OS.add_logger(_engine_logger)
 	InputSetup.setup()
 	Settings.load_from(Paths.settings_file(), Sheets.sys_num("cache.default_cap_gib", 4.0))
 	Game.cache_cap_bytes = int(Settings.get_value("cache_cap_bytes", int(4.0 * Settings.GIB)))
@@ -240,6 +242,16 @@ func _on_bootstrapped() -> void:
 	world.request_ring_now()
 
 
+## Once the world is playable the converter steps back (hooks proto.throttle; it already runs BelowNormal): fewer
+## jobs and threads, so conversions ahead of the player do not take the frame time. The loading screen keeps the
+## full streaming.max_concurrent_conversions.
+func _throttle_converter() -> void:
+	if converter == null or not converter.has_method("send") or args.no_converter_throttle:
+		return
+	converter.send({"op": "throttle", "workers": int(Sheets.sys_num("streaming.converter_workers_play", 1)),
+		"threads": int(Sheets.sys_num("streaming.converter_threads_play", 2))})
+
+
 func _on_cell_loaded(c: Vector2i) -> void:
 	if _phase != "world":
 		return
@@ -292,6 +304,7 @@ func _spawn_player(pos: Vector3) -> void:
 			loading.queue_free()
 			loading = null
 		capture_mouse()
+		_throttle_converter()
 		Game.mark_world_ready())
 	pre.start()
 
@@ -365,6 +378,14 @@ func _unhandled_input(event: InputEvent) -> void:
 		var menus_open: bool = (Game.buy_wheel and Game.buy_wheel.is_open()) or get_tree().paused
 		if not menus_open:
 			capture_mouse()
+
+
+## The script logger leaves before the engine tears the scripts down (messages printed during shutdown, e.g. leak
+## reports, must not call into a freed GDScript object).
+func _exit_tree() -> void:
+	if _engine_logger:
+		OS.remove_logger(_engine_logger)
+		_engine_logger = null
 
 
 func _notification(what: int) -> void:
