@@ -402,3 +402,25 @@ Full per-site table: `docs/notes/svet.md`. No placement references `ai/groups`, 
 - D63 fx.aimpunch kick values are design (CS2 has no aimpunch data; decay = public CS2 recoil-decay cvar defaults).
   Sheet cells movement.bhop_clip_speed_mult (D59), combat.silent_strike_mult (D60), fx.aimpunch (D63) marked
   verified as design values -> preflight sheets CLEAN (4328/4328).
+- Melty: 0.1.1 live (9 gets, 5 players), 0.2.0 in_review (held by Melty's safety review, one click yes). Listing note
+  until 0.2.0 passes (user's wording): "Version 0.2 (new machines, new visuals) is in Melty review – the current
+  download is 0.1.1." prepended to the 0.2 text (docs/listing.md), verified on the public page; remove when 0.2.0 is
+  live. Status polled every 10 min (mod_status returned "Melty couldn't check your token" for a while). User pushed
+  main 330c108, release/0.2, v0.2.0-rc.
+- Windowed Godot runs steal focus and capture the mouse: while the user works on the PC, teammates run --headless only;
+  windowed tests, perf and records run when the user is away.
+- Merged test ebdb86c (b8f9eba): t17–t24 (+ t18a/b, t21a/b child parts with the same --user-dir; runner starts part A
+  then B); lib/knifemenu.gd, inputsim click-by-name / list item / timed jump / synced air strafe; ctx.gd signal recorder
+  fixed (player_hit_machine has 5 args). t24 row gets --user-dir. Windowed PASS: t17 (22/22 knives, contract bones,
+  all clips), t18. Headless PASS: t20 (body +100, weak +180, silent +260, level-up +1 point), t22 (level 0 clips every
+  jump to 6.35 m/s; level 1 keeps 1; level 5 keeps 5 jumps 7.8 -> 13.2 m/s, jump 6 clips). Windowed still to run:
+  t19, t21, t23, t24, t20/t22 with real mouse look, t03.
+- Merged vykon b84eb29 (09e0079): t25 (route Low/High in child processes, --gfx-preset/--fps-limit), t26 (preset by
+  menu input + restart), t27 (fps limit 60 by menu input), r05–r09 recorders (r05–r08 rows rewritten as main-process
+  recorders: their old extra_args had no --autotest); 14 perf.* limit rows (BRIEF-0.3). Dev, shared machine: t26 PASS
+  (11/11 + 7/7, graphics.json only in --user-dir), t27 PASS (unlimited 72.9 fps 920 GPU-ms/s -> limit 60: 60.0 fps,
+  751 GPU-ms/s, -18 %). t25 headless Low: game RAM peak 2111–2222 MiB, converter idle 6–10 MiB WS / ~21 MiB private.
+  streaming.unload_ring 3 -> 2: -178 MiB on Low but the same ring sets the HLOD horizon (1.5 -> 1 km) -> kept 3.
+  far_albedo_max_px 512 kept (107 -> 6.7 MiB on 40 far cells; 256 saves only 5 MiB more). r08 recording: after the
+  first take-off the speed is set to 1.6 x run speed for both levels (setup; air strafe alone stayed at run speed) –
+  the video shows the clip rule, not how fast a player gains speed.
