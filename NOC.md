@@ -38,3 +38,4 @@ Když nevíš, kde jsi: přečti NOC.md a MODLOG.md a pokračuj od posledního z
 - 08:55 Nové zadání 0.3 (výběr nožů) → docs/BRIEF-0.3.md. Pořadí: dokončit 0.2 (T6 → koncept → SHRNUTI-0.2), paralelně 0.3 ve větvích (cs2: nože v konvertoru; hra: menu + výběr).
 - 09:08 Zadání 0.3 rozšířeno (XP a vylepšení, BHOP levely, efekty zásahů) → docs/BRIEF-0.3.md.
 - 09:09 Sloučeno cs2: 22/22 nožů z items_game (132 MiB, na vyžádání), finishe nejdou (vcompmat). Větev release-0.2 = stav 0.2.0. Běží: test T6 (0.2), hra (0.3 nože menu), plan (0.3 sheety).
+- 09:15 Plan 0.3 sloučen (sheety XP/vylepšení/efekty/bhop, PLAN-0.3.md). Spouštím cs2 K2, hra H1–H5, stroje S1–S2; test dostane 0.3 po T6 0.2.
