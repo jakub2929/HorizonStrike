@@ -383,6 +383,31 @@ func _apply_chunk(mmi: MultiMeshInstance3D) -> void:
 		mmi.multimesh.visible_instance_count = -1 if veg_density >= 0.999 else int(round(n * veg_density))
 
 
+## Drops the `levels` largest mip levels of a mipmapped image (any format, block-compressed included): the result
+## is the same texture at 1/2^levels size, built from the file's own smaller mips. Pure and thread-safe (cell
+## workers). Images without a full mip chain or that would get smaller than 4 px stay as they are.
+static func drop_top_mips(img: Image, levels: int) -> Image:
+	if img == null or levels <= 0 or not img.has_mipmaps():
+		return img
+	var w := img.get_width()
+	var h := img.get_height()
+	var full := 0
+	var m := maxi(w, h)
+	while m > 1:
+		m >>= 1
+		full += 1
+	if img.get_mipmap_count() != full:
+		return img
+	var s := levels
+	while s > 0 and ((w >> s) < 4 or (h >> s) < 4):
+		s -= 1
+	if s <= 0:
+		return img
+	var data := img.get_data().slice(img.get_mipmap_offset(s))
+	var out := Image.create_from_data(w >> s, h >> s, true, img.get_format(), data)
+	return out if out != null and not out.is_empty() else img
+
+
 # ------------------------------------------------------------------ first start: GPU classification
 
 ## Classifies the GPU from the adapter name/type and its VRAM (Windows registry HardwareInformation.qwMemorySize of
