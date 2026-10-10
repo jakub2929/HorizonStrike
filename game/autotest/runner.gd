@@ -40,10 +40,27 @@ const SCENARIOS := {
 	"t22": preload("res://autotest/scenarios/t22_bhop.gd"),
 	"t23": preload("res://autotest/scenarios/t23_hit_fx.gd"),
 	"t24": preload("res://autotest/scenarios/t24_perf_fx.gd"),
-	## no sheet rows: child parts started by t16 / r02 / r03 themselves (lib/movie.gd for the recordings)
+	"t25": preload("res://autotest/scenarios/t25_route_presets.gd"),
+	"t26": preload("res://autotest/scenarios/t26_preset_menu.gd"),
+	"t27": preload("res://autotest/scenarios/t27_fps_limit.gd"),
+	"r05": preload("res://autotest/scenarios/r05_menu_shots.gd"),
+	"r06": preload("res://autotest/scenarios/r06_inspect_videos.gd"),
+	"r07": preload("res://autotest/scenarios/r07_combat_video.gd"),
+	"r08": preload("res://autotest/scenarios/r08_bhop_video.gd"),
+	"r09": preload("res://autotest/scenarios/r09_preset_shots.gd"),
+	## no sheet rows: child parts started by t16 / r02 / r03 / t25 / t26 / r05-r09 themselves (lib/movie.gd for the
+	## recordings, lib/child.gd for the others)
 	"t16run": preload("res://autotest/scenarios/t16run.gd"),
 	"r02clip": preload("res://autotest/scenarios/r02clip.gd"),
 	"r03walk": preload("res://autotest/scenarios/r03walk.gd"),
+	"t25run": preload("res://autotest/scenarios/t25run.gd"),
+	"t26a": preload("res://autotest/scenarios/t26a.gd"),
+	"t26b": preload("res://autotest/scenarios/t26b.gd"),
+	"r05shots": preload("res://autotest/scenarios/r05shots.gd"),
+	"r06clip": preload("res://autotest/scenarios/r06clip.gd"),
+	"r07clip": preload("res://autotest/scenarios/r07clip.gd"),
+	"r08clip": preload("res://autotest/scenarios/r08clip.gd"),
+	"r09shot": preload("res://autotest/scenarios/r09shot.gd"),
 	## restart tests: part A then part B in new processes with the same --user-dir (runner _child_parts)
 	"t18a": preload("res://autotest/scenarios/t18a_knife_choice.gd"),
 	"t18b": preload("res://autotest/scenarios/t18b_knife_restart.gd"),
