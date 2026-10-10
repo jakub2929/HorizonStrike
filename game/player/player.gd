@@ -8,6 +8,7 @@ const Combat := preload("res://core/combat.gd")
 const Log := preload("res://core/log.gd")
 const Settings := preload("res://core/settings.gd")
 const Weapons := preload("res://player/weapons.gd")
+const Progression := preload("res://core/progression.gd")
 
 const LAYER_WORLD := 1
 const LAYER_PLAYER := 2
@@ -51,6 +52,14 @@ var _hold_until_ground := false
 var _knock := Vector3.ZERO
 var _land_penalty := 0.0
 var _mouse_sens := 0.0022
+var _land_ms := -1             # ticks of the last landing (bhop window), -1 = airborne / jumped since
+var _land_speed := 0.0         # horizontal speed at that landing (m/s)
+var _bhop_chain := 0           # jumps of the current chain that kept their speed
+
+## Horizontal speed in m/s (read-only, tests).
+var horizontal_speed: float:
+	get:
+		return Vector2(velocity.x, velocity.z).length()
 
 
 func _ready() -> void:
@@ -85,7 +94,7 @@ func _ready() -> void:
 	weapons.player = self
 	add_child(weapons)
 	_mouse_sens = 0.0022 * float(Settings.get_value("mouse_sensitivity", 1.0))
-	health = load("res://core/progression.gd").max_health()   # combat.player_max_health + upgrades.max_health
+	health = Progression.max_health()   # combat.player_max_health + upgrades.max_health
 	reset_loadout()
 
 
@@ -249,7 +258,7 @@ func _die(cause: String) -> void:
 ## Called by main.gd when respawning at a campfire.
 func respawn_at(pos: Vector3, yaw: float) -> void:
 	dead = false
-	health = load("res://core/progression.gd").max_health()   # upgrades.max_health: respawn heals to the max
+	health = Progression.max_health()   # upgrades.max_health: respawn heals to the max
 	if not Sheets.sys_bool("respawn.keep_armor", false):
 		armor = 0.0
 	reset_loadout()
@@ -325,11 +334,36 @@ func _physics_process(delta: float) -> void:
 	var on_floor := is_on_floor()
 	var g := Sheets.sys_num("movement.gravity_u", 800.0) * _u
 	if on_floor:
-		_friction(delta)
-		_accelerate(wish_dir, wish_speed, Sheets.sys_num("movement.accelerate", 5.5), delta)
+		# bhop (0.3, movement.bhop_* + upgrades.bhop): inside the window after a landing, while the chain has jumps
+		# left, the ground does nothing (no friction, no ground acceleration) and a jump keeps the landing speed
+		var now_ms := Time.get_ticks_msec()
+		var in_window := _land_ms >= 0 and now_ms - _land_ms <= int(Sheets.sys_num("movement.bhop_window_ms", 100.0))
+		if _land_ms >= 0 and not in_window:
+			_bhop_chain = 0   # longer ground time ends the chain
+		var keep := in_window and _bhop_chain < Progression.bhop_jumps()
+		if not keep:
+			_friction(delta)
+			_accelerate(wish_dir, wish_speed, Sheets.sys_num("movement.accelerate", 5.5), delta)
 		if jump_pressed:
+			var landing := _land_speed
+			if keep:
+				_bhop_chain += 1
+			else:
+				# clip (jump N+1 of a chain, every jump at level 0): friction above plus a clamp to the run speed
+				var cap: float = weapons.max_speed_u() * _u * speed_mult * Sheets.sys_num("movement.bhop_clip_speed_mult", 1.0)
+				var hv := Vector2(velocity.x, velocity.z)
+				if hv.length() > cap:
+					hv = hv.normalized() * cap
+					velocity.x = hv.x
+					velocity.z = hv.y
+				_bhop_chain = 0
+			var takeoff := Vector2(velocity.x, velocity.z).length()
+			if in_window:
+				Log.info("bhop: %s jump (chain %d / %d), landing %.2f m/s, take-off %.2f m/s" % ["keep" if keep else "clip",
+					_bhop_chain, Progression.bhop_jumps(), landing, takeoff])
 			velocity.y = Sheets.sys_num("movement.jump_impulse_u", 301.993377) * _u
 			on_floor = false
+			_land_ms = -1
 	else:
 		_air_accelerate(wish_dir, wish_speed, delta)
 		velocity.y -= g * delta
@@ -341,6 +375,8 @@ func _physics_process(delta: float) -> void:
 	move_and_slide()
 	var now_floor := is_on_floor()
 	if now_floor and not _was_on_floor:
+		_land_ms = Time.get_ticks_msec()
+		_land_speed = Vector2(velocity.x, velocity.z).length()
 		var fd := Combat.fall_damage(_fall_speed)
 		if fd > 0.0:
 			apply_damage(fd, 0.0, null, "fall")
