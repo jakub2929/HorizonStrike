@@ -27,3 +27,4 @@ Když nevíš, kde jsi: přečti NOC.md a MODLOG.md a pokračuj od posledního z
 - 02:02 test: baseline 0.1.1 běh g (zašuměný, běžely jiné procesy). Čisté srovnání + T6 až na klidném stroji po hra. Běží: hra.
 - 02:44 Sloučeno hra: pád při ukončení/segfault opraven (0 pádů ve 105 bězích), throttle zapojen. Zbývá: 3 snímky >50 ms (4 nepředkompilované pipeline + synchronní zápis logu) → hra. Pak T6.
 - 02:56 Watchdog: test nečinný 54 min – čeká na pokyn k T6 (očekávané). Před finálním buildem ověřit 7 buněk sheetů (render.* od hra – DDS ověřeno v release H3, vzhled v H5; perf.shot_poses od test) – až po posledním commitu hra, aby nevznikl konflikt v systems.json.
+- 03:14 Sloučeno hra (neblokující log, žádné kompilace pipeline ve hře; trasa 0 snímků >50 ms). Sheety CLEAN, verze 0.2.0. Další: release build + T6 (celý autotest + t15/t16 + nové záznamy) na klidném stroji.

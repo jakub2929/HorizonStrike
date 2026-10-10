@@ -8,14 +8,14 @@ namespace Hzs.Cli;
 /// <summary>hzsconv: converts the player's own CS2 and HZD content into the local cache (docs/ARCHITECTURE.md).</summary>
 public static class Program
 {
-    public const string Version = "0.1.0";
+    public const string Version = "0.2.0";
 
     public static int Main(string[] args)
     {
         if (args.Length == 0 || args[0] is "-h" or "--help")
         {
             Console.WriteLine("""
-                hzsconv 0.1.0 - converts your own CS2 and Horizon Zero Dawn content into a local cache
+                hzsconv 0.2.0 - converts your own CS2 and Horizon Zero Dawn content into a local cache
                   hzsconv cs2      --cs2 <dir> --cache <dir> [--only-stats] [--force] [--only id,id]
                   hzsconv machines --hzd <dir> --cache <dir>
                   hzsconv audio    --hzd <dir> --cache <dir>

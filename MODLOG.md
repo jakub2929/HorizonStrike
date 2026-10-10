@@ -307,3 +307,7 @@ Full per-site table: `docs/notes/svet.md`. No placement references `ai/groups`, 
   (world_ready -> workers 1 / threads 2, rows streaming.converter_workers_play/_threads_play): active-conversion route
   1 % low 62.6 -> 76.0 fps, frames > 50 ms 14 -> 3, worst 145 -> 112 ms (4 surface pipelines still compile after the
   precompile; one 101 ms log write under disk contention).
+- Merged hra 0fae764: non-blocking log (background writer, 25 ms), uniform vertex layout (all surfaces get normals +
+  UV so they hit precompiled pipelines; pipeline_watch logs in-world compiles: none on the route). Release route with
+  active throttled conversion: 0 frames > 50 ms, worst 45.3 ms, route 1 % low 83.2; start phase 1 % low 43.2 (risk).
+- Sheet preflight CLEAN (render.* verified from hra H3/H5 evidence, perf.shot_poses from test T1). Version 0.2.0.
