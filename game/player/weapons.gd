@@ -158,7 +158,7 @@ func _process(delta: float) -> void:
 		_punch = _punch.lerp(Vector2.ZERO, clampf(delta * 7.0, 0.0, 1.0))
 		if _t() - _last_shot > 0.5:
 			_spray_index = 0
-	player.camera.rotation = Vector3(deg_to_rad(_punch.x), deg_to_rad(_punch.y), 0)
+	player.camera.rotation = Vector3(deg_to_rad(_punch.x + float(player.aimpunch_deg)), deg_to_rad(_punch.y), 0)
 	_update_reload()
 	if player.dead or not Game.gameplay_input_allowed():
 		return
@@ -355,8 +355,6 @@ func fire(api: bool, secondary: bool = false) -> Dictionary:
 				res["target"] = m
 				res["part"] = part
 				res["damage"] = float(res["damage"]) + dealt
-			if Game.hud:
-				Game.hud.hitmarker(weak)
 		_tracer(origin + basis * Vector3(0.1, -0.12, -0.6), pos)
 	_penalty += pair(id, "inaccuracy_fire")
 	_recoil(id)
@@ -469,9 +467,6 @@ func _knife(id: String, stab: bool, res: Dictionary) -> Dictionary:
 		res["damage"] = dealt
 		res["point"] = h["position"]
 		res["distance"] = cam.global_position.distance_to(h["position"])
-		audio.play_event(id, "hit")
-		if Game.hud:
-			Game.hud.hitmarker(weak)
 	return res
 
 

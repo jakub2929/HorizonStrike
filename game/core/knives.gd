@@ -26,8 +26,15 @@ static var _loadout := {}
 static var _loadout_path := ""
 
 
+## Game.cache_root, looked up at run time (this script may be compiled before the Game autoload exists).
+static func _cache_root() -> String:
+	var tree := Engine.get_main_loop() as SceneTree
+	var g: Node = tree.root.get_node_or_null("Game") if tree else null
+	return str(g.cache_root) if g else ""
+
+
 static func index_path() -> String:
-	return Game.cache_root.path_join("cs2/knives/index.json")
+	return _cache_root().path_join("cs2/knives/index.json")
 
 
 static func default_id() -> String:
@@ -38,9 +45,9 @@ static func default_id() -> String:
 ## Reads index.json (again). Missing index = only the default knife.
 static func reload() -> void:
 	var v: Variant = FsUtil.read_json(index_path())
-	if v == null and FileAccess.file_exists(index_path()) and _loaded_from == Game.cache_root:
+	if v == null and FileAccess.file_exists(index_path()) and _loaded_from == _cache_root():
 		return   # being rewritten by the converter right now: keep the last list
-	_loaded_from = Game.cache_root
+	_loaded_from = _cache_root()
 	_index = []
 	_states = {}
 	_has_index = v != null
@@ -82,7 +89,7 @@ static func _state(e: Dictionary) -> String:
 
 
 static func _ensure() -> void:
-	if _loaded_from != Game.cache_root:
+	if _loaded_from != _cache_root():
 		reload()
 
 

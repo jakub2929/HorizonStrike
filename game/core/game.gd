@@ -27,6 +27,8 @@ const Progression := preload("res://core/progression.gd")
 signal machine_killed(machine_type: String, weapon_id: String, weak: bool, silent: bool)
 ## The player's hit on a machine (core/combat.gd player_hit): dealt health damage, weak spot, hit point, kill.
 signal player_hit_machine(machine: Node, damage: float, weak: bool, hit_pos: Vector3, killed: bool)
+## Damage the player takes (also while invulnerable): health damage, source position (Vector3.INF = none), armour.
+signal player_hurt(amount: float, source_pos: Vector3, armored: bool)
 signal xp_gained(amount: int, reason: String)
 signal level_up(level: int, points: int)
 signal progression_changed
@@ -214,6 +216,19 @@ func buy_upgrade(kind: String) -> bool:
 
 func max_health() -> float:
 	return Progression.max_health()
+
+
+## Hit effects state for tests: HUD counters (hitmarkers, numbers, indicator, vignette, sounds), aimpunch and the
+## machine-side impact pool (stroje machines/fx/impact_fx.gd stats(): sparks = active / spawned emitters).
+func fx_stats() -> Dictionary:
+	var d: Dictionary = hud.hit_fx.stats() if hud and hud.get("hit_fx") else {}
+	d["aimpunch_deg"] = float(player.aimpunch_deg) if player else 0.0
+	var fx_path := "res://machines/fx/impact_fx.gd"
+	if ResourceLoader.exists(fx_path):
+		var s: Dictionary = load(fx_path).stats()
+		d["impact"] = s
+		d["sparks"] = int(s.get("spawned", 0))
+	return d
 
 
 func _apply_max_health(fill: bool) -> void:

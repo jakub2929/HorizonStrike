@@ -55,8 +55,16 @@ static func player_hit(m: Node, weapon_id: String, base_damage: float, part: Str
 	else:
 		dealt = m.take_hit(weapon_id, dmg, part, weak)   # machine.gd before stroje's 0.3 signature
 	var killed := alive_before and str(m.get("state")) == "dead"
-	Game.on_player_hit(m, weapon_id, dealt, part, weak, hit_pos, hit_normal, killed, silent)
+	var game := _game()
+	if game:
+		game.on_player_hit(m, weapon_id, dealt, part, weak, hit_pos, hit_normal, killed, silent)
 	return dealt
+
+
+## The Game autoload, looked up at run time (this script is also compiled by --script tools before autoloads exist).
+static func _game() -> Node:
+	var tree := Engine.get_main_loop() as SceneTree
+	return tree.root.get_node_or_null("Game") if tree else null
 
 
 ## combat.silent_strike_rule: a knife stab on an unaware machine from outside its sight cone.

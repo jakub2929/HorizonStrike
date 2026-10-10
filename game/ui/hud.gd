@@ -3,6 +3,7 @@ extends CanvasLayer
 ## damage flash and the death overlay. English UI (D9).
 
 const Sheets := preload("res://core/sheets.gd")
+const HitFx := preload("res://ui/hit_fx.gd")
 
 var _money: Label
 var _hp: Label
@@ -22,6 +23,7 @@ var _cache_timer := 0.0
 var _death_t := -1.0
 var _armor_icon: TextureRect
 var _scope: Control
+var hit_fx: Control            ## Hitmarker, DamageNumbers, DamageIndicator, Vignette (ui/hit_fx.gd)
 
 
 func _ready() -> void:
@@ -31,6 +33,9 @@ func _ready() -> void:
 	_flash.set_anchors_preset(Control.PRESET_FULL_RECT)
 	_flash.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(_flash)
+	hit_fx = HitFx.new()
+	hit_fx.name = "HitFx"
+	add_child(hit_fx)
 	_money = _label(Vector2(24, 20), 30, Color(0.55, 0.95, 0.45))
 	_cache = _label(Vector2(-24, 20), 16, Color(0.85, 0.85, 0.85), true)
 	_hp = _label(Vector2(24, -60), 34, Color(0.95, 0.95, 0.9), false, true)
@@ -181,14 +186,13 @@ func message(text: String) -> void:
 	_msg_t = 3.0
 
 
-func hitmarker(weak: bool) -> void:
-	_hit_t = 0.25
-	_hit_weak = weak
-	_cross.queue_redraw()
+## 0.3: the hitmarker and the damage flash are ui/hit_fx.gd (driven by Game.player_hit_machine / player_hurt).
+func hitmarker(_weak: bool) -> void:
+	pass
 
 
 func flash_damage() -> void:
-	_flash_a = 0.35
+	pass
 
 
 func show_death(seconds: float) -> void:
@@ -271,10 +275,6 @@ func _draw_cross() -> void:
 	for d in [Vector2.RIGHT, Vector2.LEFT, Vector2.UP, Vector2.DOWN]:
 		_cross.draw_line(c + d * gap, c + d * (gap + ln), Color(0, 0, 0, 0.6), 4.0)
 		_cross.draw_line(c + d * gap, c + d * (gap + ln), col, 2.0)
-	if _hit_t > 0.0:
-		var hc := Color(1.0, 0.25, 0.2) if _hit_weak else Color(1, 1, 1)
-		for d in [Vector2(1, 1), Vector2(-1, 1), Vector2(1, -1), Vector2(-1, -1)]:
-			_cross.draw_line(c + d * 6.0, c + d * 14.0, hc, 2.5)
 
 
 static func human_bytes(b: int) -> String:

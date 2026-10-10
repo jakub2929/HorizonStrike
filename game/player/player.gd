@@ -56,6 +56,9 @@ var _land_ms := -1             # ticks of the last landing (bhop window), -1 = a
 var _land_speed := 0.0         # horizontal speed at that landing (m/s)
 var _bhop_chain := 0           # jumps of the current chain that kept their speed
 
+## View kick up from damage taken, in degrees (fx.aimpunch; weapons.gd adds it to the camera pitch). Read-only.
+var aimpunch_deg := 0.0
+
 ## Horizontal speed in m/s (read-only, tests).
 var horizontal_speed: float:
 	get:
@@ -231,6 +234,15 @@ func apply_damage(dmg: float, armor_ratio: float, source: Variant, cause: String
 	var r := Combat.apply_armor(dmg, armor_ratio, armor)
 	var hp := float(r["health"])
 	Game.player_damaged.emit(hp, cause)
+	if cause != "kill_player":
+		# hit effects (0.3): direction to the source, vignette flash, hurt sound, aimpunch
+		var src := Vector3.INF
+		if source is Node3D and is_instance_valid(source):
+			src = (source as Node3D).global_position
+		elif source is Vector3:
+			src = source
+		Game.player_hurt.emit(hp, src, armor > 0.0 and armor_ratio > 0.0)
+		_add_aimpunch(hp)
 	if invulnerable and cause != "kill_player":
 		Log.info("player hit by %s for %.1f (invulnerable)" % [cause, hp])
 		Game.hud_message.emit("Hit: %s (%.0f)" % [cause, hp])
@@ -238,11 +250,27 @@ func apply_damage(dmg: float, armor_ratio: float, source: Variant, cause: String
 	armor = maxf(armor - float(r["armor_lost"]), 0.0)
 	health -= hp
 	Log.info("player hit by %s for %.1f, health %.1f armor %.1f" % [cause, hp, maxf(health, 0.0), armor])
-	if Game.hud:
-		Game.hud.flash_damage()
 	if health <= 0.0:
 		health = 0.0
 		_die(cause)
+
+
+func _aimpunch_row() -> Dictionary:
+	var v: Variant = Sheets.sys("fx.aimpunch")
+	return v if typeof(v) == TYPE_DICTIONARY else {}
+
+
+func _add_aimpunch(hp: float) -> void:
+	var a := _aimpunch_row()
+	aimpunch_deg = minf(aimpunch_deg + hp * float(a.get("deg_per_damage", 0.0)), float(a.get("max_deg", 0.0)))
+
+
+## CS2-style decay: exponential (decay_exp) plus linear (decay_lin_deg_s) back to 0.
+func _decay_aimpunch(delta: float) -> void:
+	if aimpunch_deg > 0.0:
+		var a := _aimpunch_row()
+		aimpunch_deg -= aimpunch_deg * (1.0 - exp(-float(a.get("decay_exp", 8.0)) * delta))
+		aimpunch_deg = maxf(aimpunch_deg - float(a.get("decay_lin_deg_s", 18.0)) * delta, 0.0)
 
 
 func _die(cause: String) -> void:
@@ -464,6 +492,7 @@ func _process(delta: float) -> void:
 	var target_eye := Sheets.sys_num("movement.eye_height_crouch_u" if crouched else "movement.eye_height_u", 64.0) * _u
 	_eye_h = move_toward(_eye_h, target_eye, delta * 3.0)
 	head.position.y = _eye_h if not dead else move_toward(head.position.y, 0.3, delta * 2.0)
+	_decay_aimpunch(delta)
 
 
 func speed_fraction() -> float:
