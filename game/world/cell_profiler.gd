@@ -103,9 +103,9 @@ func _process(_delta: float) -> void:
 	var nodes_prev_ms := (_last_probe.t_us - _first_us) / 1000.0 if _first_us > 0 and _last_probe.t_us >= _first_us else 0.0
 	var sp: Node = world.spawner if world else null
 	var between_ms := (_pf_us - _last_probe.t_us) / 1000.0 if _pf_us > _last_probe.t_us and _last_probe.t_us > 0 else 0.0
-	prev_split = "awaits %.1f ms, nodes %.1f ms (world %.1f, spawner %.1f), physics/render/other %.1f ms" % [_awaits_prev_ms, nodes_prev_ms,
+	prev_split = "awaits %.1f ms, nodes %.1f ms (world %.1f, spawner %.1f, top: %s), physics/render/other %.1f ms" % [_awaits_prev_ms, nodes_prev_ms,
 		float(world.last_process_ms) if world else 0.0, float(sp.get("last_process_ms")) if sp and sp.get("last_process_ms") != null else 0.0,
-		between_ms]
+		load("res://core/frame_stats.gd").top(), between_ms]
 	_awaits_prev_ms = awaits_ms
 	_first_us = now
 	# every run (t15 runs without --profile-cells): a slow frame (from 80 % of the t15 limit, to see the near misses)
@@ -132,6 +132,7 @@ func _process(_delta: float) -> void:
 			_start_frames.append(dt)
 	if profile:
 		_walk(_delta)
+	load("res://core/frame_stats.gd").note("profiler", now)
 
 
 func _finish(r: Dictionary) -> void:

@@ -8,6 +8,7 @@ extends RefCounted
 const Sheets := preload("res://core/sheets.gd")
 const FsUtil := preload("res://core/fsutil.gd")
 const Paths := preload("res://core/paths.gd")
+const FileWriter := preload("res://core/file_writer.gd")
 const Log := preload("res://core/log.gd")
 
 const FORMAT := 1
@@ -41,7 +42,7 @@ static func ensure() -> void:
 
 static func save() -> void:
 	ensure()
-	FsUtil.write_json_atomic(_path, data)
+	FileWriter.write_json(_path, data)   # off the main thread, atomic (core/file_writer.gd)
 
 
 ## A copy for readers (Game.progression).

@@ -23,6 +23,10 @@ var _check := 0.0
 var _calm_t := 0.0
 var _amb_t := 3.0
 var _rng := RandomNumberGenerator.new()
+var _pre_task := -1           # worker loading the other tracks / ambience (_preload_rest)
+var _pre_running: Array = [false]
+var _pre_out := {}
+var _want_mode := ""          # music mode waiting for its track to finish loading
 
 
 func _ready() -> void:
@@ -34,6 +38,48 @@ func _ready() -> void:
 	_music_b.volume_db = -80.0
 	_load_contract()
 	_set_mode("explore")
+	_preload_rest()
+
+
+## Every other music track, ambience one-shot and loop is read on a worker now: a mode change or a bird call in
+## play must not read a file on the main thread (a stalling disk froze frames). Until a file is in, its mode change
+## waits and the one-shot is skipped.
+func _preload_rest() -> void:
+	var paths: Array = []
+	for p in _tracks.values() + _oneshots + _loops.values():
+		if not paths.has(p) and not SoundLib.is_loaded(str(p)):
+			paths.append(str(p))
+	if paths.is_empty():
+		return
+	var out := {}
+	var running: Array = [true]
+	_pre_out = out
+	_pre_running = running
+	_pre_task = WorkerThreadPool.add_task(func():
+		for p in paths:
+			out[p] = SoundLib.load_uncached(p)
+		running[0] = false, false, "audio preload")
+
+
+func _poll_preload() -> void:
+	if _pre_task < 0 or _pre_running[0]:
+		return
+	WorkerThreadPool.wait_for_task_completion(_pre_task)
+	_pre_task = -1
+	for p in _pre_out:
+		SoundLib.store(str(p), _pre_out[p])
+	Log.info("audio: %d music / ambience files preloaded" % _pre_out.size())
+	_pre_out = {}
+	if _want_mode != "" and _want_mode != _mode:
+		var m := _want_mode
+		_want_mode = ""
+		_set_mode(m)
+
+
+func _exit_tree() -> void:
+	if _pre_task >= 0:
+		WorkerThreadPool.wait_for_task_completion(_pre_task)   # never leave a pool task (GDScript lambda) behind
+		_pre_task = -1
 
 
 func _load_contract() -> void:
@@ -96,6 +142,9 @@ static func _loop(s: AudioStream) -> void:
 func _set_mode(mode: String) -> void:
 	if mode == _mode:
 		return
+	if _tracks.has(mode) and _mode != "" and not SoundLib.is_loaded(str(_tracks[mode])):
+		_want_mode = mode   # still loading on the worker (_preload_rest): switch when it is in
+		return
 	_mode = mode
 	Log.info("music: %s" % mode)
 	if not _tracks.has(mode):
@@ -114,6 +163,13 @@ func _set_mode(mode: String) -> void:
 
 
 func _process(delta: float) -> void:
+	var t_proc := Time.get_ticks_usec()
+	_process_timed(delta)
+	load("res://core/frame_stats.gd").note("audio", t_proc)
+
+
+func _process_timed(delta: float) -> void:
+	_poll_preload()
 	if _fade > 0.0:
 		var total := maxf(Sheets.sys_num("audio.music_crossfade_s", 2.0), 0.05)
 		_fade = maxf(_fade - delta, 0.0)
@@ -155,7 +211,10 @@ func _ambience(delta: float, p: Node3D) -> void:
 	if _amb_t > 0.0:
 		return
 	_amb_t = _rng.randf_range(3.0, 9.0)
-	var s := SoundLib.load_stream(_oneshots[_rng.randi() % _oneshots.size()])
+	var pick := str(_oneshots[_rng.randi() % _oneshots.size()])
+	if not SoundLib.is_loaded(pick):
+		return   # not preloaded yet: skip this one rather than read the file now
+	var s := SoundLib.load_stream(pick)
 	if s == null:
 		return
 	var a := AudioStreamPlayer3D.new()

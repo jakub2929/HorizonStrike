@@ -76,6 +76,9 @@ const EVICT_FRESH_S := 10.0        # files written this recently: a converter is
 const EVICT_PER_CALL := 4          # cells tried per enforce_cap() (it runs every second; renames cost main-thread time)
 var _evict_retry := {}             # Vector2i -> ticks ms before which evict() leaves the cell alone
 var _trash_running: Array = [false]   # the worker emptying <cache>/trash is running
+var _evict_running: Array = [false]   # the eviction worker is running
+var _evict_out: Array = []            # its result slot until _poll_evict() applied it
+var _evicting := {}                   # cells the eviction worker may be renaming right now (no build / far job)
 var _trash_pin: Array = []            # trash folders whose cell.json meshes are to be pinned (next trash worker)
 var _trash_out: Array = []            # the trash worker's pins until _poll_trash() applied them
 var _gc_running: Array = [false]      # the mesh GC worker is running
@@ -239,6 +242,7 @@ func _process_inner(delta: float) -> void:
 		_evict_timer = 1.0
 		enforce_cap()
 	# a deferred mesh GC asks the converter again until it is idle and nothing is requested
+	_poll_evict()
 	_poll_trash()
 	_poll_mesh_gc()
 	_gc_timer -= delta
@@ -259,7 +263,7 @@ func _update_streaming() -> void:
 	var near := ring(pc, load_r)
 	near.sort_custom(func(a, b): return cheb(a, pc) < cheb(b, pc))
 	for c in near:
-		if on_disk.has(c) and not loaded.has(c) and not building.has(c):
+		if on_disk.has(c) and not loaded.has(c) and not building.has(c) and not _evicting.has(c):
 			_start_build(c)
 	# request conversions: prio 0 inside load ring of the player or the lead point, else ring distance.
 	# The wider request_ring (prio = ring, after the near cells) is used while the player moves and, since 0.2, also
@@ -329,12 +333,10 @@ func _on_converter_event(e: Dictionary) -> void:
 				failed.erase(c)
 				request_ids.erase(id)
 				Game.cells_converted += 1
-				# never trust the converter's byte report: measure the cell folder, and re-anchor on a full folder scan
-				# right away (shared meshes/textures the job wrote are caught by that scan)
-				var cb := FsUtil.dir_bytes(cell_dir(c))
-				_add_bytes(cb)
+				# never trust the converter's byte report: a full folder scan on a worker starts right away (no folder
+				# walk on the main thread: a stalling disk froze frames)
 				_size_timer = 0.0
-				Log.info("cell %s converted (folder %d bytes, reported %d, cache %d)" % [c, cb, int(e.get("bytes", 0)), _cache_bytes])
+				Log.info("cell %s converted (reported %d bytes, cache %d before the rescan)" % [c, int(e.get("bytes", 0)), _cache_bytes])
 				note("converted %s" % c)
 				enforce_cap()
 		"error":
@@ -727,7 +729,7 @@ func _update_far(pc: Vector2i, unload_r: int) -> void:
 	for c in ring(pc, unload_r):
 		if cheb(c, pc) < r_min and not loaded.has(c) and not far.has(c):
 			continue
-		if loaded.has(c) or far.has(c) or _far_jobs.has(c) or _far_none.has(c) or not on_disk.has(c):
+		if loaded.has(c) or far.has(c) or _far_jobs.has(c) or _far_none.has(c) or not on_disk.has(c) or _evicting.has(c):
 			continue
 		if _far_jobs.size() >= 2:
 			break
@@ -830,6 +832,7 @@ func _exit_tree() -> void:
 		# never let the engine free scripts and resources under a running worker (that crashed with 0xC0000005):
 		# everything worth keeping is on disk already, so the process ends here with the quit's exit code
 		Log.warn("world exit: terminating the process instead of a teardown under a running worker")
+		load("res://core/file_writer.gd").close()
 		Log.close()
 		OS.kill(OS.get_process_id())
 	building.clear()
@@ -956,14 +959,96 @@ func enforce_cap() -> void:
 		if da != db:
 			return da > db
 		return int(loaded_at.get(a, 0)) < int(loaded_at.get(b, 0)))
-	var n := 0
-	for c in cands:
-		if _cache_bytes <= target or n >= EVICT_PER_CALL:
-			break
-		evict(c)
-		n += 1
-	_gc_needed = true
-	_query_status()
+	# the folder work (busy check, size, rename) runs on a worker: a stalling disk must not freeze a frame
+	if _evict_running[0] or cands.is_empty():
+		return
+	var items: Array = []
+	for c in cands.slice(0, EVICT_PER_CALL):
+		items.append([c, cell_dir(c)])
+		_evicting[c] = true
+	var out: Array = [[]]
+	var running: Array = [true]
+	var eprog: Array = ["queued"]
+	var root := cache_root
+	var since: float = float(converter.started_unix) - 2.0 if converter else INF
+	var need := _cache_bytes - target
+	_evict_running = running
+	_evict_out = out
+	var t := WorkerThreadPool.add_task(func():
+		eprog[0] = "started"
+		out[0] = _evict_work(items, root, since, need)
+		eprog[0] = "done"
+		running[0] = false, true, "evict cells")
+	_free_tasks.append(t)
+	_task_info[t] = ["evict %d cells" % items.size(), eprog]
+
+
+## Worker: evicts cells of the list (farthest first) until `need` bytes are gone. Per cell
+## {c, result: ok|gone|busy|fail, reason, bytes, pin, trash}.
+static func _evict_work(items: Array, root: String, pin_since: float, need: int) -> Array:
+	var res: Array = []
+	var freed := 0
+	var trash_root := root.path_join("trash")
+	DirAccess.make_dir_recursive_absolute(trash_root)
+	for it in items:
+		var c: Vector2i = it[0]
+		var dir: String = it[1]
+		if freed >= need or MeshLib.cancelled:
+			res.append({"c": c, "result": "skipped"})
+			continue
+		if not DirAccess.dir_exists_absolute(dir):
+			res.append({"c": c, "result": "gone"})
+			continue
+		var busy := _cell_busy(dir)
+		if busy != "":
+			res.append({"c": c, "result": "busy", "reason": busy})
+			continue
+		var bytes := FsUtil.dir_bytes(dir)
+		var cj := dir.path_join("cell.json")
+		var pin := FileAccess.file_exists(cj) and float(FileAccess.get_modified_time(cj)) >= pin_since
+		var trash := trash_root.path_join("cell_%d_%d_%d" % [c.x, c.y, Time.get_ticks_usec()])
+		var err := DirAccess.rename_absolute(dir, trash)
+		if err != OK:
+			res.append({"c": c, "result": "busy", "reason": "folder in use (rename error %d)" % err})
+			continue
+		freed += bytes
+		res.append({"c": c, "result": "ok", "bytes": bytes, "pin": pin, "trash": trash})
+	return res
+
+
+## Main thread: applies a finished eviction worker.
+func _poll_evict() -> void:
+	if _evict_out.is_empty() or _evict_running[0]:
+		return
+	var res: Array = _evict_out[0]
+	_evict_out = []
+	var any := false
+	for r in res:
+		var c: Vector2i = r["c"]
+		_evicting.erase(c)
+		match str(r["result"]):
+			"gone":
+				on_disk.erase(c)
+				Log.info("cell %s is no longer on disk (removed by another game instance); dropped from the cache list" % c)
+			"busy":
+				_evict_retry[c] = Time.get_ticks_msec() + EVICT_RETRY_MS
+				Log.info("cell %s not evicted now: %s (retry in %d s)" % [c, r.get("reason", "?"), EVICT_RETRY_MS / 1000])
+			"ok":
+				any = true
+				if bool(r["pin"]):
+					_trash_pin.append(str(r["trash"]))
+				if loaded.has(c):
+					_unload(c)
+				_evict_retry.erase(c)
+				_add_bytes(-int(r["bytes"]))
+				on_disk.erase(c)
+				Log.info("cell %s evicted (%d bytes, cache %d, cap %d)" % [c, int(r["bytes"]), _cache_bytes, Game.cache_cap_bytes])
+				note("evict %s" % c)
+				Game.cell_evicted.emit(c)
+	if any:
+		_empty_trash()
+		_gc_needed = true
+		_query_status()
 
 
 ## A cell folder leaves in one step: it is renamed into <cache>/trash (Windows refuses that while any file in it is
@@ -1009,7 +1094,7 @@ func evict(c: Vector2i) -> void:
 
 ## Why a cell folder must not go now ("" = it may): a converter's temporary file in it or a write in the last
 ## EVICT_FRESH_S seconds (a converter - this game's or another instance's - is still writing it).
-func _cell_busy(dir: String) -> String:
+static func _cell_busy(dir: String) -> String:
 	var d := DirAccess.open(dir)
 	if d == null:
 		return "folder not readable"

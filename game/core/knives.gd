@@ -14,6 +14,7 @@ const FsUtil := preload("res://core/fsutil.gd")
 const Sheets := preload("res://core/sheets.gd")
 const Log := preload("res://core/log.gd")
 const Paths := preload("res://core/paths.gd")
+const FileWriter := preload("res://core/file_writer.gd")
 
 const PREFIX := "knives/"
 const LOADOUT_FORMAT := 1
@@ -42,10 +43,46 @@ static func default_id() -> String:
 	return str(v) if v != null and str(v) != "" else "knife"
 
 
+## Reads index.json on a worker (play: a stalling disk must not freeze a frame), applies it on the main thread and
+## then calls `done`.
+static func reload_async(done: Callable) -> void:
+	var path := index_path()
+	var root := _cache_root()
+	var out: Array = [null, false, false]   # index, file exists, finished (written by the worker)
+	var id := WorkerThreadPool.add_task(func():
+		out[0] = FsUtil.read_json(path)
+		out[1] = FileAccess.file_exists(path)
+		out[2] = true, true, "knives index")
+	_tasks.append([id, out, root, done])
+
+
+## Main thread (every frame, Main): applies finished index reads. Every task is waited for: a pool task never waited
+## keeps its GDScript lambda until the engine tears the pool down after the scripts - a crash at exit.
+static func poll(block: bool = false) -> void:
+	for t in _tasks.duplicate():
+		if not block and not bool(t[1][2]):
+			continue
+		WorkerThreadPool.wait_for_task_completion(int(t[0]))
+		_tasks.erase(t)
+		if block:
+			continue
+		if str(t[2]) == _cache_root():
+			_apply(t[1][0], bool(t[1][1]))
+		var done: Callable = t[3]
+		if done.is_valid():
+			done.call()
+
+
+static var _tasks: Array = []      # [task id, out, cache root, done] of index reads in flight
+
+
 ## Reads index.json (again). Missing index = only the default knife.
 static func reload() -> void:
-	var v: Variant = FsUtil.read_json(index_path())
-	if v == null and FileAccess.file_exists(index_path()) and _loaded_from == _cache_root():
+	_apply(FsUtil.read_json(index_path()), FileAccess.file_exists(index_path()))
+
+
+static func _apply(v: Variant, exists: bool) -> void:
+	if v == null and exists and _loaded_from == _cache_root():
 		return   # being rewritten by the converter right now: keep the last list
 	_loaded_from = _cache_root()
 	_index = []
@@ -162,7 +199,7 @@ static func select(id: String) -> bool:
 static func _write_loadout(id: String) -> void:
 	_load_loadout()
 	_loadout = {"format": LOADOUT_FORMAT, "knife": id}
-	FsUtil.write_json_atomic(_loadout_path, _loadout)
+	FileWriter.write_json(_loadout_path, _loadout)   # off the main thread, atomic (core/file_writer.gd)
 
 
 # ------------------------------------------------------------------ content keys

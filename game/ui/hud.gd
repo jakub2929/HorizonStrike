@@ -209,6 +209,12 @@ func _refresh() -> void:
 
 
 func _process(delta: float) -> void:
+	var t_proc := Time.get_ticks_usec()
+	_process_timed(delta)
+	load("res://core/frame_stats.gd").note("hud", t_proc)
+
+
+func _process_timed(delta: float) -> void:
 	_refresh()
 	var p: Node3D = Game.player
 	if p:

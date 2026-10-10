@@ -55,6 +55,7 @@ func _ready() -> void:
 	args = Args.from_os()
 	Game.args = args
 	Log.open(Paths.log_file(), not args.autotest)
+	load("res://core/file_writer.gd").start()   # player files are written off the main thread
 	Log.info("Horizon Strike %s (Godot %s) pid %d" % [VERSION, Engine.get_version_info().get("string", "?"), OS.get_process_id()])
 	Log.info("args: " + args.describe())
 	_engine_logger = load("res://core/engine_logger.gd").new()
@@ -282,7 +283,10 @@ func _on_knife_event(e: Dictionary) -> void:
 	else:
 		Log.info("knives index: %d knives, %d ok, %d failed, %d pending, %d queued" % [int(e.get("knives", 0)), int(e.get("knives_ok", 0)),
 			int(e.get("knives_failed", 0)), int(e.get("knives_pending", 0)), int(e.get("queued", 0))])
-	Knives.reload()
+	Knives.reload_async(_knives_reloaded)
+
+
+func _knives_reloaded() -> void:
 	var sm := get_node_or_null("SettingsLayer")
 	if sm and sm.has_method("refresh_knives"):
 		sm.refresh_knives()
@@ -377,6 +381,13 @@ func on_player_died() -> void:
 
 
 func _process(delta: float) -> void:
+	var t_proc := Time.get_ticks_usec()
+	_process_timed(delta)
+	load("res://core/frame_stats.gd").note("main", t_proc)
+
+
+func _process_timed(delta: float) -> void:
+	Knives.poll()
 	if _respawn_left >= 0.0:
 		_respawn_left -= delta
 		if _respawn_left < 0.0:
@@ -442,6 +453,8 @@ func _exit_tree() -> void:
 	if _engine_logger:
 		OS.remove_logger(_engine_logger)
 		_engine_logger = null
+	Knives.poll(true)   # index reads in flight are waited for (pool tasks)
+	load("res://core/file_writer.gd").close()   # queued player files reach the disk
 	Log.close()
 
 
