@@ -115,3 +115,18 @@
   request id to that job (and raises its priority) and gets the same done event; ConvertKnife re-checks the index
   inside the session lock. Overlap test (selected "knife" prio -1 + all prio 100, fresh E:\meshy_work\cs2-knifedup-1):
   22 conversions, none twice, "knife" done for both requests at 7.4 s, 0 non-JSON lines.
+- 0.3 memory 2026-10-10 (CLI cs2, fresh caches E:\meshy_work\cs2-mem-*, output SHA-256 identical in every run):
+  base 79566b7 A/B median 67.3 s / 1955 MB private peak (single runs up to 2581 MB). Changes: parsed items_game/vdata
+  released after the stats; ProcessMemory.CollectNow (Hzs.Common: finalizers for VRF's undisposed SkiaSharp bitmaps +
+  aggressive LOH compaction) after every VRF export and every item/knife; Glb keeps added views out of BIN until
+  Compact (no whole-buffer copy per texture); VRF export on a ConcurrentExclusiveScheduler with TextureSlots + 1
+  threads (VRF texture tasks continue on TaskScheduler.Current); re-encoded images cached by input hash per item (world
+  and skinned exports of a weapon share textures), re-encode 2 in parallel. A/B 2 vs 3 slots (quiet machine):
+  2 slots 81.6 s / 1224 MB, 3 slots 59.5 s / 1378 MB -> 3 slots (faster than before, -30 % peak).
+- 0.3 late weapons 2026-10-10: bootstrap = stats of all 14 rows (buy wheel prices) + cs2/ui + start_loadout rows
+  (knife, glock; sheet column, not hard-coded); every other weapon via serve op `weapons` (hooks proto.weapons), one
+  CS2 item at a time through the shared Cs2Session (one lock for knives and weapons; the scheduler skips queued CS2
+  items while one runs, so the other worker takes cells), deduplicated like knives; per-weapon state in
+  cs2/weapons/state.json; cs2_format 4. Fresh E:\meshy_work\cs2-boot-2: `cs2 --bootstrap` 12.6 s (stats 0.8 s,
+  ui ~0.5 s, knife 2.4 s, glock 8.7 s); serve weapons (all prio 100 + awp prio -1): awp first, 12 conversions, none
+  twice, 69 s for the 12; output equals the earlier full conversion except the new state.json.

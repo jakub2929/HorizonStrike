@@ -15,12 +15,44 @@ internal static class ModelExport
 
     private const string NoAnimations = "__hzs_no_animations__";
 
+    /// <summary>Textures VRF may decode in parallel during one export (memory peak vs. time).</summary>
+    public const int TextureSlots = 3;
+
+    private static readonly TaskScheduler TextureScheduler =
+        new ConcurrentExclusiveSchedulerPair(TaskScheduler.Default, TextureSlots + 1).ConcurrentScheduler;
+
     /// <summary>
     /// Export a vmdl (path without _c) to GLB bytes. withSkeleton = joints + skinning (no embedded animations);
     /// otherwise a static mesh in bind pose. Mesh names containing "legacy" are dropped when other meshes exist
     /// (CS2 weapon models carry both body_legacy and body_hd).
     /// </summary>
     public static byte[] Export(Cs2Source src, string vmdlPath, string tmpDir, bool withSkeleton, Log log, CancellationToken ct)
+    {
+        Directory.CreateDirectory(tmpDir);
+        var tmp = Path.Combine(tmpDir, $"_export_{Guid.NewGuid():N}.glb");
+        try
+        {
+            // VRF decodes every texture of a model at once (each 4096 px map is 64 MB of pixels plus copies): its texture
+            // tasks continue on TaskScheduler.Current (await Task.Yield), so running the export on a scheduler with
+            // TextureSlots + 1 threads bounds how many are decoded at the same time
+            Task.Factory.StartNew(() => ExportVrf(src, vmdlPath, tmp, withSkeleton, log, ct), ct,
+                TaskCreationOptions.None, TextureScheduler).GetAwaiter().GetResult();
+            // VRF's decoded texture bitmaps (native, freed by their finalizers) are unreachable now: free them before
+            // the re-encode decodes the exported PNGs again
+            ProcessMemory.CollectNow();
+            var glb = Glb.Parse(File.ReadAllBytes(tmp));
+            glb.TransformImages(bytes => CachedReencode(bytes, TextureMaxPx), parallel: 2);
+            glb.Compact();
+            return glb.ToBytes();
+        }
+        finally
+        {
+            foreach (var f in Directory.EnumerateFiles(tmpDir, Path.GetFileNameWithoutExtension(tmp) + "*")) File.Delete(f);
+        }
+    }
+
+    // all VRF state of one export lives in this method's frame
+    private static void ExportVrf(Cs2Source src, string vmdlPath, string tmp, bool withSkeleton, Log log, CancellationToken ct)
     {
         using var res = src.Load(vmdlPath + "_c") ?? throw new FileNotFoundException($"model not found in the CS2 VPK: {vmdlPath}");
         if (res.DataBlock is not Model model) throw new InvalidDataException($"not a model: {vmdlPath}");
@@ -35,21 +67,7 @@ internal static class ModelExport
         };
         if (withSkeleton) exporter.AnimationFilter.Add(NoAnimations);
         foreach (var keep in MeshesToKeep(model)) exporter.MeshFilter.Add(keep);
-
-        Directory.CreateDirectory(tmpDir);
-        var tmp = Path.Combine(tmpDir, $"_export_{Guid.NewGuid():N}.glb");
-        try
-        {
-            exporter.Export(res, tmp, ct);
-            var glb = Glb.Parse(File.ReadAllBytes(tmp));
-            glb.TransformImages(bytes => Reencode(bytes, TextureMaxPx));
-            glb.Compact();
-            return glb.ToBytes();
-        }
-        finally
-        {
-            foreach (var f in Directory.EnumerateFiles(tmpDir, Path.GetFileNameWithoutExtension(tmp) + "*")) File.Delete(f);
-        }
+        exporter.Export(res, tmp, ct);
     }
 
     private static IEnumerable<string> MeshesToKeep(Model model)
@@ -61,6 +79,19 @@ internal static class ModelExport
         var nonLegacy = names.Where(n => !n.Contains("legacy", StringComparison.OrdinalIgnoreCase)).ToList();
         // an empty filter exports everything
         return nonLegacy.Count > 0 && nonLegacy.Count < names.Count ? nonLegacy : [];
+    }
+
+    // Re-encoded images of the current item: the world and the skinned (view) export of a weapon carry the same
+    // texture PNGs, so the second export reuses the result (same input bytes -> same output bytes).
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, Lazy<(byte[] Data, string Mime)?>> ReencodeCache = new();
+
+    /// <summary>Forget re-encoded images (call between items so the cache stays small).</summary>
+    public static void ClearCache() => ReencodeCache.Clear();
+
+    private static (byte[] Data, string Mime)? CachedReencode(byte[] bytes, int maxPx)
+    {
+        var key = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(bytes)) + ":" + maxPx;
+        return ReencodeCache.GetOrAdd(key, _ => new Lazy<(byte[] Data, string Mime)?>(() => Reencode(bytes, maxPx))).Value;
     }
 
     /// <summary>

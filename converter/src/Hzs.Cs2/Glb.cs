@@ -18,6 +18,10 @@ internal sealed class Glb
     public JsonObject Json { get; private set; } = new();
     public byte[] Bin { get; private set; } = [];
 
+    // buffer views added since the last Compact live here, not in Bin: appending to Bin would copy the whole
+    // buffer once per added view (large-object garbage of tens of MB per texture)
+    private readonly Dictionary<int, byte[]> _pending = [];
+
     public static Glb Parse(ReadOnlySpan<byte> data)
     {
         if (data.Length < 12 || BinaryPrimitives.ReadUInt32LittleEndian(data) != Magic)
@@ -39,6 +43,7 @@ internal sealed class Glb
 
     public byte[] ToBytes()
     {
+        if (_pending.Count > 0) throw new InvalidOperationException("Glb has uncompacted views: call Compact first");
         if (Json["scene"] is null && Json["scenes"] is JsonArray { Count: > 0 }) Json["scene"] = 0;
         if (Bin.Length > 0)
         {
@@ -113,22 +118,18 @@ internal sealed class Glb
     /// <summary>Bytes of a buffer view.</summary>
     public ReadOnlySpan<byte> View(int index)
     {
+        if (_pending.TryGetValue(index, out var data)) return data;
         var bv = Array("bufferViews")[index]!.AsObject();
         var off = bv["byteOffset"]?.GetValue<int>() ?? 0;
         return Bin.AsSpan(off, bv["byteLength"]!.GetValue<int>());
     }
 
-    /// <summary>Append bytes as a new buffer view (8-byte aligned); returns its index.</summary>
+    /// <summary>Add bytes as a new buffer view (placed into BIN by <see cref="Compact"/>); returns its index.</summary>
     public int AddView(byte[] data)
     {
-        var pad = (8 - Bin.Length % 8) % 8;
-        var off = Bin.Length + pad;
-        var bin = new byte[off + data.Length];
-        Bin.CopyTo(bin, 0);
-        data.CopyTo(bin, off);
-        Bin = bin;
         var views = Array("bufferViews");
-        views.Add(new JsonObject { ["buffer"] = 0, ["byteOffset"] = off, ["byteLength"] = data.Length });
+        views.Add(new JsonObject { ["buffer"] = 0, ["byteOffset"] = 0, ["byteLength"] = data.Length });
+        _pending[views.Count - 1] = data;
         return views.Count - 1;
     }
 
@@ -136,16 +137,19 @@ internal sealed class Glb
     /// Re-encode embedded images: transform(bytes, mimeType) returns new bytes + mime type, or null to keep the image.
     /// The old data becomes unreferenced; call <see cref="Compact"/> afterwards.
     /// </summary>
-    public void TransformImages(Func<byte[], (byte[] Data, string Mime)?> transform)
+    public void TransformImages(Func<byte[], (byte[] Data, string Mime)?> transform, int parallel = 1)
     {
-        foreach (var img in Array("images"))
+        var images = Array("images").Select(i => i!.AsObject()).Where(o => o["bufferView"] is JsonValue).ToList();
+        var views = images.Select(o => o["bufferView"]!.GetValue<int>()).ToList();
+        var results = new (byte[] Data, string Mime)?[images.Count];
+        // transforms may run in parallel; views are added afterwards in image order, so the layout does not depend on it
+        Parallel.For(0, images.Count, new ParallelOptions { MaxDegreeOfParallelism = Math.Max(1, parallel) },
+            i => results[i] = transform(View(views[i]).ToArray()));
+        for (var i = 0; i < images.Count; i++)
         {
-            var o = img!.AsObject();
-            if (o["bufferView"] is not JsonValue v) continue;
-            var result = transform(View(v.GetValue<int>()).ToArray());
-            if (result is not { } r) continue;
-            o["bufferView"] = AddView(r.Data);
-            o["mimeType"] = r.Mime;
+            if (results[i] is not { } r) continue;
+            images[i]["bufferView"] = AddView(r.Data);
+            images[i]["mimeType"] = r.Mime;
         }
     }
 
@@ -168,19 +172,25 @@ internal sealed class Glb
 
         var map = new Dictionary<int, int>();
         var newViews = new JsonArray();
-        using var ms = new MemoryStream();
+        // views 8-byte aligned in index order; the buffer is sized exactly up front
+        var size = 0;
+        foreach (var idx in used) size = (size + 7) / 8 * 8 + View(idx).Length;
+        var bin = new byte[size];
+        var off = 0;
         foreach (var idx in used)
         {
-            while (ms.Length % 8 != 0) ms.WriteByte(0);
+            off = (off + 7) / 8 * 8;
             var bv = views[idx]!.DeepClone().AsObject();
             var data = View(idx);
             bv["buffer"] = 0;
-            bv["byteOffset"] = (int)ms.Length;
-            ms.Write(data);
+            bv["byteOffset"] = off;
+            data.CopyTo(bin.AsSpan(off));
+            off += data.Length;
             map[idx] = newViews.Count;
             newViews.Add(bv);
         }
-        Bin = ms.ToArray();
+        Bin = bin;
+        _pending.Clear();
         Json["bufferViews"] = newViews;
 
         void Remap(JsonObject? o)
@@ -206,6 +216,7 @@ internal sealed class Glb
     /// </summary>
     public int Append(Glb src, Func<JsonObject, bool> attach, int attachParent)
     {
+        if (_pending.Count > 0 || src._pending.Count > 0) throw new InvalidOperationException("Glb has uncompacted views: call Compact first");
         // BIN: keep 8-byte alignment for every appended buffer view
         var pad = (8 - Bin.Length % 8) % 8;
         var binOffset = Bin.Length + pad;
