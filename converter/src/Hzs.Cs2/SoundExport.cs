@@ -70,7 +70,8 @@ internal sealed partial class SoundExport(Cs2Source src, Log log)
         if (files is null) { problems.Add($"sound event {soundEvent} not found"); return 0; }
         Directory.CreateDirectory(dir);
         var n = 0;
-        foreach (var vsnd in files)
+        // null.vsnd is Valve's silent placeholder track
+        foreach (var vsnd in files.Where(f => !Path.GetFileName(f).StartsWith("null.vsnd", StringComparison.OrdinalIgnoreCase)))
             if (WriteFile(vsnd, Path.Combine(dir, $"{shortName}_{n}"), problems)) n++;
         return n;
     }

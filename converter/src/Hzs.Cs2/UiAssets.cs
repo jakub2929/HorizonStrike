@@ -5,7 +5,8 @@ namespace Hzs.Cs2;
 
 /// <summary>
 /// cache/cs2/ui/: HUD art and buy wheel sounds (sheets/hooks.json cs2.hud_icons, cs2.ui_sounds):
-/// armor.svg, kevlar.svg, snd/buy_&lt;n&gt;.(wav|mp3).
+/// armor.svg, kevlar.svg, snd/buy_&lt;n&gt;.(wav|mp3); feedback sounds (hooks cs2.feedback_sounds): every sound event
+/// named by a systems row fx.sound_* as snd/&lt;event short name&gt;_&lt;n&gt;.(wav|mp3) (SoundExport.ShortName).
 /// </summary>
 internal static class UiAssets
 {
@@ -24,6 +25,11 @@ internal static class UiAssets
 
     public static string Dir(CachePaths cache) => Path.Combine(cache.Cs2, "ui");
 
+    /// <summary>Sound events of the systems rows fx.sound_* (value = CS2 sound event name).</summary>
+    public static IEnumerable<string> FeedbackEvents() =>
+        Hzs.Generated.SystemsSheet.All.Where(r => r.Id.StartsWith("fx.sound_", StringComparison.Ordinal) && r.Value.Contains('.'))
+            .Select(r => r.Value.Trim().Trim('"')).Distinct(StringComparer.OrdinalIgnoreCase);
+
     public static List<string> Convert(ConvContext ctx, Cs2Source src, SoundExport sounds)
     {
         var problems = new List<string>();
@@ -38,6 +44,11 @@ internal static class UiAssets
         var n = 0;
         foreach (var vsnd in BuySounds)
             if (sounds.WriteFile(vsnd, Path.Combine(dir, "snd", $"buy_{n}"), problems)) n++;
+        foreach (var ev in FeedbackEvents())
+        {
+            var written = sounds.Write(ev, SoundExport.ShortName(ev), Path.Combine(dir, "snd"), problems);
+            ctx.Log.Info($"ui: {ev} -> snd/{SoundExport.ShortName(ev)}_0..{written - 1}");
+        }
         Atomic.CommitDir(dir, target);
         foreach (var p in problems) ctx.Log.Warn($"ui: {p}");
         return problems;
