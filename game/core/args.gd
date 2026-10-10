@@ -19,6 +19,7 @@ var profile_cells := false    ## --profile-cells: dev, vsync off, walk perf.rout
 var quit_after_cells := 0     ## --quit-after-cells <n>: dev, quit after n inserted cells (with --profile-cells)
 var no_converter_throttle := false   ## --no-converter-throttle: dev, keep the loading-screen converter workers in play
 var user_dir := ""            ## --user-dir <dir>: settings.json, loadout.json, progression.json there (tests)
+var mock_weapons_late := false  ## --mock-weapons-late: mock data, weapons beyond the start loadout come after world_ready
 var cache_cap_mib := 0.0      ## --cache-cap-mib <n>: cache cap for this run only (settings.json is not changed)
 var all := PackedStringArray()
 
@@ -97,6 +98,8 @@ static func parse(list: PackedStringArray) -> RefCounted:
 				if has_value:
 					a.user_dir = nxt
 					i += 1
+			"--mock-weapons-late":
+				a.mock_weapons_late = true
 			"--cache-cap-mib":
 				if has_value:
 					a.cache_cap_mib = float(nxt)

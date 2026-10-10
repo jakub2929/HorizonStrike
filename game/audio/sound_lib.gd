@@ -10,6 +10,13 @@ static var _rng := RandomNumberGenerator.new()
 static func events_in(dir: String) -> Dictionary:
 	if _dirs.has(dir):
 		return _dirs[dir]
+	var out := scan_uncached(dir)
+	_dirs[dir] = out
+	return out
+
+
+## Worker-safe: {event: [paths]} of a folder (no shared cache touched).
+static func scan_uncached(dir: String) -> Dictionary:
 	var out := {}
 	var d := DirAccess.open(dir)
 	if d:
@@ -26,8 +33,12 @@ static func events_in(dir: String) -> Dictionary:
 			if not out.has(key):
 				out[key] = []
 			out[key].append(dir.path_join(f))
-	_dirs[dir] = out
 	return out
+
+
+## Main thread: a folder's event list scanned on a worker.
+static func store_dir(dir: String, events: Dictionary) -> void:
+	_dirs[dir] = events
 
 
 static func load_stream(path: String) -> AudioStream:
