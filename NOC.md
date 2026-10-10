@@ -56,3 +56,4 @@ Když nevíš, kde jsi: přečti NOC.md a MODLOG.md a pokračuj od posledního z
 - 11:50 0.2.0: text listingu + 3 screenshoty nahrány, publish → in_review. 0.3 rozšířeno: na startu jen nůž + Glock, zbytek zbraní na pozadí, buy wheel „připravuje se“, cíl hratelné do 40 s.
 - 12:00 Sloučeno cs2: bootstrap jen nůž+Glock (~11–13 s), ostatní zbraně na pozadí (op weapons). Další: změřit první spuštění z main (cíl ≤ 40 s), až bude klid.
 - 12:04 První spuštění z main: 39,8 s (cíl ≤ 40 s, splněno těsně). Zadáno: paralelní bootstrap CS2/HZD (svet), větší rozpočet vkládání na loading screenu (hra).
+- 12:09 Sloučeno svet: paralelní bootstrap 15–18 s (dřív 25–27 s).
