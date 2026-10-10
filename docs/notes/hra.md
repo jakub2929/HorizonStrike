@@ -257,8 +257,8 @@ Rules I follow: no class_name lookups across files (everything via preload, so a
 - Fix: `_stage.visible = false` in _finish before it is buried (one visibility pass under the loading screen).
 - Proof (dev editor, `--screenshot-at 12.9`, ~0.6 s after world_ready, start pose): v0.3.0
   E:\meshy_work\hra03b-start-before4.png shows the grid at x 600-985 px; fix E:\meshy_work\hra03b-start-after1.png
-  clean. r05 after: E:\meshy_work\hra03b-func-105\{knife_menu,upgrades_menu}.png clean; t18, t21 PASS.
-- E:\meshy_work	est03-cache-1 start cell 4_-3 is broken since 21:02 (two processes bootstrapped it at once with the
+  clean. r05 after: E:\meshy_work\hra03b-func-1\r05\{knife_menu,upgrades_menu}.png clean; t18, t21 PASS.
+- E:\meshy_work\test03-cache-1 start cell 4_-3 is broken since 21:02 (two processes bootstrapped it at once with the
   rc3 converter: cell.json only, no height.r32 etc.) - the player falls through the start cell there.
 
 ## Notes for teammates (relay via main)
