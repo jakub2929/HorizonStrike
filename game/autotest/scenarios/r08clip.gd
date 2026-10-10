@@ -2,7 +2,8 @@ extends "res://autotest/lib/scenario.gd"
 ## r08clip (movie-maker child of r08, bhop level from env HZS_R08_LEVEL set by Game.set_progression as setup, own
 ## --user-dir): the same start pose and input script for every level. Knife out (3), W held to run speed, then a jump
 ## chain for 10 s: space on the first physics frame the player is grounded after a landing, in the air A or D held with
-## mouse motion turning the same way (air strafe), the side alternating per jump. Take-off speeds are logged.
+## mouse motion turning the same way (air strafe), the side alternating per jump. After the first take-off the speed
+## is set to BOOST x run speed (setup, same for every level) so the levels differ visibly. Speeds are logged.
 
 const InputSim := preload("res://autotest/lib/inputsim.gd")
 const RecClip := preload("res://autotest/lib/recclip.gd")
@@ -11,6 +12,7 @@ const SITE := Vector3(2582.0, 178.0, 780.0)  # open snow field south of FE_Antel
 const YAW_DEG := 0.0                          # start view: -Z
 const CLIP_S := 10.0
 const TURN_DEG_S := 100.0                     # air strafe turn rate
+const BOOST := 1.6                            # setup speed after the first take-off, x run speed
 
 var clips := {}
 
@@ -52,33 +54,48 @@ func _run(ctx):
 			break
 	data.start = {"pos": str(ctx.player_pos().round()), "yaw_pitch": str(inp.yaw_pitch())}
 	var f0 := Movie.frame_now()
-	var end_frame := f0 + int(CLIP_S * Movie.FPS)
+	# the clip length is counted in physics steps (game time): drawn frames do not advance in a headless check run
+	var tps := int(ProjectSettings.get_setting("physics/common/physics_ticks_per_second", 60))
+	var end_phys := Engine.get_physics_frames() + int(CLIP_S * tps)
 	var jumps := []
 	inp.press("move_forward")
 	await ctx.wait(0.7)
 	var side := -1
-	var px_per_phys: float = deg_to_rad(TURN_DEG_S) / 60.0 / maxf(inp.rad_per_px, 0.0001)
-	# first jump from running
+	var px_per_phys: float = deg_to_rad(TURN_DEG_S) / tps / maxf(inp.rad_per_px, 0.0001)
+	# first jump from running; once airborne the speed is raised to BOOST x the run speed (setup, the same for every
+	# level, as dev/bhop_input_driver.gd): the air strafe input alone kept the run speed (headless check: 6.40 m/s on
+	# every landing), so without it level 0 and level 5 would look the same
 	await _jump(ctx, inp)
 	inp.release("move_forward")
-	while Movie.frame_now() < end_frame:
+	var g0 := 0
+	while p.is_on_floor() and g0 < 20:
+		await ctx.physics_frames(1)
+		g0 += 1
+	var hv := Vector3(p.velocity.x, 0.0, p.velocity.z)
+	data.run_speed = snappedf(hv.length(), 0.01)
+	if hv.length() > 0.5:
+		hv = hv.normalized() * hv.length() * BOOST
+		p.velocity.x = hv.x
+		p.velocity.z = hv.z
+	data.boost_speed = snappedf(hv.length(), 0.01)
+	while Engine.get_physics_frames() < end_phys:
 		# air: wait to leave the ground, then strafe until the landing
 		var key := "move_left" if side < 0 else "move_right"
 		inp.press(key)
 		var guard := 0
-		while p.is_on_floor() and guard < 20 and Movie.frame_now() < end_frame:
+		while p.is_on_floor() and guard < 20 and Engine.get_physics_frames() < end_phys:
 			await ctx.physics_frames(1)
 			guard += 1
 		var takeoff: float = p.horizontal_speed
 		guard = 0
-		while not p.is_on_floor() and guard < 240 and Movie.frame_now() < end_frame:
+		while not p.is_on_floor() and guard < 240 and Engine.get_physics_frames() < end_phys:
 			inp.look(side * px_per_phys, 0.0)
 			await ctx.physics_frames(1)
 			guard += 1
 		inp.release(key)
 		var landing: float = p.horizontal_speed
 		jumps.append([snappedf(takeoff, 0.01), snappedf(landing, 0.01)])
-		if Movie.frame_now() >= end_frame:
+		if Engine.get_physics_frames() >= end_phys:
 			break
 		await _jump(ctx, inp)
 		side = -side
