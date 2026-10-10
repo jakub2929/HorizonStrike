@@ -44,3 +44,4 @@ Když nevíš, kde jsi: přečti NOC.md a MODLOG.md a pokračuj od posledního z
 - 09:30 Sloučeno stroje S1–S2 (jiskry/úlomky z poolu 32 emitorů, 0,05 ms/snímek; signál machine_killed; take_hit má volitelný 7. parametr silent). T6 0.2: 17/18 PASS, t15 FAIL (jeden snímek 6,8 s na trase), t16 10/20 běhů OK.
 - 09:37 Sloučeno svet: konvertor v nečinnosti 118 MB (cíl ≤300). Zbývá snížit špičku při převodu (4–6 GB) → svet.
 - 09:52 Sloučeno hra H1–H5 (nože, XP, vylepšení, bhop, efekty; dev skripty skutečným vstupem OK; smoke OK). Zbývá: hra optimalizace RAM + 6,8s snímek z t15; cs2 dvojí převod nože při souběžných požadavcích.
+- 09:55 Sloučeno cs2: nůž se při souběžných požadavcích převede jen jednou.
