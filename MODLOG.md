@@ -334,3 +334,11 @@ Full per-site table: `docs/notes/svet.md`. No placement references `ai/groups`, 
   Skeleton, Kukri), 132.2 MiB, 45 s, on demand via the knives op. weapon_knifegg (Arms Race golden knife) is excluded
   by the selection rule (no used_by_classes). Knife finishes cannot be converted: CS2 composite materials (vcompmat)
   are built by shaders and VRF 20 does not evaluate them – default finish only (3 attempts).
+- 0.3 plan merged (docs/PLAN-0.3.md; sheets machines.xp_reward, systems xp/upgrades/fx/persist/knives/bhop/silent
+  strike, hooks feedback sounds + persistence, autotest t17–t24, r05–r08).
+- D58 xp_reward = 100 x kill_reward_mult; arithmetic level curve 300/150 to level 15; bonuses weak-spot kill +20 %,
+  silent strike +30 %.
+- D59 BHOP: 100 ms window; jumps 1..N keep speed; jump N+1 = friction + clamp to 1.0 x run speed; level 0 = 0.2 movement.
+- D60 Silent strike = knife stab into an unaware machine outside its vision cone, damage x5 (design).
+- D61 Hit sounds = CS2 *.AttackerFeedback / *.Victim events + SolidMetal.BulletImpact.
+- D62 Player profile in loadout.json + progression.json (%LOCALAPPDATA% or --user-dir), never in the cache.
