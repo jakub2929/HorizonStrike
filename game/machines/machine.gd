@@ -13,6 +13,12 @@ const Log := preload("res://core/log.gd")
 const MachineRig := preload("res://machines/machine_rig.gd")
 const Projectile := preload("res://machines/projectile.gd")
 const MachineAudio := preload("res://machines/machine_audio.gd")
+const ImpactFx := preload("res://machines/fx/impact_fx.gd")
+
+## Emitted once when the machine dies (0.3 S2; XP is computed by hra from it). weak = the killing hit was on a weak
+## spot, silent = the killing hit was a silent strike (take_hit's `silent`). Also forwarded to Game.machine_killed
+## when the Game autoload declares that signal.
+signal machine_killed(type: String, weapon: String, weak: bool, silent: bool)
 
 const LAYER_WORLD := 1
 const LAYER_PLAYER := 2
@@ -35,6 +41,8 @@ const CALM_STATES := ["idle", "patrol", "graze", "scavenge"]
 const CORPSE_MIN_S := 45.0
 const CORPSE_MAX_S := 240.0
 const CORPSE_FREE_DISTANCE_M := 80.0
+## Hits without a hit point (grenade blasts, fire ticks) show impact effects at most this often per machine.
+const AREA_FX_INTERVAL_S := 0.12
 
 var machine_type := "watcher"
 var state := "idle"
@@ -312,9 +320,14 @@ func is_dead() -> bool:
 # ------------------------------------------------------------------ damage
 
 ## Hit from the player. part = hitbox part; returns the health damage dealt.
-func take_hit(weapon_id: String, base_damage: float, part: String, is_weak: bool) -> float:
+## Hit from the player (frozen interface 0.3): part = hitbox part; hit_pos/hit_normal = where the bullet met the
+## hitbox and the surface normal (INF/zero: the weak point or the body centre, facing the player); silent = the hit is
+## a silent strike (hra decides; reported by machine_killed). Returns the health damage dealt.
+func take_hit(weapon_id: String, base_damage: float, part: String, is_weak: bool, hit_pos: Vector3 = Vector3.INF,
+		hit_normal: Vector3 = Vector3.ZERO, silent: bool = false) -> float:
 	if state == "dead":
 		return 0.0
+	_impact_fx(part, is_weak, hit_pos, hit_normal)
 	var dmg: float
 	if is_weak:
 		dmg = base_damage * Sheets.weapon_num(weapon_id, "headshot_mult", 1.0)
@@ -331,7 +344,7 @@ func take_hit(weapon_id: String, base_damage: float, part: String, is_weak: bool
 		audio.play_role("hit")
 	if health <= 0.0:
 		health = 0.0
-		_die(weapon_id)
+		_die(weapon_id, is_weak, silent)
 	elif ai_enabled and Sheets.sys_bool("suspicion.hit_sets_alert", true):
 		if Game.player:
 			_last_seen = Game.player.global_position
@@ -344,7 +357,25 @@ func take_hit(weapon_id: String, base_damage: float, part: String, is_weak: bool
 	return dmg
 
 
-func _die(weapon_id: String) -> void:
+## Sparks/debris + 3D impact sound at the hit point (systems fx.impact_sparks; weak spots stronger).
+var _area_fx_t := -100.0
+
+
+func _impact_fx(part: String, is_weak: bool, hit_pos: Vector3, hit_normal: Vector3) -> void:
+	var pos := hit_pos
+	if not pos.is_finite():
+		if _now() - _area_fx_t < AREA_FX_INTERVAL_S:
+			return
+		_area_fx_t = _now()
+		pos = aim_point(part if is_weak else "body", Game.player.head_position() if Game.player else null)
+	var n := hit_normal
+	if n.length() < 0.001:
+		var p: Node3D = Game.player
+		n = ((p.head_position() if p.has_method("head_position") else p.global_position) - pos).normalized() if p else Vector3.UP
+	ImpactFx.spawn(pos, n, is_weak)
+
+
+func _die(weapon_id: String, weak: bool = false, silent: bool = false) -> void:
 	_set_state("dead")
 	velocity = Vector3.ZERO
 	collision_layer = 0
@@ -354,6 +385,10 @@ func _die(weapon_id: String) -> void:
 	for h in rig.hitboxes:
 		(h as Area3D).collision_layer = 0
 	Game.award_kill(machine_type, weapon_id)
+	machine_killed.emit(machine_type, weapon_id, weak, silent)
+	if Game.has_signal("machine_killed"):
+		Game.emit_signal("machine_killed", machine_type, weapon_id, weak, silent)
+	Log.info("machine %s killed by %s (weak %s, silent %s)" % [name, weapon_id, weak, silent])
 	if site.has("on_death"):
 		(site["on_death"] as Callable).call(self)
 
