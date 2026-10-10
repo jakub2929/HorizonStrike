@@ -96,6 +96,8 @@ func _run(ctx):
 	samples.sort()
 	data.converter_idle_samples_mb = samples
 	data.converter_idle_mb = samples[1]
+	data.converter_idle_private_mb = await PerfRec.private_mb(ctx, conv)
+	data.game_private_mb_end = await PerfRec.private_mb(ctx, OS.get_process_id())
 	data.converter_flag_idle = w.get("_converter_idle") if w != null else null
 	rec.sampling = false
 	await ctx.frames(2)
@@ -149,7 +151,7 @@ func _run(ctx):
 		check("%s: game RAM peak %s MiB <= %s" % [preset, str(game_peak), str(hmax)], game_peak <= hmax, "end %s MiB" % str(mst.get("game_mb_end")))
 	var cmax := float(o.f(o.system("perf.converter_idle_max_mb")))
 	check("converter idle (no request for %s s) within %s s" % [str(settle), str(wait_max)], idle_ok, "waited %s s" % str(data.converter_idle_wait_s))
-	check("converter RAM idle %s MiB <= %s" % [str(data.converter_idle_mb), str(cmax)], float(data.converter_idle_mb) >= 0.0 and float(data.converter_idle_mb) <= cmax, "samples %s, peak on the route %s MiB" % [str(samples), str(mst.get("converter_mb_peak"))])
+	check("converter RAM idle %s MiB <= %s" % [str(data.converter_idle_mb), str(cmax)], float(data.converter_idle_mb) >= 0.0 and float(data.converter_idle_mb) <= cmax, "samples %s, private bytes %s MiB, peak on the route %s MiB" % [str(samples), str(data.converter_idle_private_mb), str(mst.get("converter_mb_peak"))])
 	note("%s: fps %s / 1%% low %s, GPU %s ms (p99 %s), CPU %s ms (p99 %s), GPU busy %s ms/s, game RAM peak %s MiB, VRAM peak %s MiB, converter peak %s / idle %s MiB" % [
 		preset, str(st.get("fps_avg")), str(st.get("fps_1pct_low")), str(gst.get("gpu_ms_avg")), str(gst.get("gpu_ms_p99")),
 		str(gst.get("cpu_ms_avg")), str(gst.get("cpu_ms_p99")), str(gst.get("gpu_busy_ms_per_s")), str(game_peak), str(vram_peak),

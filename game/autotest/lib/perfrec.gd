@@ -128,6 +128,16 @@ func start_mem_sampler(ctx, every_s: float) -> void:
 		await ctx.wait(every_s)
 
 
+static func private_mb(ctx, pid: int) -> float:
+	## private bytes (commit) of a process in MiB, -1 when unknown: the working set of an idle process can be trimmed
+	## by Windows to a few MB while its committed memory stays (reported next to the working set)
+	var ps := OS.get_environment("SystemRoot").path_join("System32/WindowsPowerShell/v1.0/powershell.exe")
+	var r: Dictionary = await ctx.run_cmd(ps, PackedStringArray(["-NoProfile", "-NonInteractive", "-Command",
+		"(Get-Process -Id %d -ErrorAction SilentlyContinue).PrivateMemorySize64" % pid]))
+	var s := str(r.get("out", "")).strip_edges()
+	return snappedf(int(s) / 1048576.0, 0.1) if s.is_valid_int() else -1.0
+
+
 static func working_sets(ctx, pids: Array) -> Dictionary:
 	## pid -> working set MiB (tasklist "Mem Usage" column, locale-independent digits); missing pids are absent
 	var r: Dictionary = await ctx.run_cmd(Proc.system32("tasklist.exe"), PackedStringArray(["/FO", "CSV", "/NH"]))

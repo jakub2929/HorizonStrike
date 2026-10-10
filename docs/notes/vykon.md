@@ -33,3 +33,18 @@ Source of truth for my running decisions. Newest entries at the bottom of "Log".
   main-process recorders that start their own children (lib/child.gd, lib/recclip.gd) with their own --user-dir.
 
 ## Log
+- 2026-10-10 12:55 t26 PASS (dev, shared machine; E:\meshy_work\vykon03-t2627-2): A 11/11 checks (Low, Medium,
+  High, Low clicked; engine state matched within the click's frames), B 7/7 after restart (low), graphics.json only in
+  --user-dir (%LOCALAPPDATA% file mtime unchanged). Vegetation density check compares per chunk
+  visible == round(count x density) (small chunks round: a share check failed on 1-3-instance chunks).
+- 2026-10-10 12:57 t27 PASS (same run): unlimited 72.9 fps, GPU 12.62 ms/frame = 920 ms/s; limit 60: 60.0 fps
+  (1 % low 58.3), GPU 12.52 ms/frame = 751 ms/s (-18 %). Other Godot/converter processes of the test teammate ran.
+- graphics.json follows --user-dir already (GraphicsSettings.settings_path reads --user-dir itself because the
+  autoload starts before Game sets Paths.user_dir_override); no fix needed.
+- 13:00 coordinator: no windowed runs (user works on this PC). t25 windowed run (vykon03-t25-1) was stopped from
+  outside after 150 s; r05-r09 and the windowed t25 not run yet. Headless only from here.
+- Task C far albedo (graphics.far_albedo_max_px), from the cache (97 cells): every albedo.dds is 2048 px BC1 sRGB
+  with 12 mips = 2.67 MiB. Far cells = rings render.hlod_from_ring (2) .. streaming.unload_ring (3) = up to 40 cells:
+  uncapped 106.7 MiB, cap 1024 26.7 MiB, cap 512 6.7 MiB, cap 256 1.7 MiB. 512 (merged) already takes 94 % of the
+  saving; 256 would save 5 MiB more and is coarser than a screen pixel at ring 2 (~1 m/px at 1-1.5 km, 1080p).
+  Decision: keep 512.
