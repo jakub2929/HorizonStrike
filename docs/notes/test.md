@@ -278,6 +278,7 @@ t04 FAIL (slot key: current stays ak47), t06 FAIL (crouch key: crouched = false;
 | c | old (parent rendered) | 75.4 / 68.9 | 47.7 / 14.2 | 3262 ms | 2052 ms | 1229.7 MiB | 7 | yes |
 | e | parent quiet | 8.5 / 1.9 | 42.1 / 2.6 | 1500 ms | 1500 ms | 1229.7 MiB | 10 | yes (2 Godot + hzsconv started right after the quiet window) |
 | f | parent quiet | 20.8 / 2.8 | 47.5 / 4.5 | 1979 ms | 1683 ms | 1229.7 MiB | 10 | yes at start (2 Godot + hzsconv), none at the end |
+| g | parent quiet, right after the 0.2 run | 46.7 / 28.5 | 54.7 / 22.0 | 1558 ms | 1558 ms | 1229.7 MiB | 10 | yes (2 Godot + hzsconv of other agents, start and end) |
 
   Run e's start phase is ~500 ms per frame for 25 s - another process saturated the GPU; route 42 fps is closer to
   run c. Start phase in 3 s buckets (ms per frame): c 13-14 throughout, e 130-515, f 240/305 then 28-88 - the
