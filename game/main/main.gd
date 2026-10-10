@@ -106,6 +106,7 @@ func _show_missing_hzd(reason: String) -> void:
 	add_child(s)
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 	Log.info("MissingHzdScreen shown (%s)" % reason)
+	Log.flush()   # no gameplay behind a message screen; readers (t08) see the line in the same frame
 
 
 func show_error(message: String) -> void:
@@ -120,6 +121,7 @@ func show_error(message: String) -> void:
 	var s := MessageScreen.make("ErrorScreen", "Something went wrong", message, "Details are in the log: %s" % Log.path())
 	add_child(s)
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+	Log.flush()
 
 
 # ------------------------------------------------------------------ bootstrap
@@ -305,6 +307,8 @@ func _spawn_player(pos: Vector3) -> void:
 			loading = null
 		capture_mouse()
 		_throttle_converter()
+		if world.pipeline_watch:
+			world.pipeline_watch.start()
 		Game.mark_world_ready())
 	pre.start()
 
@@ -381,11 +385,12 @@ func _unhandled_input(event: InputEvent) -> void:
 
 
 ## The script logger leaves before the engine tears the scripts down (messages printed during shutdown, e.g. leak
-## reports, must not call into a freed GDScript object).
+## reports, must not call into a freed GDScript object). The log's writer thread ends here too, after writing its queue.
 func _exit_tree() -> void:
 	if _engine_logger:
 		OS.remove_logger(_engine_logger)
 		_engine_logger = null
+	Log.close()
 
 
 func _notification(what: int) -> void:

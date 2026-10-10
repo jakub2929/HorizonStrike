@@ -59,6 +59,7 @@ func prepare(ids: Array, prog: Array = [""]) -> Dictionary:
 		var t1 := Time.get_ticks_usec()
 		if not p.is_empty():
 			prog[0] = "mesh tangents " + id
+			_complete_layout(p)
 			_add_tangents(p)
 			prog[0] = "mesh lods " + id
 			_generate_lods(p)
@@ -110,6 +111,27 @@ static func _faces(p: Dictionary) -> PackedVector3Array:
 		for i in idx.size():
 			faces[k + i] = pos[idx[i]]
 	return faces
+
+
+## One vertex layout for every world surface: POSITION, NORMAL, TEXCOORD_0 (+ tangents when normal-mapped, see
+## _add_tangents) - the layout world/precompile.gd draws its variants with. Surfaces without normals or UVs got their
+## own pipelines compiled in play (pipeline watch: formats 0x1001 / 0x1007 / 0x1011 when their cell came in).
+## Missing normals are generated (smooth, SurfaceTool), missing UVs are zero.
+static func _complete_layout(p: Dictionary) -> void:
+	for s in p["surfaces"]:
+		var arrays: Array = s["arrays"]
+		if arrays[Mesh.ARRAY_TEX_UV] == null:
+			var uv := PackedVector2Array()
+			uv.resize((arrays[Mesh.ARRAY_VERTEX] as PackedVector3Array).size())
+			arrays[Mesh.ARRAY_TEX_UV] = uv
+		if arrays[Mesh.ARRAY_NORMAL] == null:
+			var st := SurfaceTool.new()
+			st.create_from_arrays(arrays, Mesh.PRIMITIVE_TRIANGLES)
+			st.generate_normals()
+			st.index()
+			var out := st.commit_to_arrays()
+			if out.size() == Mesh.ARRAY_MAX and out[Mesh.ARRAY_NORMAL] != null and out[Mesh.ARRAY_INDEX] != null:
+				s["arrays"] = out
 
 
 ## Normal maps need tangents; the converter's glb has POSITION/NORMAL/TEXCOORD_0 only, so surfaces whose material
