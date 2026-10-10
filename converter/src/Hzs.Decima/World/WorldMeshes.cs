@@ -23,9 +23,6 @@ public sealed record MeshRef(string Id, string[] Textures, bool Colorized, Syste
 /// </summary>
 public sealed class WorldMeshes(Resolver res, CachePaths cache, Log log, int texPx = 512, int maxVertices = 12000)
 {
-    /// <summary>Cached core files are dropped above this size (the server converts cells for hours).</summary>
-    public const long MaxResolverBytes = 768L << 20;
-
     /// <summary>
     /// glb asset.extras.format of shared meshes; bump when mesh/texture export changes. Meshes of another format are
     /// exported again (same id, overwritten atomically) together with their textures.
@@ -53,7 +50,6 @@ public sealed class WorldMeshes(Resolver res, CachePaths cache, Log log, int tex
     /// </summary>
     public MeshRef? Ensure(string file, Guid uuid, StrongBox<long> written)
     {
-        res.TrimIfAbove(MaxResolverBytes);
         var core = res.TryFile(file);
         var obj = core?.Find(uuid);
         if (core is null || obj is null) return null;

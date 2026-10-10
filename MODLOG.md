@@ -371,3 +371,8 @@ Full per-site table: `docs/notes/svet.md`. No placement references `ai/groups`, 
   hit/weapon sounds preloaded on the loading screen; fixed a quit crash from un-awaited knife-index tasks.
 - 0.2 final T6 suite (release 0.2.0-final): 18/19 PASS – all 14 old + t12, t13, t14 + t16 (20/20 runs, 30 cells each,
   exit 0, 0 errors, RSS 2.73–2.93 GB, VRAM ~2.11 GB); t15 FAIL on one 6.8 s frame during the disk offload -> re-run 3x.
+- Merged svet 69d5b1c: converter peak RAM 4.1–5.8 GB -> 1.22 GB in play (1 worker/2 threads) and 4.0–4.6 -> 2.08 GB
+  in bootstrap: one shared byte-bounded LRU core-file resolver (perf.converter_resolver_mb 256), byte-LRU image cache
+  (64 MB), pooled archive block buffers (no LOH garbage), memory governor compacting above perf.converter_soft_cap_mb
+  1200 (bootstrap 2048). Same CPU time, byte-identical output. Remaining bootstrap peak is the CS2 weapons phase
+  (1.8–2.0 GB).
