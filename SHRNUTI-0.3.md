@@ -63,9 +63,9 @@ od rc4 liší jen čísly verze (hra, exe, konvertor) a od rc3 navíc jen opravo
 - Výkon `rc3`: t15 PASS, t24 PASS, t27 PASS, t25 High PASS, t25 Low FAIL jen na RAM (viz cíle).
 - t16 zátěž streamingu 5×: **5/5** (30 buněk, exit 0, 0 chyb, RSS 2556–2624 MB, VRAM 1227 MB).
 - t09 první spuštění: PASS (jen startovní buňka při world_ready, 9 buněk po bootstrapu).
-- Smoke na finálním `v0.3.0`: t01, t03, t17, t26 PASS; t22 FAIL 1× – strafe přestal přidávat rychlost po 2. skoku
-  (rychlost stála na 9,19 m/s); běh se kryl s prací uživatele na PC (ztráta fokusu uvolní drženou klávesu). Znovu
-  spustit na klidném stroji – **čeká**.
+- Smoke na finálním `v0.3.0`: t01, t03, t17, t26 PASS; t22 napoprvé FAIL (strafe přestal přidávat rychlost po 2.
+  skoku, běh se kryl s prací uživatele na PC – ztráta fokusu uvolní drženou klávesu), na klidném stroji **PASS 16/16**
+  (level 5: 7,82 → 9,47 → 10,87 → 12,11 → 13,23 m/s, skok 6 ořízne).
 
 ## Záznamy (`C:\meshy\_tools\records-0.3\`)
 - `shots\knife_menu.png`, `shots\upgrades_menu.png` (r05) – **pozor: v pozadí menu jsou řady světlých obdélníčků
@@ -73,11 +73,15 @@ od rc4 liší jen čísly verze (hra, exe, konvertor) a od rc3 navíc jen opravo
 - `video\inspect_knife_karambit.mp4`, `…_m9_bayonet.mp4`, `…_butterfly.mp4` (r06, oříznuto na 4,5 s).
 - `video\combat.mp4` (r07, 18,6 s: hitmarkery, čísla, jiskry, zásahy hráče).
 - `video\bhop_l0_vs_l5.mp4` (r08, 10 s vedle sebe; rychlost nabírá hráč jen strafem: level 0 max 7,2 m/s, level 5 max
-  9,7 m/s a ořez na 6,35).
+  9,7 m/s a ořez na 6,35). Proti t22 (až 14,2 m/s) je to méně, protože video se nahrává s pevnými 30 snímky/s, takže
+  myš opraví směr pohledu jen 30× za sekundu (t22 bez limitu ~150×) a strafe se navíc každý skok střídá A/D, takže
+  pohled za rychlostí zaostává a každá fáze ve vzduchu přidá zhruba polovinu rychlosti.
 - `shots\{mothers_heart,valley,rocks_close}_{low,medium,high}.png` (r09, stejné pozice v Low/Medium/High).
 
 ## Co se nepovedlo / známé problémy
-- RAM hry na Low nad cílem (2,67 GB místo 2,5 GB), důvod výše.
+- **Cíl RAM hry na Low ≤ 2,5 GB splněný není** (2,67 GB, přijato): špičku tvoří ovladač GPU a Vulkan (~1 GB),
+  namapované soubory (~600 MB, z toho DLL ovladače NVIDIA ~330 MB) a halda Godotu (~1 GB), které na presetu nezávisí –
+  Low i High mají stejnou špičku a ani menší prstenec plných buněk ji nesnížil o víc než 25 MB.
 - Nože jen ve výchozím finishi.
 - Obdélníčky v pozadí menu (oprava běží).
 - Rezerva nejhoršího snímku při načítání je ~11 ms: uvolnění meshů jedné buňky stojí najednou 17–30 ms a stavba
@@ -85,10 +89,10 @@ od rc4 liší jen čísly verze (hra, exe, konvertor) a od rc3 navíc jen opravo
 - Dřívější známé: zdi a podlahy Cauldronu šedé; Sawtoothův kanystr zasažitelný jako první věc z 5/8 směrů.
 
 ## Čeká
-1. Opravit obdélníčky v pozadí menu a znovu vyfotit r05; znovu t22 na finálním buildu (klidný stroj).
+1. Opravit obdélníčky v pozadí menu a znovu vyfotit r05 (běží).
 2. Melty: 0.2.0 je stále v ruční kontrole („Melty's team will take a look“), na listingu je věta o review.
    Druhá selhaná instalace 0.1.1 nemá v `install_outcomes` žádný důvod (hlášen jen výpadek Melty u jedné) – nic
    nenaznačuje chybu hry.
-3. Nahrát 0.3.0 jako koncept (submit_release) – jen po tvém pokynu, protože 0.2.0 je ještě v kontrole; pak
+3. Nahrát 0.3.0 jako koncept (submit_release) až po schválení 0.2.0 (tvé rozhodnutí); pak
    screenshoty a text listingu 0.3 (`docs/listing-0.3.md`) až při publikaci, a „ano“ → publish.
 4. Vrátit tvou cache a profil z `%LOCALAPPDATA%\HorizonStrike\prev-0.3rc-1440` (po posledním okenním běhu).
