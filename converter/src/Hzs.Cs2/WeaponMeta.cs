@@ -61,13 +61,13 @@ internal static partial class WeaponMeta
         return all.Count == 1 ? all.First() : null;
     }
 
-    public static JsonObject Build(Cs2Source src, WeaponsRow row, string? worldModel, bool hasView, string? attachBone,
+    public static JsonObject Build(Cs2Source src, AssetSpec spec, string? worldModel, bool hasView, string? attachBone,
         string? primarySkeleton, string? secondarySkeleton, List<string> problems)
     {
-        var id = row.Id;
+        var id = spec.Id;
         var contentModel = new JsonObject();
-        if (hasView) contentModel["view"] = $"cs2/weapons/{id}/view.glb";
-        if (worldModel is not null) contentModel["world"] = $"cs2/weapons/{id}/world.glb";
+        if (hasView) contentModel["view"] = $"{spec.CacheDir}/{id}/view.glb";
+        if (worldModel is not null) contentModel["world"] = $"{spec.CacheDir}/{id}/world.glb";
 
         var roles = new JsonObject();
         var points = new JsonObject();
@@ -99,7 +99,7 @@ internal static partial class WeaponMeta
 
                 foreach (var (name, attachments, kind) in PointRules)
                 {
-                    var names = name == "muzzle" && row.Suppressed ? new[] { "muzzle_flash2" }.Concat(attachments) : attachments;
+                    var names = name == "muzzle" && spec.Suppressed ? new[] { "muzzle_flash2" }.Concat(attachments) : attachments;
                     var att = names.Select(n => weapon.Attachments.GetValueOrDefault(n)).FirstOrDefault(a => a is not null && a.Length > 0);
                     if (att is null) continue;
                     var inf = Enumerable.Range(0, att.Length).Select(i => att[i]).OrderByDescending(i => i.Weight).First();
@@ -135,7 +135,7 @@ internal static partial class WeaponMeta
                 ["points"] = sourcePoints.Count > 0 ? string.Join(" ", sourcePoints) : "no fx attachments",
             },
         };
-        Compare(row, meta, problems);
+        if (spec.Sheet is not null) Compare(spec.Sheet, meta, problems);
         return meta;
     }
 
