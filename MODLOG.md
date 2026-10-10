@@ -318,3 +318,13 @@ Full per-site table: `docs/notes/svet.md`. No placement references `ai/groups`, 
   7, strider 8, grazer 8, sawtooth 4, scrapper 7, broadhead 7 of 8. t14 PASS (buildings 100 % excl. 19 hzd_normal
   none). Clean 0.1.1 baseline: start 78.4/70.3, route 78.7/46.3, worst load frame 1435 ms, VRAM 1230 MiB.
   Records final in _tools/records-0.2/final.
+- Merged hra 4035952: eviction never removes protected cells (request ring around/ahead of the player, requested,
+  building, loaded, being read, written < 10 s ago, converter .tmp present); a cell leaves by ONE rename into
+  <cache>/trash (Windows refuses while a file is open -> never half-deleted), trash emptied on a worker, max 4
+  evictions/s; mesh GC on a worker (was 2.8 s main-thread frames with 60 cells); --cache-cap-mib for one run.
+  t16 on release: 4/4 runs exit 0, 0 errors, 100-147 evictions each. Visual: neutral cool ambient in shadow
+  (render.ambient_color, ambient_sky_contribution 0.35), horizon ground colour = horizon/haze colour, terrain layer ORM
+  G treated as gloss (render.terrain_layer_gloss, min roughness 0.6). t15 1/3 PASS (53.4 / 49.6 / 50.5 ms worst):
+  Jolt builds 16 trimesh shapes when a body enters -> each new shape now built in its own step (unverified at commit).
+- Disk C: filled (0.95 GB free) by ~186 GB of agents' test caches -> 120 folders moved (not deleted) to
+  E:\meshy_offload\_tools (OTAZKY.md). New test caches go to E:\meshy_work\.

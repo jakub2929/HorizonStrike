@@ -59,6 +59,8 @@ func _ready() -> void:
 	InputSetup.setup()
 	Settings.load_from(Paths.settings_file(), Sheets.sys_num("cache.default_cap_gib", 4.0))
 	Game.cache_cap_bytes = int(Settings.get_value("cache_cap_bytes", int(4.0 * Settings.GIB)))
+	if args.cache_cap_mib > 0.0:
+		Game.cache_cap_bytes = int(args.cache_cap_mib * 1048576.0)   # this run only, not saved
 	Game.cache_root = Paths.norm(args.cache_dir) if args.cache_dir != "" else Paths.default_cache(args.mock_data)
 	Log.info("cache %s, cap %d bytes" % [Game.cache_root, Game.cache_cap_bytes])
 	get_tree().auto_accept_quit = false
@@ -446,10 +448,15 @@ func apply_render_settings() -> void:
 	var sky_c := _color_row("render.sky_color", Color(0.32, 0.5, 0.75))
 	_sky_mat.sky_top_color = sky_c.lerp(Color(0.2, 0.35, 0.6), 0.45)
 	_sky_mat.sky_horizon_color = sky_c.lerp(Color(0.86, 0.89, 0.92), 0.7)
-	_sky_mat.ground_horizon_color = _sky_mat.sky_horizon_color.darkened(0.15)
-	_sky_mat.ground_bottom_color = Color(0.25, 0.25, 0.22)
+	# below the horizon the sky shows where no terrain is drawn (beyond the far cells): haze colour, not a grey ground
+	var haze := _color_row("render.fog_color", Color(0.8, 0.85, 0.9)).lerp(_sky_mat.sky_horizon_color, 0.5)
+	_sky_mat.ground_horizon_color = _sky_mat.sky_horizon_color
+	_sky_mat.ground_bottom_color = haze
 	_sky_mat.sun_angle_max = 20.0
 	_env.ambient_light_energy = Sheets.sys_num("render.ambient_energy", 0.6)
+	# sky ambient mixed with a near-neutral colour: pure sky ambient made snow in shadow saturated blue
+	_env.ambient_light_color = _color_row("render.ambient_color", Color(0.8, 0.82, 0.86))
+	_env.ambient_light_sky_contribution = clampf(Sheets.sys_num("render.ambient_sky_contribution", 0.35), 0.0, 1.0)
 	_env.tonemap_mode = Environment.TONE_MAPPER_AGX if str(Sheets.sys("render.tonemap")) == "agx" else Environment.TONE_MAPPER_FILMIC
 	_env.tonemap_exposure = Sheets.sys_num("render.exposure", 1.0)
 	_env.fog_mode = Environment.FOG_MODE_DEPTH
