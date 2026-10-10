@@ -707,6 +707,7 @@ func _exit_tree() -> void:
 		# never let the engine free scripts and resources under a running worker (that crashed with 0xC0000005):
 		# everything worth keeping is on disk already, so the process ends here with the quit's exit code
 		Log.warn("world exit: terminating the process instead of a teardown under a running worker")
+		Log.close()
 		OS.kill(OS.get_process_id())
 	building.clear()
 	_size_task = -1
