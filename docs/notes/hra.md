@@ -232,6 +232,21 @@ Rules I follow: no class_name lookups across files (everything via preload, so a
   setup; weapon_audio.warm(id) on give() (bought weapon: sounds on a worker). Effects unchanged.
 - Rule: nothing per shot may create a Material/Mesh/Light - pool it and share one material.
 
+### 0.3 fix: machine activation at cell (0,-2) (t25 High, branch fix-03-machine-activation from release/0.3)
+- Measured (slow-frame log, core/frame_stats.gd `add()` = per-frame sums now listed in `top:`: mach_spawn,
+  mach_physics, mach_anim, mach_anim_init, w_mem/w_builds/w_work/w_streaming/w_size_cap/w_evict_trash_gc; log
+  `spawner: <machine> entered in X ms (_ready, rig, held)`, `cell X unloaded in X ms (mesh release, spawner)`).
+- Herd members already entered one per frame; one costs 3.3-6.6 ms (rig.build 3-6: model instance + hitboxes).
+  The bad frame is the coincidence when the player enters the cell: the whole column of 4 cells beyond the full
+  ring unloaded in ONE _update_streaming call (w_streaming 20.8 ms; one unload 2-30 ms, all mesh release), an
+  unsplittable collision op (shape build 6-12 ms) and a machine spawn in the same frame.
+  Before: `slow frame 65.8 ms; machines 4; collision 6.7 (slowest op shape .. 6.0 ms); nodes 52.1 ms (world 46.6,
+  spawner 4.7, top: mach_spawn 4.6, mach_physics 3.3, mach_anim 1.2)`, 4 unloads 20-57 ms before it.
+- Fix: world.gd unloads one cell per streaming tick (0.25 s), farthest first; spawner.gd spawns a queued member
+  only when world.last_process_ms of this frame <= 1.5 x streaming.main_thread_budget_ms (max hold 1 s).
+- Not changed (owners): one mesh release of a cell can be 17-30 ms (mesh_library.release drops textures/meshes on
+  the main thread) and a collision shape build 10-12 ms; both are single steps - candidates for vykon/svet.
+
 ## Notes for teammates (relay via main)
 - test (0.3 API): `--user-dir <dir>` (settings.json, loadout.json, progression.json there); Game.knife_ids(),
   Game.knife_selected(), Game.knife_model() (model in hand), Game.knife_last_anim(), Game.last_anim_request();

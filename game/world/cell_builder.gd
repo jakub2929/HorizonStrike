@@ -642,16 +642,18 @@ static func _plan(out: Dictionary, meshes: RefCounted) -> void:
 
 
 ## Size class of a mesh -> [chunk size m, visibility range m, casts shadow]. Plants (alpha-tested) fade sooner.
+## The chunk edge is capped at render.instance_chunk_max_m: a chunk is culled and LOD-selected as a whole.
 static func _lod_class(aabb: AABB, scale: float, plant: bool) -> Array:
 	var s := maxf(aabb.size.x, maxf(aabb.size.y, aabb.size.z)) * scale
 	var k := 0.45 if plant else 1.0
+	var cmax := Sheets.sys_num("render.instance_chunk_max_m", 512.0)
 	if s < 1.5:
-		return [128.0, 45.0 if plant else 55.0, false]
+		return [minf(128.0, cmax), 45.0 if plant else 55.0, false]
 	if s < 4.0:
-		return [128.0, 130.0 * k, false]
+		return [minf(128.0, cmax), 130.0 * k, false]
 	if s < 12.0:
-		return [256.0, 300.0 * k, false]
-	return [512.0, 600.0 if plant else 0.0, true]
+		return [minf(256.0, cmax), 300.0 * k, false]
+	return [minf(512.0, cmax), 600.0 if plant else 0.0, true]
 
 
 ## Huge alpha-tested meshes are distant impostors (e.g. combined forest billboards spanning hundreds of metres):
