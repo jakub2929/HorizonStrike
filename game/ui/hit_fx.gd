@@ -142,6 +142,12 @@ func _on_hurt(amount: float, source_pos: Vector3, armored: bool) -> void:
 
 
 func _process(delta: float) -> void:
+	var t_proc := Time.get_ticks_usec()
+	_process_timed(delta)
+	load("res://core/frame_stats.gd").note("hit_fx", t_proc)
+
+
+func _process_timed(delta: float) -> void:
 	var p: Node3D = Game.player
 	var cam: Camera3D = p.camera if p else null
 	# hitmarker

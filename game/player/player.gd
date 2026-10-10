@@ -489,6 +489,12 @@ func _set_crouch(want: bool) -> void:
 
 
 func _process(delta: float) -> void:
+	var t_proc := Time.get_ticks_usec()
+	_process_timed(delta)
+	load("res://core/frame_stats.gd").note("player", t_proc)
+
+
+func _process_timed(delta: float) -> void:
 	var target_eye := Sheets.sys_num("movement.eye_height_crouch_u" if crouched else "movement.eye_height_u", 64.0) * _u
 	_eye_h = move_toward(_eye_h, target_eye, delta * 3.0)
 	head.position.y = _eye_h if not dead else move_toward(head.position.y, 0.3, delta * 2.0)

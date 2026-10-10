@@ -153,5 +153,14 @@ func _process(_delta: float) -> void:
 			_play(str(s[1]), [str(s[2])])
 
 
+## Loading time: every sound file of the weapon (the knife slot: its model's and the weapon's own) into memory.
+func preload_weapon(id: String) -> void:
+	var cid := Knives.content_id(id)
+	SoundLib.preload_dir(snd_dir(cid))
+	if cid != id:
+		SoundLib.preload_dir(snd_dir(id))
+	_anim_events(id)
+
+
 func cancel_scheduled() -> void:
 	_scheduled.clear()

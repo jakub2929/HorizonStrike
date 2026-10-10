@@ -82,7 +82,11 @@ func _run() -> void:
 			var landing: float = p.horizontal_speed
 			await _phys(2)
 			await _jump()
-			await _phys(1)
+			# the take-off speed is read once the player is in the air (a jump can register a frame later)
+			var g2 := 0
+			while p.is_on_floor() and g2 < 10:
+				await _phys(1)
+				g2 += 1
 			var takeoff: float = p.horizontal_speed
 			rows.append([j, landing, takeoff])
 		var line := PackedStringArray()

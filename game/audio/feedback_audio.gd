@@ -21,6 +21,11 @@ func _ready() -> void:
 		var p := AudioStreamPlayer.new()
 		add_child(p)
 		_players.append(p)
+	# every feedback sound is read from disk here (loading), never in the middle of a fight
+	for row in ["fx.sound_hit", "fx.sound_hit_weak", "fx.sound_kill_weak", "fx.sound_hit_knife", "fx.sound_hurt", "fx.sound_hurt_armor"]:
+		var ev := str(Sheets.sys(row)) if Sheets.sys(row) != null else ""
+		if ev != "":
+			SoundLib.preload_event(Game.cache_root.path_join("cs2/ui/snd"), key_of(ev))
 
 
 static func key_of(event: String) -> String:

@@ -46,6 +46,9 @@ func _ready() -> void:
 	audio = WeaponAudio.new()
 	audio.name = "WeaponAudio"
 	add_child(audio)
+	# the start loadout's sounds (and the selected knife model's) are read from disk now, not at the first shot
+	for id in Sheets.start_loadout_ids():
+		audio.preload_weapon(id)
 
 
 func _t() -> float:
@@ -147,6 +150,12 @@ func is_reloading() -> bool:
 # ------------------------------------------------------------------ per frame
 
 func _process(delta: float) -> void:
+	var t_proc := Time.get_ticks_usec()
+	_process_timed(delta)
+	load("res://core/frame_stats.gd").note("weapons", t_proc)
+
+
+func _process_timed(delta: float) -> void:
 	var id: String = player.current_weapon
 	if id == "":
 		return

@@ -328,6 +328,12 @@ func play(clip: String) -> void:
 
 
 func _process(delta: float) -> void:
+	var t_proc := Time.get_ticks_usec()
+	_process_timed(delta)
+	load("res://core/frame_stats.gd").note("viewmodel", t_proc)
+
+
+func _process_timed(delta: float) -> void:
 	if _current == null:
 		return
 	if main_camera and _light:
