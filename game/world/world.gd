@@ -259,6 +259,7 @@ func _update_streaming() -> void:
 	var load_r := int(Sheets.sys_num("streaming.load_ring", 1))
 	var req_r := int(Sheets.sys_num("streaming.request_ring", 2))
 	var unload_r := int(Sheets.sys_num("streaming.unload_ring", 3))
+	var full_r := mini(GraphicsSettings.full_cell_ring(), unload_r)   # GRAPHICS HOOK (vykon): full-cell ring per preset
 	var now := Time.get_ticks_msec()
 	# load finished cells near the player (nearest first)
 	var near := ring(pc, load_r)
@@ -298,9 +299,9 @@ func _update_streaming() -> void:
 			if converter:
 				converter.send({"op": "cancel", "cell": [c.x, c.y]})
 			requested.erase(c)
-	# unload cells beyond the unload ring
+	# unload full cells beyond the preset's full-cell ring (their far version shows up to the unload ring)
 	for c in loaded.keys():
-		if cheb(c, pc) > unload_r:
+		if cheb(c, pc) > full_r:
 			_unload(c)
 	_update_far(pc, unload_r)
 	if pc != _last_player_cell:
@@ -434,7 +435,7 @@ func _main_thread_work(delta: float) -> void:
 	var deadline := t_start + budget_us
 	last_work = ""
 	var pc := cell_of(player_pos())
-	var unload_r := int(Sheets.sys_num("streaming.unload_ring", 3))
+	var unload_r := mini(GraphicsSettings.full_cell_ring(), int(Sheets.sys_num("streaming.unload_ring", 3)))   # full cells only
 	if _inserter and cheb(_inserter.cell, pc) > unload_r:
 		Log.info("cell %s insertion dropped (out of range)" % _inserter.cell)
 		meshes.release(_inserter.cell)
