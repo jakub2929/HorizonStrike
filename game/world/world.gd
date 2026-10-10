@@ -435,6 +435,8 @@ func _main_thread_work(delta: float) -> void:
 		Log.info("cell %s insertion dropped (out of range)" % _inserter.cell)
 		meshes.release(_inserter.cell)
 		_bury(_inserter.root)
+		_drop_later([building.get(_inserter.cell), cell_data.get(_inserter.cell), _inserter.data], "dropped insert %s" % _inserter.cell)
+		_inserter.data = {}
 		building.erase(_inserter.cell)
 		cell_data.erase(_inserter.cell)
 		_ground.erase(_inserter.cell)
@@ -501,6 +503,21 @@ func _main_thread_work(delta: float) -> void:
 	last_work += "free %d %.1f | total %.1f" % [freed, (Time.get_ticks_usec() - tc) / 1000.0, (Time.get_ticks_usec() - t_start) / 1000.0]
 
 
+## Drops the last references of large data (prepared cells: transforms, buffers, heights) on a worker: freeing them
+## on the main thread was tens of ms per cell.
+func _drop_later(items: Array, what: String) -> void:
+	var holder: Array = items.filter(func(x): return x != null)
+	if holder.is_empty():
+		return
+	var dprog: Array = ["queued"]
+	var t := WorkerThreadPool.add_task(func():
+		dprog[0] = "started"
+		holder.clear()
+		dprog[0] = "done", true, "drop " + what)
+	_free_tasks.append(t)
+	_task_info[t] = ["drop " + what, dprog]
+
+
 ## Starts inserting the nearest ready cell.
 func _begin_insert(pc: Vector2i, unload_r: int) -> void:
 	var best := Vector2i.ZERO
@@ -511,6 +528,7 @@ func _begin_insert(pc: Vector2i, unload_r: int) -> void:
 			continue
 		var d := cheb(c, pc)
 		if d > unload_r:
+			_drop_later([job], "dropped build %s" % c)   # its prepared data is large: freed on a worker
 			building.erase(c)
 			meshes.release(c)
 			continue
