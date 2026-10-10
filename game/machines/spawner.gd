@@ -17,6 +17,7 @@ var _timer := 0.0
 var _queue: Array = []     # herd members still to spawn: [site, member index, herd size, herd Array] (one per frame)
 var _warm: Array = []      # warm-up machines to free next frame
 var _rng := RandomNumberGenerator.new()
+var last_process_ms := 0.0  # this node's whole _process last frame (world/cell_profiler.gd slow frame log)
 
 
 func _ready() -> void:
@@ -101,6 +102,12 @@ func warm_up_visible(pos: Vector3) -> Array:
 
 
 func _process(delta: float) -> void:
+	var t_proc := Time.get_ticks_usec()
+	_process_inner(delta)
+	last_process_ms = (Time.get_ticks_usec() - t_proc) / 1000.0
+
+
+func _process_inner(delta: float) -> void:
 	for m in _warm:
 		if is_instance_valid(m):
 			_remove(m)
