@@ -92,6 +92,17 @@ func _ready() -> void:
 	fs.button_pressed = bool(Settings.get_value("fullscreen", false))
 	fs.toggled.connect(_on_fullscreen)
 	box.add_child(fs)
+	var dn := CheckButton.new()
+	dn.name = "DamageNumbersToggle"
+	dn.text = "Damage numbers"
+	dn.button_pressed = show_damage_numbers()
+	dn.toggled.connect(func(on: bool): Settings.set_value("show_damage_numbers", on))
+	box.add_child(dn)
+	var upg := Button.new()
+	upg.name = "UpgradesButton"
+	upg.text = "Upgrades"
+	upg.pressed.connect(_open_upgrades)
+	box.add_child(upg)
 	var knife := Button.new()
 	knife.name = "KnifeButton"
 	knife.text = "Knife"
@@ -108,6 +119,20 @@ func _ready() -> void:
 	box.add_child(quit)
 	_main_box = box
 	_build_knife_panel()
+
+
+## settings.json show_damage_numbers (persist.settings_keys), default fx.damage_number.default_on.
+static func show_damage_numbers() -> bool:
+	var fx: Variant = Sheets.sys("fx.damage_number")
+	var def := bool(fx.get("default_on", true)) if typeof(fx) == TYPE_DICTIONARY else true
+	return bool(Settings.get_value("show_damage_numbers", def))
+
+
+## Esc menu -> the upgrades menu (it keeps the game paused).
+func _open_upgrades() -> void:
+	close()
+	if Game.upgrades_menu:
+		Game.upgrades_menu.open()
 
 
 # ------------------------------------------------------------------ knife (0.3)
@@ -390,6 +415,8 @@ func _process(delta: float) -> void:
 func _unhandled_input(event: InputEvent) -> void:
 	if event.is_action_pressed("menu"):
 		if Game.buy_wheel and Game.buy_wheel.is_open():
+			return
+		if Game.upgrades_menu and Game.upgrades_menu.is_open():
 			return
 		if _open:
 			close()

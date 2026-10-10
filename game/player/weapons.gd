@@ -345,7 +345,7 @@ func fire(api: bool, secondary: bool = false) -> Dictionary:
 			var part := str(col.get_meta("part", "body"))
 			var weak: bool = col.get_meta("weak", false)
 			var d := Combat.range_falloff(id, dmg, origin.distance_to(pos))
-			var dealt: float = m.take_hit(id, d, part, weak)
+			var dealt: float = Combat.player_hit(m, id, d, part, weak, pos, h.get("normal", Vector3.ZERO))
 			if first_target == null or first_target == m:
 				if first_target == null:
 					res["point"] = pos
@@ -455,7 +455,14 @@ func _knife(id: String, stab: bool, res: Dictionary) -> Dictionary:
 		var m: Node = col.get_meta("machine")
 		var part := str(col.get_meta("part", "body"))
 		var weak: bool = col.get_meta("weak", false)
-		var dealt: float = m.take_hit(id, dmg, part, weak)
+		# silent strike (combat.silent_strike_rule): a stab on an unaware machine from outside its sight cone - any
+		# knife model, the attack is the knife row's
+		var silent := stab and Combat.is_silent_strike(m, cam.global_position)
+		if silent:
+			dmg *= Sheets.sys_num("combat.silent_strike_mult", 1.0)
+			Log.info("silent strike on %s (%s): %.0f damage before armour" % [m.get("machine_type"), m.get("state"), dmg * Combat.Progression.damage_mult()])
+		var dealt: float = Combat.player_hit(m, id, dmg, part, weak, h["position"], h.get("normal", Vector3.ZERO), silent)
+		res["silent"] = silent
 		res["hit"] = true
 		res["target"] = m
 		res["part"] = part

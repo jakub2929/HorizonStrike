@@ -85,7 +85,7 @@ func _ready() -> void:
 	weapons.player = self
 	add_child(weapons)
 	_mouse_sens = 0.0022 * float(Settings.get_value("mouse_sensitivity", 1.0))
-	health = Sheets.sys_num("combat.player_max_health", 100.0)
+	health = load("res://core/progression.gd").max_health()   # combat.player_max_health + upgrades.max_health
 	reset_loadout()
 
 
@@ -249,7 +249,7 @@ func _die(cause: String) -> void:
 ## Called by main.gd when respawning at a campfire.
 func respawn_at(pos: Vector3, yaw: float) -> void:
 	dead = false
-	health = Sheets.sys_num("respawn.health", 100.0)
+	health = load("res://core/progression.gd").max_health()   # upgrades.max_health: respawn heals to the max
 	if not Sheets.sys_bool("respawn.keep_armor", false):
 		armor = 0.0
 	reset_loadout()

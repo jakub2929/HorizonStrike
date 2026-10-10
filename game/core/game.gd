@@ -21,6 +21,20 @@ const Log := preload("res://core/log.gd")
 const FsUtil := preload("res://core/fsutil.gd")
 const Settings := preload("res://core/settings.gd")
 const Knives := preload("res://core/knives.gd")
+const Progression := preload("res://core/progression.gd")
+
+## A machine died (stroje S2 emits it in machine._die; silent = the killing hit was a silent strike).
+signal machine_killed(machine_type: String, weapon_id: String, weak: bool, silent: bool)
+## The player's hit on a machine (core/combat.gd player_hit): dealt health damage, weak spot, hit point, kill.
+signal player_hit_machine(machine: Node, damage: float, weak: bool, hit_pos: Vector3, killed: bool)
+signal xp_gained(amount: int, reason: String)
+signal level_up(level: int, points: int)
+signal progression_changed
+
+## XP, level, points and upgrades (read-only copy; core/progression.gd).
+var progression: Dictionary:
+	get:
+		return Progression.snapshot()
 
 # ---- state (contract)
 var money: int = 0:
@@ -48,6 +62,7 @@ var main: Node = null
 var world: Node = null
 var hud: Node = null
 var buy_wheel: Node = null
+var upgrades_menu: Node = null
 var campfires := {}          # id -> Node3D (Campfire)
 
 
@@ -153,6 +168,52 @@ func close_buy_wheel() -> void:
 
 func buy_wheel_item_ids() -> Array[String]:
 	return Sheets.buy_wheel_ids()
+
+
+# ------------------------------------------------------------------ XP and upgrades (0.3)
+
+## Test setup only: writes progression (xp, level, points, upgrades) and applies max health.
+func set_progression(d: Dictionary) -> void:
+	Progression.set_state(d)
+	_apply_max_health(false)
+	progression_changed.emit()
+
+
+## From core/combat.gd player_hit: effects signal, XP for a kill (machines.xp_reward + weak / silent bonuses).
+func on_player_hit(m: Node, weapon_id: String, dealt: float, _part: String, weak: bool, hit_pos: Vector3, _hit_normal: Vector3,
+		killed: bool, silent: bool) -> void:
+	player_hit_machine.emit(m, dealt, weak, hit_pos, killed)
+	if not killed:
+		return
+	var type := str(m.get("machine_type"))
+	var xp := Progression.kill_xp(type, weak, silent)
+	var reason := "%s kill with %s%s%s" % [type, weapon_id, ", weak spot" if weak else "", ", silent strike" if silent else ""]
+	var ups := Progression.add_xp(xp, reason)
+	xp_gained.emit(xp, reason)
+	if ups > 0:
+		var p := Progression.snapshot()
+		level_up.emit(int(p["level"]), int(p["points"]))
+	progression_changed.emit()
+
+
+## Buys an upgrade (K menu); max health raises the current health by the same amount.
+func buy_upgrade(kind: String) -> bool:
+	var before := Progression.max_health()
+	if not Progression.buy_upgrade(kind):
+		return false
+	if kind == "max_health" and player:
+		player.health = minf(player.health + Progression.max_health() - before, Progression.max_health())
+	progression_changed.emit()
+	return true
+
+
+func max_health() -> float:
+	return Progression.max_health()
+
+
+func _apply_max_health(fill: bool) -> void:
+	if player:
+		player.health = Progression.max_health() if fill else minf(player.health, Progression.max_health())
 
 
 # ------------------------------------------------------------------ knife models (0.3, read-only for tests)

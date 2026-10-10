@@ -24,6 +24,7 @@ const MessageScreen := preload("res://ui/message_screen.gd")
 const SettingsMenu := preload("res://ui/settings_menu.gd")
 const AudioDirector := preload("res://audio/audio_director.gd")
 const Knives := preload("res://core/knives.gd")
+const UpgradesMenu := preload("res://ui/upgrades_menu.gd")
 
 const RUNNER := "res://autotest/runner.gd"
 
@@ -333,6 +334,10 @@ func _spawn_player(pos: Vector3) -> void:
 	var sm := SettingsMenu.new()
 	sm.name = "SettingsLayer"
 	add_child(sm)
+	var um := UpgradesMenu.new()   # after the Esc menu: it sees Esc / K first while open
+	um.name = "UpgradesLayer"
+	add_child(um)
+	Game.upgrades_menu = um
 	SettingsMenu.apply_window_mode()
 	var ad := AudioDirector.new()
 	ad.name = "AudioDirector"

@@ -80,6 +80,69 @@ func _ready() -> void:
 			add_child(_armor_icon)
 	Game.hud_message.connect(message)
 	Game.money_changed.connect(func(_v): _refresh())
+	_build_progression()
+
+
+# ------------------------------------------------------------------ level, XP bar, level-up notice (0.3)
+
+const LEVEL_UP_S := 3.0
+var _level_l: Label
+var _xp_bar: ProgressBar
+var _levelup: Label
+var _levelup_t := 0.0
+
+
+func _build_progression() -> void:
+	_level_l = _label(Vector2(24, 64), 20, Color(0.95, 0.85, 0.45))
+	_level_l.name = "LevelLabel"
+	_xp_bar = ProgressBar.new()
+	_xp_bar.name = "XpBar"
+	_xp_bar.show_percentage = false
+	_xp_bar.position = Vector2(24, 94)
+	_xp_bar.size = Vector2(220, 8)
+	_xp_bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var fill := StyleBoxFlat.new()
+	fill.bg_color = Color(0.95, 0.8, 0.3)
+	var bg := StyleBoxFlat.new()
+	bg.bg_color = Color(0, 0, 0, 0.5)
+	_xp_bar.add_theme_stylebox_override("fill", fill)
+	_xp_bar.add_theme_stylebox_override("background", bg)
+	add_child(_xp_bar)
+	_levelup = Label.new()
+	_levelup.name = "LevelUpNotice"
+	_levelup.add_theme_font_size_override("font_size", 34)
+	_levelup.add_theme_color_override("font_color", Color(1.0, 0.85, 0.3))
+	_levelup.add_theme_color_override("font_outline_color", Color.BLACK)
+	_levelup.add_theme_constant_override("outline_size", 8)
+	_levelup.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_levelup.set_anchors_preset(Control.PRESET_CENTER_TOP)
+	_levelup.position = Vector2(-400, 120)
+	_levelup.size = Vector2(800, 90)
+	_levelup.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_levelup.visible = false
+	add_child(_levelup)
+	Game.level_up.connect(_on_level_up)
+	Game.progression_changed.connect(_refresh_progression)
+	_refresh_progression()
+
+
+func _on_level_up(level: int, points: int) -> void:
+	_levelup.text = "LEVEL %d\n%d upgrade point%s - press K" % [level, points, "" if points == 1 else "s"]
+	_levelup.visible = true
+	_levelup_t = LEVEL_UP_S
+	_refresh_progression()
+
+
+func _refresh_progression() -> void:
+	var p: Dictionary = Game.progression
+	var lp: Vector2i = load("res://core/progression.gd").level_progress()
+	_level_l.text = "Level %d%s" % [int(p["level"]), ("   %d point%s (K)" % [int(p["points"]), "" if int(p["points"]) == 1 else "s"]) if int(p["points"]) > 0 else ""]
+	_xp_bar.max_value = maxi(lp.y, 1)
+	_xp_bar.value = lp.x
+
+
+func level_up_visible() -> bool:
+	return _levelup.visible
 
 
 func _label(pos: Vector2, size: int, color: Color, right: bool = false, bottom: bool = false) -> Label:
@@ -167,6 +230,11 @@ func _process(delta: float) -> void:
 	if _cache_timer <= 0.0 and Sheets.sys_bool("ui.show_cache_size", true):
 		_cache_timer = 1.0
 		_cache.text = "Cache %s / %s" % [human_bytes(Game.cache_bytes()), human_bytes(Game.cache_cap_bytes)]
+	if _levelup_t > 0.0:
+		_levelup_t -= delta
+		_levelup.modulate.a = clampf(_levelup_t, 0.0, 1.0)
+		if _levelup_t <= 0.0:
+			_levelup.visible = false
 	if _msg_t > 0.0:
 		_msg_t -= delta
 		_msg.modulate.a = clampf(_msg_t, 0.0, 1.0)
