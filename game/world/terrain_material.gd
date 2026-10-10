@@ -8,6 +8,7 @@ extends RefCounted
 
 const MeshLib := preload("res://world/mesh_library.gd")
 const Log := preload("res://core/log.gd")
+const Sheets := preload("res://core/sheets.gd")
 
 const SHADER := """
 shader_type spatial;
@@ -44,6 +45,8 @@ uniform float macro_tint = 0.55;      // how much the cell albedo colours the ne
 uniform float macro_start = 60.0;     // m: layers fade to the cell albedo between start and end
 uniform float macro_end = 260.0;
 uniform float layer_normal_strength = 0.8;
+uniform bool layer_gloss = true;       // render.terrain_layer_gloss: ORM G is gloss (roughness = 1 - G)
+uniform float min_roughness = 0.6;     // render.terrain_min_roughness
 
 varying vec3 world_pos;
 varying vec3 world_normal;
@@ -92,7 +95,8 @@ void fragment() {
 		near_col = mix(near_col, macro, 0.25);
 		float far_k = smoothstep(macro_start, macro_end, dist);
 		ALBEDO = mix(near_col, macro, far_k);
-		ROUGHNESS = mix(orm.g, 0.9, far_k);
+		float rough = max(layer_gloss ? 1.0 - orm.g : orm.g, min_roughness);
+		ROUGHNESS = mix(rough, 0.9, far_k);
 		AO = mix(orm.r, 1.0, far_k);
 		AO_LIGHT_AFFECT = 0.4;
 		SPECULAR = 0.25;
@@ -186,6 +190,8 @@ static func make(albedo: Texture2D, normal: Texture2D, normal_world: bool = fals
 	if ok:
 		m.set_shader_parameter("masks", layers["masks"])
 		m.set_shader_parameter("tile_m", layers.get("tile", Vector4(4, 4, 4, 6)))
+		m.set_shader_parameter("layer_gloss", Sheets.sys_bool("render.terrain_layer_gloss", true))
+		m.set_shader_parameter("min_roughness", Sheets.sys_num("render.terrain_min_roughness", 0.6))
 	return m
 
 
