@@ -376,3 +376,6 @@ Full per-site table: `docs/notes/svet.md`. No placement references `ai/groups`, 
   (64 MB), pooled archive block buffers (no LOH garbage), memory governor compacting above perf.converter_soft_cap_mb
   1200 (bootstrap 2048). Same CPU time, byte-identical output. Remaining bootstrap peak is the CS2 weapons phase
   (1.8–2.0 GB).
+- 0.2.0 uploaded to Melty as DRAFT: release 024c27ab-d661-45b7-9226-0ec9dbcb68e8, upload e6a95a38 (zip sha256 abfec3ed…,
+  built from v0.2.0-rc, verified free of 0.3 features). t15 re-runs on the quiet machine: 2/3 PASS (route 1 % low 49.0 /
+  44.4 / 47.1; load frames <= 37.9 ms). Listing text + new screenshots applied only at publish (they go live at once).
