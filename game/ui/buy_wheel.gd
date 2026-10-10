@@ -10,6 +10,7 @@ const Sheets := preload("res://core/sheets.gd")
 const Log := preload("res://core/log.gd")
 const SoundLib := preload("res://audio/sound_lib.gd")
 const Content := preload("res://core/content.gd")
+const WeaponAssets := preload("res://core/weapon_assets.gd")
 
 const RADIUS := 330.0
 const INNER := 105.0
@@ -22,6 +23,7 @@ var _wheel: Control
 var _items: Array[String] = []
 var _slots: Array = []      # Control per item
 var _icons := {}
+var _icon_tasks: Array = []   # [task, out, id] icons of weapons converted after the start
 var _sel := -1
 var _open := false
 var _status: Label
@@ -63,6 +65,7 @@ func _ready() -> void:
 	add_child(_sfx)
 	_build_items()
 	Game.buy_wheel = self
+	Game.weapon_ready.connect(_on_weapon_ready)
 
 
 func _build_items() -> void:
@@ -98,6 +101,49 @@ func _build_items() -> void:
 		slot.add_child(price_l)
 		_wheel.add_child(slot)
 		_slots.append(slot)
+
+
+## A weapon converted after the start: its icon is rasterised on a worker, then swapped in.
+func _on_weapon_ready(id: String) -> void:
+	var i := _items.find(id)
+	if i < 0:
+		return
+	var p := Content.weapon_icon(id)
+	if p == "":
+		return
+	var out: Array = [null]
+	var t := WorkerThreadPool.add_task(func():
+		var bytes := FileAccess.get_file_as_bytes(p)
+		var img := Image.new()
+		if img.load_svg_from_buffer(bytes, 1.0) == OK and img.get_width() > 0 and img.get_height() > 0:
+			var sc := minf(ICON_BOX.x / img.get_width(), ICON_BOX.y / img.get_height())
+			var img2 := Image.new()
+			if img2.load_svg_from_buffer(bytes, sc) == OK:
+				img = img2
+			out[0] = img, true, "icon " + id)
+	_icon_tasks.append([t, out, id])
+
+
+func _poll_icons() -> void:
+	for e in _icon_tasks.duplicate():
+		if not WorkerThreadPool.is_task_completed(int(e[0])):
+			continue
+		WorkerThreadPool.wait_for_task_completion(int(e[0]))
+		_icon_tasks.erase(e)
+		var img: Image = e[1][0]
+		var id := str(e[2])
+		if img == null:
+			continue
+		_icons[id] = ImageTexture.create_from_image(img)
+		var i := _items.find(id)
+		if i >= 0:
+			((_slots[i] as Node).get_node("Icon") as TextureRect).texture = _icons[id]
+
+
+func _exit_tree() -> void:
+	for e in _icon_tasks:
+		WorkerThreadPool.wait_for_task_completion(int(e[0]))   # never leave a pool task behind
+	_icon_tasks.clear()
 
 
 func _icon(id: String) -> Texture2D:
@@ -224,6 +270,8 @@ func _try_buy(i: int) -> void:
 	var reason: String = Game.player.can_buy(id) if Game.player else "no player"
 	if reason != "":
 		Log.info("buywheel: denied %s (%s)" % [id, reason])
+		if reason == "preparing":
+			reason = "%s is still being prepared - available in a moment" % Sheets.weapon_row(id).get("display_name", id)
 		_note = reason
 		_note_until = Time.get_ticks_msec() + NOTE_MS
 		Game.hud_message.emit(reason)
@@ -251,6 +299,7 @@ func _update_sel(pos: Vector2) -> void:
 
 
 func _process(_delta: float) -> void:
+	_poll_icons()
 	if not _open:
 		return
 	var combat := Game.in_combat()
@@ -265,8 +314,15 @@ func _process(_delta: float) -> void:
 	_status.text = txt
 	for i in _items.size():
 		var slot: Control = _slots[i]
-		var ok := Game.money >= Sheets.price(_items[i]) and not combat
+		var ready := WeaponAssets.is_ready(_items[i])
+		var ok := ready and Game.money >= Sheets.price(_items[i]) and not combat
 		slot.modulate = Color(1, 1, 1, 1) if ok else Color(0.55, 0.55, 0.55, 0.8)
+		var price_l := slot.get_node("Price") as Label
+		if ready:
+			price_l.text = "$%d" % Sheets.price(_items[i])
+		else:
+			var pr := WeaponAssets.progress(_items[i])
+			price_l.text = "Preparing..." if pr < 0.0 else "Preparing... %d %%" % int(pr * 100.0)
 
 
 func _draw_wheel() -> void:

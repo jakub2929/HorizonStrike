@@ -29,6 +29,7 @@ var _bootstrapped := false
 var _seq := 0
 var _next_id := 1
 var _mesh_bytes := 0
+var _late_weapons: Array = []   # [due ticks ms, request id, weapon id] (mock weapons op)
 
 
 func start(root: String) -> String:
@@ -83,6 +84,13 @@ func send(req: Dictionary) -> int:
 			_jobs.append({"id": id, "op": "status", "prio": -2000000, "seq": _seq})
 		"throttle":
 			_events.append({"id": id, "event": "throttled", "workers": int(req.get("workers", 1)), "threads": int(req.get("threads", 2))})
+		"weapons":
+			# proto weapons (mock): one done event per weapon, a second apart (the models stay placeholders)
+			var t0 := Time.get_ticks_msec()
+			var k := 1
+			for w in req.get("ids", []):
+				_late_weapons.append([t0 + 1000 * k, id, str(w)])
+				k += 1
 		"knives":
 			# proto.knives: the mock knives exist since start(): index counts, then one cached done per requested knife
 			var idx: Variant = FsUtil.read_json(cache_root.path_join("cs2/knives/index.json"))
@@ -219,6 +227,12 @@ func _do_bootstrap(job: Dictionary) -> void:
 
 
 func _process(_delta: float) -> void:
+	var now := Time.get_ticks_msec()
+	while not _late_weapons.is_empty() and int(_late_weapons[0][0]) <= now:
+		var w: Array = _late_weapons.pop_front()
+		_mutex.lock()
+		_events.append({"id": w[1], "event": "done", "bytes": 0, "weapon": w[2], "state": "ok", "cached": false})
+		_mutex.unlock()
 	_mutex.lock()
 	if _events.is_empty():
 		_mutex.unlock()

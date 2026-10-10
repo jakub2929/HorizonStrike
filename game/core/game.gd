@@ -30,6 +30,8 @@ signal player_hit_machine(machine: Node, damage: float, weak: bool, hit_pos: Vec
 ## Damage the player takes (also while invulnerable): health damage, source position (Vector3.INF = none), armour.
 signal player_hurt(amount: float, source_pos: Vector3, armored: bool)
 signal xp_gained(amount: int, reason: String)
+## A weapon converted after the start became usable (core/weapon_assets.gd).
+signal weapon_ready(weapon_id: String)
 signal level_up(level: int, points: int)
 signal progression_changed
 

@@ -22,6 +22,7 @@ func _ready() -> void:
 		var p := AudioStreamPlayer.new()
 		add_child(p)
 		_players.append(p)
+	Game.weapon_ready.connect(_on_weapon_ready)
 
 
 static func snd_dir(id: String) -> String:
@@ -144,6 +145,7 @@ static func play_at(parent: Node, pos: Vector3, id: String, event: String, loop_
 
 
 func _process(_delta: float) -> void:
+	_poll_snd_tasks()
 	if _scheduled.is_empty():
 		return
 	var now := Time.get_ticks_msec() / 1000.0
@@ -160,6 +162,39 @@ func preload_weapon(id: String) -> void:
 	if cid != id:
 		SoundLib.preload_dir(snd_dir(id))
 	_anim_events(id)
+
+
+var _snd_tasks: Array = []   # [task, out {path: stream}] sounds of weapons converted after the start
+
+
+## Game.weapon_ready: the weapon's sound files are read on a worker and put into the cache on the main thread.
+func _on_weapon_ready(id: String) -> void:
+	var dir := snd_dir(Knives.content_id(id))
+	var out := {}
+	var events := {}
+	var t := WorkerThreadPool.add_task(func():
+		events.merge(SoundLib.scan_uncached(dir))
+		for ev in events.values():
+			for p in ev:
+				out[str(p)] = SoundLib.load_uncached(str(p)), true, "sounds " + id)
+	_snd_tasks.append([t, out, dir, events])
+
+
+func _poll_snd_tasks() -> void:
+	for e in _snd_tasks.duplicate():
+		if not WorkerThreadPool.is_task_completed(int(e[0])):
+			continue
+		WorkerThreadPool.wait_for_task_completion(int(e[0]))
+		_snd_tasks.erase(e)
+		SoundLib.store_dir(str(e[2]), e[3])
+		for p in e[1]:
+			SoundLib.store(str(p), e[1][p])
+
+
+func _exit_tree() -> void:
+	for e in _snd_tasks:
+		WorkerThreadPool.wait_for_task_completion(int(e[0]))   # never leave a pool task behind
+	_snd_tasks.clear()
 
 
 func cancel_scheduled() -> void:

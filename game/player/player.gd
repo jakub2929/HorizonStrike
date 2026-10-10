@@ -161,6 +161,8 @@ func can_buy(item_id: String) -> String:
 		return "Not for sale"
 	if dead:
 		return "You are dead"
+	if not load("res://core/weapon_assets.gd").is_ready(item_id):
+		return "preparing"   # converted in the background after the start (core/weapon_assets.gd)
 	if Game.in_combat():
 		return "Can't buy during combat"
 	if Game.money < Sheets.price(item_id):
