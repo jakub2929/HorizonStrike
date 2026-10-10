@@ -63,6 +63,7 @@ var _graveyard: Array = []         # nodes of unloaded cells, freed a few per fr
 var far := {}                     # Vector2i -> Node3D far version of a cell (coarse terrain + HLOD proxy)
 var _far_jobs := {}                # Vector2i -> {task, out: [Dictionary]}
 var _far_none := {}                # cells without an HLOD (not asked again)
+var last_process_ms := 0.0        # this node's whole _process last frame (slow frame log)
 var last_work := ""                # --profile-cells: what the streaming main-thread work did last frame (steps > 1 ms)
 var _finish_detail := ""
 var _free_tasks: Array = []        # worker tasks dropping finished cells' prepared data
@@ -210,6 +211,12 @@ func player_vel() -> Vector3:
 
 
 func _process(delta: float) -> void:
+	var t_proc := Time.get_ticks_usec()
+	_process_inner(delta)
+	last_process_ms = (Time.get_ticks_usec() - t_proc) / 1000.0
+
+
+func _process_inner(delta: float) -> void:
 	_poll_builds()
 	_main_thread_work(delta)
 	_stream_timer -= delta
