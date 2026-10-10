@@ -16,7 +16,7 @@ public static class Program
         {
             Console.WriteLine("""
                 hzsconv 0.2.0 - converts your own CS2 and Horizon Zero Dawn content into a local cache
-                  hzsconv cs2      --cs2 <dir> --cache <dir> [--only-stats] [--force] [--only id,id]
+                  hzsconv cs2      --cs2 <dir> --cache <dir> [--only-stats] [--bootstrap] [--force] [--only id,id]
                   hzsconv knives   --cs2 <dir> --cache <dir> [--force] [--only id,id]
                   hzsconv machines --hzd <dir> --cache <dir>
                   hzsconv audio    --hzd <dir> --cache <dir>
@@ -116,7 +116,8 @@ internal sealed class Server
     private readonly PriorityQueue<Job, (int, long)> _queue = new();
     private readonly Dictionary<(int, int), Job> _pendingCells = new();
     private readonly HashSet<(int, int)> _runningCells = new();
-    private readonly Dictionary<string, Job> _knifeJobs = new(); // knife id -> its queued or running job (one per knife)
+    private readonly Dictionary<string, Job> _assetJobs = new(); // "knife:<id>" / "weapon:<id>" -> its queued or running job
+    private int _assetRunning; // CS2 asset jobs running (one at a time: they share the CS2 session; a second would only wait)
     private readonly SemaphoreSlim _signal = new(0);
     private long _seq;
     private int _allowed;  // jobs that may run at once (op "throttle"); <= _workers
@@ -142,7 +143,7 @@ internal sealed class Server
     {
         public int Prio { get; set; }
         public string? Name { get; init; }                // op knife: knife id
-        public List<long> Waiters { get; } = [];          // op knife: request ids that get this knife's done event
+        public List<long> Waiters { get; } = [];          // ops knife/weapon: request ids that get this item's done event
         public IReadOnlyList<string>? Names { get; init; } // op knives: requested ids (null = all)
     }
 
@@ -198,6 +199,22 @@ internal sealed class Server
                         // {"op":"knives","ids":[..],"prio":100}: index first, then one job per knife (default prio after cells)
                         var ids = req["ids"] is JsonArray ia ? ia.Select(x => x!.GetValue<string>()).ToList() : null;
                         Enqueue(new Job(id, "knives", 0, 0, 0) { Prio = req["prio"]?.GetValue<int>() ?? 100, Names = ids });
+                    }
+                    break;
+                case "weapons":
+                    {
+                        // {"op":"weapons","ids":[..],"prio":100}: one job per weapon (default: every weapons row), after the
+                        // bootstrap; done {weapons, queued, unknown} now, then per weapon done {weapon, state, reason, cached, bytes}
+                        var all = Cs2Converter.AllIds();
+                        var ids = req["ids"] is JsonArray wa ? wa.Select(x => x!.GetValue<string>()).ToList() : [.. all];
+                        var unknown = ids.Where(i => !all.Contains(i)).ToList();
+                        ids = ids.Where(all.Contains).Distinct().ToList();
+                        _proto.Done(id, 0, new JsonObject
+                        {
+                            ["weapons"] = new JsonArray(ids.Select(i => (JsonNode)JsonValue.Create(i)!).ToArray()), ["queued"] = ids.Count,
+                            ["unknown"] = new JsonArray(unknown.Select(i => (JsonNode)JsonValue.Create(i)!).ToArray()),
+                        });
+                        foreach (var w in ids) EnqueueAsset(id, "weapon", w, req["prio"]?.GetValue<int>() ?? 100);
                     }
                     break;
                 case "throttle":
@@ -264,10 +281,25 @@ internal sealed class Server
             {
                 // throttle: wait until fewer than the allowed number of jobs run (the signal is passed on)
                 while (_running >= _allowed && !_ctx.Ct.IsCancellationRequested) Monitor.Wait(_lock, 200);
-                if (!_queue.TryDequeue(out job, out _)) continue;
-                if (job.Op is "knives" or "knife" && _bootstrapActive > 0 && !_bootstrapped)
+                // one CS2 item at a time (they share the CS2 session): while one converts, skip queued items and take
+                // the next other job (a cell), so the second worker is not blocked waiting for the session
+                var skipped = new List<Job>();
+                job = null;
+                while (_queue.TryDequeue(out var next, out _))
                 {
-                    // knife work waits for the bootstrap too (the start of play comes first)
+                    if (next.Op is "knife" or "weapon" && _assetRunning > 0) { skipped.Add(next); continue; }
+                    job = next;
+                    break;
+                }
+                foreach (var sj in skipped) _queue.Enqueue(sj, (sj.Prio, Interlocked.Increment(ref _seq)));
+                if (job is null)
+                {
+                    if (skipped.Count > 0) { Monitor.Wait(_lock, 200); _signal.Release(); }
+                    continue;
+                }
+                if (job.Op is "knives" or "knife" or "weapon" && _bootstrapActive > 0 && !_bootstrapped)
+                {
+                    // knife and weapon work waits for the bootstrap too (the start of play comes first)
                     _queue.Enqueue(job, (job.Prio, Interlocked.Increment(ref _seq))); Monitor.Wait(_lock, 200); _signal.Release(); continue;
                 }
                 if (job.Op == "cell")
@@ -277,6 +309,7 @@ internal sealed class Server
                     if (!_pendingCells.Remove((job.X, job.Y))) continue; // cancelled
                     _runningCells.Add((job.X, job.Y));
                 }
+                if (job.Op is "knife" or "weapon") _assetRunning++;
                 _running++;
             }
             var sink = new EventProgress(_proto, job.Id);
@@ -286,20 +319,27 @@ internal sealed class Server
                 var cached = false;
                 if (job.Op == "bootstrap") bytes = Bootstrap(job, sink);
                 else if (job.Op == "knives") { KnivesIndex(job, sink); continue; }
-                else if (job.Op == "knife")
+                else if (job.Op is "knife" or "weapon")
                 {
                     List<long> waiters;
+                    var key = $"{job.Op}:{job.Name}";
+                    lock (_lock) waiters = [.. job.Waiters];
+                    // optional progress: the item starts converting now (done 0 of 1); its done event follows
+                    foreach (var w in waiters)
+                        _proto.Emit(new JsonObject { ["id"] = w, ["event"] = "progress", ["stage"] = job.Op, [job.Op] = job.Name, ["done"] = 0, ["total"] = 1 });
                     try
                     {
-                        var (state, reason, wasCached, kb) = Knives.ConvertKnife(_ctx, job.Name!);
-                        lock (_lock) { _knifeJobs.Remove(job.Name!); waiters = [.. job.Waiters]; }
+                        var (state, reason, wasCached, kb) = job.Op == "knife"
+                            ? Knives.ConvertKnife(_ctx, job.Name!)
+                            : Cs2Converter.ConvertWeapon(_ctx, job.Name!);
+                        lock (_lock) { _assetJobs.Remove(key); waiters = [.. job.Waiters]; }
                         foreach (var w in waiters)
-                            _proto.Done(w, kb, new JsonObject { ["knife"] = job.Name, ["state"] = state, ["reason"] = reason, ["cached"] = wasCached });
+                            _proto.Done(w, kb, new JsonObject { [job.Op] = job.Name, ["state"] = state, ["reason"] = reason, ["cached"] = wasCached });
                     }
                     catch (Exception kex)
                     {
-                        lock (_lock) { _knifeJobs.Remove(job.Name!); waiters = [.. job.Waiters]; }
-                        _ctx.Log.Error($"knife {job.Name}: {kex}");
+                        lock (_lock) { _assetJobs.Remove(key); waiters = [.. job.Waiters]; }
+                        _ctx.Log.Error($"{key}: {kex}");
                         foreach (var w in waiters) _proto.Error(w, kex.Message);
                     }
                     continue;
@@ -319,6 +359,7 @@ internal sealed class Server
                 AfterJob(job.Op);
                 lock (_lock) { _running--; _lastActivity = Environment.TickCount64; _released = false; Monitor.PulseAll(_lock); }
                 if (job.Op == "cell") lock (_lock) _runningCells.Remove((job.X, job.Y));
+                if (job.Op is "knife" or "weapon") lock (_lock) { _assetRunning--; Monitor.PulseAll(_lock); }
                 if (job.Op == "bootstrap") lock (_lock) { _bootstrapActive--; Monitor.PulseAll(_lock); }
             }
         }
@@ -334,24 +375,25 @@ internal sealed class Server
             ["knives"] = index["knives"]!.AsArray().Count, ["knives_ok"] = Knives.Count(index, "ok"),
             ["knives_failed"] = Knives.Count(index, "failed"), ["knives_pending"] = Knives.Count(index, "pending"), ["queued"] = ids.Count,
         });
-        foreach (var k in ids) EnqueueKnife(job.Id, k, job.Prio);
+        foreach (var k in ids) EnqueueAsset(job.Id, "knife", k, job.Prio);
     }
 
-    // One job per knife: a knife already queued or running only gains the request (and a higher priority if asked)
-    private void EnqueueKnife(long requestId, string knife, int prio)
+    // One job per knife / weapon: an item already queued or running only gains the request (and a higher priority if asked)
+    private void EnqueueAsset(long requestId, string op, string name, int prio)
     {
         Job job;
+        var key = $"{op}:{name}";
         lock (_lock)
         {
-            if (_knifeJobs.TryGetValue(knife, out var existing))
+            if (_assetJobs.TryGetValue(key, out var existing))
             {
                 existing.Waiters.Add(requestId);
                 if (prio < existing.Prio) { existing.Prio = prio; Requeue(); }
                 return;
             }
-            job = new Job(requestId, "knife", 0, 0, 0) { Prio = prio, Name = knife };
+            job = new Job(requestId, op, 0, 0, 0) { Prio = prio, Name = name };
             job.Waiters.Add(requestId);
-            _knifeJobs[knife] = job;
+            _assetJobs[key] = job;
         }
         Enqueue(job);
     }
@@ -376,6 +418,7 @@ internal sealed class Server
                 {
                     // under the lock: no worker can start a job while the caches go away
                     var before = System.Diagnostics.Process.GetCurrentProcess().PrivateMemorySize64;
+                    Cs2Converter.ReleaseCaches();
                     Hzs.Decima.Memory.ReleaseCaches();
                     var after = System.Diagnostics.Process.GetCurrentProcess().PrivateMemorySize64;
                     _released = true;

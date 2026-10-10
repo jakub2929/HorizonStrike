@@ -20,8 +20,6 @@ public static partial class Knives
     public const int Format = 1;
 
     private static readonly object IndexLock = new();
-    private static readonly object SessionLock = new();
-    private static Session? _session;
 
     private sealed record Rules(string PrefabChainHas, string[] RequireKeys, string ModelKey, string NameTokenKey, string AnimSkeleton,
         string GraphDir, string GraphNameContains, string Icon, string Localization, string StatsRow, string CacheDir)
@@ -131,19 +129,22 @@ public static partial class Knives
             entry["icon"]?.GetValue<string>() ?? rules.Icon.Replace("{short}", id), "none",
             stats is null ? [] : AssetSpec.ParseList(stats.SndEvents), false, true, null);
 
-        string state;
+        string state = "failed";
         string? reason = null;
         List<string> clips = [];
         long bytes = 0;
-        var sw = System.Diagnostics.Stopwatch.StartNew();
-        lock (SessionLock)
+        var sw = new System.Diagnostics.Stopwatch();
+        var cachedNow = Cs2Session.Run(ctx, session =>
         {
-            using var guard = StdoutGuard.Begin(ctx.Log);
-            var session = SessionFor(ctx);
+            sw.Start(); // conversion time, without waiting for the session
             // another caller may have converted it while this one waited for the session
             if (!force && ReadIndex(ctx.Cache).OfType<JsonObject>().FirstOrDefault(k => k["id"]?.GetValue<string>() == id) is { } now
                 && IsCurrent(ctx, now, build) && now["state"]?.GetValue<string>() is "ok" or "failed")
-                return (now["state"]!.GetValue<string>(), now["reason"]?.GetValue<string>(), true, 0);
+            {
+                state = now["state"]!.GetValue<string>();
+                reason = now["reason"]?.GetValue<string>();
+                return true;
+            }
             try
             {
                 var result = session.Assets.Convert(spec);
@@ -167,7 +168,9 @@ public static partial class Knives
                 ModelExport.ClearCache();
                 ProcessMemory.CollectNow();
             }
-        }
+            return false;
+        });
+        if (cachedNow) return (state, reason, true, 0);
         ctx.Log.Info($"knife {id}: {state}{(reason is null ? "" : $" ({reason})")}, {bytes / 1024} KiB in {sw.Elapsed.TotalSeconds:F1} s, clips {string.Join(" ", clips)}");
         UpdateEntry(ctx, id, e =>
         {
@@ -201,22 +204,6 @@ public static partial class Knives
         return bytes;
     }
 
-    private sealed class Session(Cs2Source src, WeaponAssets assets, string cs2Dir, CachePaths cache)
-    {
-        public Cs2Source Src { get; } = src;
-        public WeaponAssets Assets { get; } = assets;
-        public string Cs2Dir { get; } = cs2Dir;
-        public CachePaths Cache { get; } = cache;
-    }
-
-    private static Session SessionFor(ConvContext ctx)
-    {
-        if (_session is { } s && s.Cs2Dir == ctx.Cs2Dir && s.Cache.Root == ctx.Cache.Root) return s;
-        _session?.Src.Dispose();
-        var src = Cs2Source.Open(ctx.Cs2Dir!);
-        _session = new Session(src, new WeaponAssets(ctx, src, new SoundExport(src, ctx.Log)), ctx.Cs2Dir!, ctx.Cache);
-        return _session;
-    }
 
     private static bool IsCurrent(ConvContext ctx, JsonObject e, long build)
     {
