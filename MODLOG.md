@@ -354,3 +354,7 @@ Full per-site table: `docs/notes/svet.md`. No placement references `ai/groups`, 
   horizontal_speed, aimpunch_deg, viewmodel clips, Game.progression/set_progression, fx_stats(), signals
   machine_killed/player_hit_machine/player_hurt/level_up, HUD node names). Esc works in automated runs; settings.json
   moves with --user-dir.
+- 0.2 release process: tag v0.2.0-rc = 140134b (commit the 0.2.0-final candidate was built from at 07:45), branch
+  release/0.2 from the tag; the 6.8 s t15 frame is fixed on release/0.2, then merged into main. (The earlier branch
+  release-0.2 at 779dbe1 has identical code; release/0.2 is the one used.) Stress run t16: 5x, only when loading/quit
+  code changes (CLAUDE.md).

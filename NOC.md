@@ -45,3 +45,4 @@ Když nevíš, kde jsi: přečti NOC.md a MODLOG.md a pokračuj od posledního z
 - 09:37 Sloučeno svet: konvertor v nečinnosti 118 MB (cíl ≤300). Zbývá snížit špičku při převodu (4–6 GB) → svet.
 - 09:52 Sloučeno hra H1–H5 (nože, XP, vylepšení, bhop, efekty; dev skripty skutečným vstupem OK; smoke OK). Zbývá: hra optimalizace RAM + 6,8s snímek z t15; cs2 dvojí převod nože při souběžných požadavcích.
 - 09:55 Sloučeno cs2: nůž se při souběžných požadavcích převede jen jednou.
+- 10:11 Tag v0.2.0-rc (140134b) + větev release/0.2. Oprava 6,8s záseku půjde na release/0.2 (hra), pak t15 (+t16 5× při změně načítání), build z release/0.2, kontrola že v něm není nic z 0.3, koncept na Melty. Pravidlo t16 5× v CLAUDE.md.
