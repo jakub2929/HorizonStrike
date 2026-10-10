@@ -436,3 +436,35 @@ Full per-site table: `docs/notes/svet.md`. No placement references `ai/groups`, 
   FAIL in --headless with "window run" and must run windowed; r08clip no longer sets the speed (BOOST 1.6 removed),
   it gains speed only by A/D + mouse motion synced to the velocity (as t22). Window run must show air strafe raising
   speed above run speed by real input; if it does not, the game gets CS2 air acceleration fixes (sheet first).
+- Air strafe verified windowed with real mouse motion (dev, t22 16/16): run 6.35 m/s, level 5 chain 7.82 -> 9.47 ->
+  10.87 -> 12.11 -> 13.23 -> 14.22 m/s, jump 6 clips to 6.35. No game change needed.
+- 0.3 release process: tag v0.3.0-rc (83d02f4), branch release/0.3 from it; fixes on fix branches from release/0.3,
+  merged into release/0.3 and main; candidates v0.3.0-rc2 (test fixes) and v0.3.0-rc3 (c4c32f5). Builds in
+  C:\meshy\_tools\release\0.3.0-rc*, package preflight CLEAN (222 files).
+- First launch (rc1 release, clean %LOCALAPPDATA% cache, quiet machine): world ready 26.50 s (28.5 s after engine
+  start; bootstrap 14.5 s, start cells in + precompile 10.6 s). 0.2.0: 81.9 s. Target <= 40 s met. The user's cache and
+  profile were moved to %LOCALAPPDATA%\HorizonStrike\prev-0.3rc-1440 for the measurement (restored at the end).
+- rc1 suite failures were test/environment: buy tests ran before the background weapons were converted (runner now
+  waits for WeaponAssets.pending() before t02/t03/s01/t07/t24/r07), window focus after child processes (runner takes
+  it back before each scenario), body shots hitting the Watcher's eye from the front (hitcheck.aim_body: first hit a
+  non-weak body box with the weapon's spread as margin, the game's weak-behind-body rule), t19/t23 order dependence,
+  t06 site cells not converted yet on a fresh cache (Sites.ensure_cells), t04/t13 position dependence (fixed test
+  field, steady player, BIG_HP from spawn). rc2 suite: 23/25, t04/t13 pass alone and in the suite order on dev.
+- D64 No Material/Mesh/Light is created per shot (hra 399fefd): pooled tracers with one shared material, one muzzle
+  flash + pooled shells per view model, pipelines warmed on the loading screen, ImpactFx built at player setup, bought
+  weapons' sounds warmed on a worker. A shot cost ~15 ms main thread (5 pipeline compiles per shot). t24 dev: 1 % low
+  34.9 -> 50.3, worst 61.5 -> 26.6 ms. core/shot_stats.gd stays (logs first 3 shots, then every 40).
+- D65 MultiMesh chunks max 128 m for all presets (render.instance_chunk_max_m; vykon): chunks are culled and
+  LOD-selected as a whole, the old 512 m chunks drew the player's cell at LOD0 in every pass. GPU ablation at Low on 7
+  poses: full-cell instances 4.4–7.9 of 7.5–11.3 ms; resolution 0.67 -> 0.5 only 0.2–0.3 ms. t25 dev: Low GPU 7.45 ->
+  3.3 ms, High GPU 11.4 -> 5.0 ms, High route 83 -> ~155 fps, draw calls Low 904 -> 987, High 1022 -> ~1300; cell
+  multimesh insert median 33 -> 41 ms (in 6 ms steps).
+- D66 Full-cell ring per preset (graphics.presets.*.full_ring: Low 2, Medium/High 3) separate from the HLOD ring
+  (streaming.unload_ring 3): horizon stays 1.5 km. Low game RAM target 2.5 GB NOT met: best 2734–2770 MiB (dev),
+  ~2.66 GB estimated release – ~600 MiB mapped files (NVIDIA driver DLLs ~330), ~1 GB driver/Vulkan allocations, ~1 GB
+  Godot heap; Low and High peaks equal, presets don't reach it (ring 2: -8..-25 MiB, staging buffer 32 MB: -30 MiB,
+  reverted).
+- D67 Cells beyond the full ring unload one per streaming tick (0.25 s, farthest first); a queued machine enters only
+  in a frame where the world's work stayed within 1.5 x streaming.main_thread_budget_ms (max wait 1 s) (hra 3aabbfb).
+  t25 High dev worst load frame 77.7 / 57.9 -> 45.9 / 39.0 ms. Remaining atomic costs: mesh_library.release of one
+  cell 17–30 ms, collision shape build up to 10–12 ms (candidates if the margin is not enough).
