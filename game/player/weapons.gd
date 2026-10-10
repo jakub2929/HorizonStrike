@@ -10,6 +10,8 @@ const Log := preload("res://core/log.gd")
 const Grenade := preload("res://player/grenade.gd")
 const Viewmodel := preload("res://player/viewmodel.gd")
 const WeaponAudio := preload("res://audio/weapon_audio.gd")
+const ShotStats := preload("res://core/shot_stats.gd")
+const ImpactFx := preload("res://machines/fx/impact_fx.gd")
 
 const LAYER_WORLD := 1
 const LAYER_HITBOX := 8
@@ -17,6 +19,10 @@ const LAYER_WEAK := 16
 ## Weak spots win when they lie this close behind a body hitbox along the same ray (our per-bone boxes are coarser
 ## than the real armour shells around an eye or canister).
 const WEAK_SLACK_M := 0.15
+## Bullet tracers: a fixed pool sharing one line mesh and one material (a new mesh + material per shot cost ~8 ms
+## of main thread a shot, 0.3 t24).
+const TRACER_POOL := 12
+const TRACER_LIFE_MS := 50
 
 var player: CharacterBody3D
 var viewmodel: Node3D
@@ -36,6 +42,9 @@ var _zoom := 0
 var _rng := RandomNumberGenerator.new()
 var _recoil_rng := RandomNumberGenerator.new()
 var _prev_weapon := ""
+var _tracers: Array[MeshInstance3D] = []
+var _tracer_until: Array[int] = []
+var _tracer_i := 0
 
 
 func _ready() -> void:
@@ -49,6 +58,16 @@ func _ready() -> void:
 	# the start loadout's sounds (and the selected knife model's) are read from disk now, not at the first shot
 	for id in Sheets.start_loadout_ids():
 		audio.preload_weapon(id)
+	ShotStats.watch(get_viewport())
+	ShotStats.watch(viewmodel.get_viewport())
+	_build_fx.call_deferred()
+
+
+## Loading time, not at the first shot: the tracer pool and the machines' shared impact effect node (its 32 emitters
+## took ~28 ms at the first hit).
+func _build_fx() -> void:
+	_build_tracers()
+	ImpactFx.instance()
 
 
 func _t() -> float:
@@ -89,6 +108,8 @@ func give(id: String) -> void:
 	if Sheets.weapon_bool(id, "reserve_as_clips"):
 		reserve *= maxi(clip, 0)
 	_ammo[id] = Vector2i(clip, reserve)
+	if audio:
+		audio.warm(id)   # a bought weapon's sounds are read on a worker now, not at its first shots
 
 
 func drop(id: String) -> void:
@@ -151,6 +172,8 @@ func is_reloading() -> bool:
 
 func _process(delta: float) -> void:
 	var t_proc := Time.get_ticks_usec()
+	ShotStats.tick()
+	_expire_tracers()
 	_process_timed(delta)
 	load("res://core/frame_stats.gd").note("weapons", t_proc)
 
@@ -341,11 +364,15 @@ func fire(api: bool, secondary: bool = false) -> Dictionary:
 		var t2 := _rng.randf() * TAU
 		var off := Vector2(cos(t1) * r1 + cos(t2) * r2, sin(t1) * r1 + sin(t2) * r2)
 		var dir := (-basis.z + basis.x * off.x + basis.y * off.y).normalized()
+		var t_part := Time.get_ticks_usec()
 		var h := _trace(origin, dir, range_m)
+		ShotStats.part("trace", t_part)
 		if h.is_empty():
 			continue
 		var pos: Vector3 = h["position"]
+		t_part = Time.get_ticks_usec()
 		_impact_noise(pos)
+		ShotStats.part("impact_noise", t_part)
 		var col: Object = h["collider"]
 		if col is Area3D and col.has_meta("machine"):
 			var m: Node = col.get_meta("machine")
@@ -354,7 +381,9 @@ func fire(api: bool, secondary: bool = false) -> Dictionary:
 			var part := str(col.get_meta("part", "body"))
 			var weak: bool = col.get_meta("weak", false)
 			var d := Combat.range_falloff(id, dmg, origin.distance_to(pos))
+			t_part = Time.get_ticks_usec()
 			var dealt: float = Combat.player_hit(m, id, d, part, weak, pos, h.get("normal", Vector3.ZERO))
+			ShotStats.part("hit", t_part)
 			if first_target == null or first_target == m:
 				if first_target == null:
 					res["point"] = pos
@@ -364,13 +393,22 @@ func fire(api: bool, secondary: bool = false) -> Dictionary:
 				res["target"] = m
 				res["part"] = part
 				res["damage"] = float(res["damage"]) + dealt
+		t_part = Time.get_ticks_usec()
 		_tracer(origin + basis * Vector3(0.1, -0.12, -0.6), pos)
+		ShotStats.part("tracer", t_part)
 	_penalty += pair(id, "inaccuracy_fire")
+	var t_p := Time.get_ticks_usec()
 	_recoil(id)
 	_shot_noise(id)
+	ShotStats.part("recoil_noise", t_p)
+	t_p = Time.get_ticks_usec()
 	if viewmodel:
 		viewmodel.play("fire")
+	ShotStats.part("viewmodel", t_p)
+	t_p = Time.get_ticks_usec()
 	audio.play_event(id, "fire")
+	ShotStats.part("audio", t_p)
+	ShotStats.shot()
 	if a.x <= 0:
 		start_reload()
 	return res
@@ -509,21 +547,57 @@ func _throw(id: String, res: Dictionary) -> Dictionary:
 
 
 
-## Short-lived bullet tracer in the main world.
+## Short-lived bullet tracer in the main world (pooled, see TRACER_POOL).
 func _tracer(from: Vector3, to: Vector3) -> void:
-	var mi := MeshInstance3D.new()
-	var im := ImmediateMesh.new()
-	im.surface_begin(Mesh.PRIMITIVE_LINES)
-	im.surface_add_vertex(from)
-	im.surface_add_vertex(to)
-	im.surface_end()
-	mi.mesh = im
+	if _tracers.is_empty() or not is_instance_valid(_tracers[0]):
+		_build_tracers()
+		if _tracers.is_empty():
+			return
+	var d := to - from
+	if d.length() < 0.001:
+		return
+	var mi := _tracers[_tracer_i]
+	_tracer_until[_tracer_i] = Time.get_ticks_msec() + TRACER_LIFE_MS
+	_tracer_i = (_tracer_i + 1) % _tracers.size()
+	# the unit line runs (0,0,0) -> (0,0,-1): basis z = -d stretches it onto from -> to
+	var n := d.normalized()
+	var up := Vector3.UP if absf(n.y) < 0.99 else Vector3.RIGHT
+	var x := up.cross(n).normalized()
+	var y := n.cross(x)
+	mi.global_transform = Transform3D(Basis(x, y, -d), from)
+	mi.visible = true
+
+
+func _expire_tracers() -> void:
+	var now := Time.get_ticks_msec()
+	for i in _tracers.size():
+		if now >= _tracer_until[i] and is_instance_valid(_tracers[i]) and _tracers[i].visible:
+			_tracers[i].visible = false
+
+
+func _build_tracers() -> void:
+	var parent: Node = player.get_parent() if player else null
+	if parent == null:
+		return
+	_tracers.clear()
+	_tracer_until.clear()
+	var arr := []
+	arr.resize(Mesh.ARRAY_MAX)
+	arr[Mesh.ARRAY_VERTEX] = PackedVector3Array([Vector3.ZERO, Vector3(0, 0, -1)])
+	var mesh := ArrayMesh.new()
+	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_LINES, arr)
 	var m := StandardMaterial3D.new()
 	m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	m.albedo_color = Color(1.0, 0.9, 0.6, 0.6)
 	m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	mi.material_override = m
-	mi.top_level = true
-	player.get_parent().add_child(mi)
-	mi.global_transform = Transform3D.IDENTITY
-	get_tree().create_timer(0.05).timeout.connect(mi.queue_free)
+	for i in TRACER_POOL:
+		var mi := MeshInstance3D.new()
+		mi.name = "Tracer%d" % i
+		mi.mesh = mesh
+		mi.material_override = m
+		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		mi.top_level = true
+		mi.visible = false
+		parent.add_child(mi)
+		_tracers.append(mi)
+		_tracer_until.append(0)
