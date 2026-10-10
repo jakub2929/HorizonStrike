@@ -25,3 +25,6 @@ cache/
 
 # agent worktrees
 .claude/worktrees/
+
+# files moved aside instead of deleting (CLAUDE.md)
+_to_delete/
