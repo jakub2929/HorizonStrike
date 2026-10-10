@@ -243,7 +243,7 @@ static func _los(ctx, m: Node, to: Vector3, part: String = "body") -> Dictionary
 	if not (col is Node):
 		return {"clear": false, "by": str(col)}
 	var n := col as Node
-	var owner_m: Variant = n.get_meta("machine", null)
+	var owner_m: Variant = (n.get_meta("machine") if n.has_meta("machine") else null)
 	var mine: bool = owner_m == m or n == m or m.is_ancestor_of(n)
 	var hit_part := str(n.get_meta("part", ""))
 	var hit_weak: bool = bool(n.get_meta("weak", false))
@@ -262,7 +262,7 @@ static func _los(ctx, m: Node, to: Vector3, part: String = "body") -> Dictionary
 		q2.collide_with_areas = true
 		var hit2: Dictionary = ctx.runner.get_viewport().get_world_3d().direct_space_state.intersect_ray(q2)
 		var n2: Variant = hit2.get("collider")
-		if n2 is Node and str((n2 as Node).get_meta("part", "")) == part and (n2 as Node).get_meta("machine", null) == m:
+		if n2 is Node and str((n2 as Node).get_meta("part", "")) == part and (n2 as Node).has_meta("machine") and (n2 as Node).get_meta("machine") == m:
 			var inside := _inside_shapes(n as CollisionObject3D, hit2.position)
 			label += "; next: %s at %.2f m further, %s it" % [(n2 as Node).name, (hit2.position as Vector3).distance_to(hit.position), "inside" if inside else "behind"]
 			ok = inside

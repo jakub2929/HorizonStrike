@@ -95,7 +95,7 @@ public sealed class Glb
     }
 
     public int Material(string name, int? baseColorTex, int? normalTex = null, float metallic = 0f, float roughness = 0.8f, float[]? baseColor = null,
-        bool alphaMask = false, bool doubleSided = false, int? ormTex = null)
+        bool alphaMask = false, bool doubleSided = false, int? ormTex = null, JsonObject? extras = null)
     {
         // an ORM texture (R occlusion, G roughness, B metallic) is both occlusionTexture and metallicRoughnessTexture
         var pbr = new JsonObject { ["metallicFactor"] = ormTex is null ? metallic : 1f, ["roughnessFactor"] = ormTex is null ? roughness : 1f };
@@ -105,6 +105,7 @@ public sealed class Glb
         var m = new JsonObject { ["name"] = name, ["pbrMetallicRoughness"] = pbr };
         if (normalTex is { } n) m["normalTexture"] = new JsonObject { ["index"] = n };
         if (ormTex is { } oc) m["occlusionTexture"] = new JsonObject { ["index"] = oc };
+        if (extras is not null) m["extras"] = extras;
         if (alphaMask) { m["alphaMode"] = "MASK"; m["alphaCutoff"] = 0.5f; }
         if (doubleSided) m["doubleSided"] = true;
         _materials.Add(m);

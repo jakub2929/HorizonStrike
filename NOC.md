@@ -18,3 +18,10 @@ Když nevíš, kde jsi: přečti NOC.md a MODLOG.md a pokračuj od posledního z
 - 00:01 Sloučeno stroje M0–M3 (animace 6 strojů, AI 3 nových) a znovu zapnut spawn nových strojů na jejich místech (site_map). main smoke OK. Běží: hra H4–H8 (+ stavy stalk/scavenge v in_combat/audio/spawner), test.
 - 00:39 Sloučeno hra H4–H8 (release trasa 98 fps, 1% low 46, max load 48,7 ms, VRAM 1,4 GB). Otevřené: konverze na pozadí sráží fps (→ svet: nízká priorita), vzácný segfault (→ hra), t05 Watcher přeskočí suspicious (→ stroje), 1x1 DDS (→ svet). Běží: test.
 - 00:47 Sloučeno svet: throttle konvertoru (CPU 28 %→10 %), DDS min 4x4, automatická rekonverze buněk při změně sheetů. Běží: hra (segfault + napojení throttle), stroje (t05), test.
+- 01:13 Sloučeno stroje: oprava průběhu podezření (t05 PASS). Běží: hra (segfault + throttle), test.
+- 01:23 Sloučeno stroje: showcase scéna pro videa strojů (Watcher walk/attack/death natočeno, snímky ne prázdné). Běží: hra (segfault+throttle), test.
+- 01:32 Sloučeno test: t12/t13 PASS, t14 FAIL (budovy 72,8 % normál → svet), t16 pád při ukončení (→ hra), t15 měřeno na buildu před H4–H8 (znovu na konci). Záznamy natočeny (18 klipů strojů + průchod buňkami + graf). Další: svet F8, hra F9+segfault+throttle, pak finální měření na klidném stroji.
+- 01:41 Sloučeno svet: normálové mapy budov 99,3 % (t14). Běží: hra (pád při ukončení / segfault, throttle). Další: finální build + celý autotest + měření na klidném stroji.
+- 01:46 Sloučeno test: t14 PASS (budovy 99,5 % hrubě / 100 % po vyřazení hzd_normal none). Běží: hra (F9 + segfault + throttle). Další: T6.
+- 01:46 Kontrola záznamů: videa a snímky nejsou prázdné (snímky Sawtooth death, Mother's Heart před/po prohlédnuty). Snímky „po“ a video průchodu jsou z buildu před hra H4–H8 → v T6 pořídit znovu na finálním buildu. Vzdálený vodopád/útes má barevné pruhy (chybný materiál) – menší vada. Běží: hra.
+- 02:02 test: baseline 0.1.1 běh g (zašuměný, běžely jiné procesy). Čisté srovnání + T6 až na klidném stroji po hra. Běží: hra.
