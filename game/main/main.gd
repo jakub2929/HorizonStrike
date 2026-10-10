@@ -25,6 +25,7 @@ const SettingsMenu := preload("res://ui/settings_menu.gd")
 const AudioDirector := preload("res://audio/audio_director.gd")
 const Knives := preload("res://core/knives.gd")
 const UpgradesMenu := preload("res://ui/upgrades_menu.gd")
+const WeaponAssets := preload("res://core/weapon_assets.gd")
 
 const RUNNER := "res://autotest/runner.gd"
 
@@ -198,6 +199,8 @@ func _on_converter_event(e: Dictionary) -> void:
 		else:
 			Log.warn("converter exited")
 		return
+	if WeaponAssets.on_event(e):
+		return
 	if _knife_requests.has(id) or e.has("knife") or e.has("knives_ok"):
 		_on_knife_event(e)
 		return
@@ -246,6 +249,8 @@ func _on_bootstrapped() -> void:
 		start_cell = Vector2i(int(index["start_cell"][0]), int(index["start_cell"][1]))
 	Game.last_campfire_id = str(index.get("start_campfire", ""))
 	Game.money = int(Sheets.sys_num("economy.start_money", 800))
+	WeaponAssets.ready_signal_owner = Game
+	WeaponAssets.init(args.mock_data, args.mock_weapons_late)   # which weapons the bootstrap left for later (loading time)
 	world = World.new()
 	world.name = "World"
 	add_child(world)
@@ -363,6 +368,7 @@ func _spawn_player(pos: Vector3) -> void:
 			loading = null
 		capture_mouse()
 		_throttle_converter()
+		WeaponAssets.request(converter)   # the weapons the bootstrap skipped, in the background from now on
 		if world.pipeline_watch:
 			world.pipeline_watch.start()
 		Game.mark_world_ready())

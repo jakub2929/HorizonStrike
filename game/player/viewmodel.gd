@@ -67,6 +67,7 @@ func setup(main_cam: Camera3D) -> CanvasLayer:
 	camera.current = true
 	svp.add_child(camera)
 	camera.add_child(self)
+	Game.weapon_ready.connect(_on_weapon_ready)
 	return layer
 
 
@@ -130,6 +131,74 @@ func refresh_knife() -> void:
 		show_weapon(_weapon)
 
 
+func _setup_real(root: Node3D, id: String) -> void:
+	var ap := _find_anim(root)
+	if ap:
+		root.set_meta("anim", ap)
+		for a in ap.get_animation_list():
+			if String(a).ends_with("idle"):
+				ap.get_animation(a).loop_mode = Animation.LOOP_LINEAR
+	root.set_meta("real", true)
+	root.set_meta("points", _attach_points(root, id))
+	Log.info("viewmodel %s: view.glb, clips %s" % [id, ap.get_animation_list() if ap else []])
+
+
+# ------------------------------------------------------------------ weapons converted after the start (0.3)
+var _vm_tasks: Array = []   # [task, out, weapon id] view.glb scenes being built on a worker
+
+
+## Game.weapon_ready: the weapon's view.glb is parsed and turned into a scene on a worker; _poll_vm_tasks swaps it
+## for the placeholder (no file read or glTF parse on the main thread in play).
+func _on_weapon_ready(id: String) -> void:
+	var cid := Knives.content_id(id)
+	if _cache.has(cid) and (_cache[cid] as Node3D).get_meta("real", false):
+		return
+	var path := Content.weapon_view_model(cid)
+	if path == "":
+		return
+	var out: Array = [null]
+	var t := WorkerThreadPool.add_task(func():
+		var doc := GLTFDocument.new()
+		var st := GLTFState.new()
+		if doc.append_from_file(path, st) == OK:
+			out[0] = doc.generate_scene(st), true, "viewmodel " + id)
+	_vm_tasks.append([t, out, id])
+
+
+func _poll_vm_tasks() -> void:
+	for e in _vm_tasks.duplicate():
+		if not WorkerThreadPool.is_task_completed(int(e[0])):
+			continue
+		WorkerThreadPool.wait_for_task_completion(int(e[0]))
+		_vm_tasks.erase(e)
+		var scene: Node = e[1][0]
+		var id := str(e[2])
+		if not scene is Node3D:
+			if scene:
+				scene.free()
+			continue
+		var root := scene as Node3D
+		_setup_real(root, id)
+		root.set_meta("fallback", false)
+		var cid := Knives.content_id(id)
+		var old: Node3D = _cache.get(cid)
+		add_child(root)
+		_cache[cid] = root
+		root.visible = false
+		if old:
+			if old == _current:
+				show_weapon(_weapon)   # the held placeholder becomes the real model
+			old.queue_free()
+
+
+func _exit_tree() -> void:
+	for e in _vm_tasks:
+		WorkerThreadPool.wait_for_task_completion(int(e[0]))   # never leave a pool task behind
+		if e[1][0] is Node:
+			(e[1][0] as Node).free()
+	_vm_tasks.clear()
+
+
 ## cid = content key (weapon id or "knives/<id>"), weapon_id = the sheet row (placeholder kind, default model).
 func _get_model(cid: String, weapon_id: String) -> Node3D:
 	if _cache.has(cid):
@@ -157,15 +226,7 @@ func _get_model(cid: String, weapon_id: String) -> Node3D:
 			var scene := doc.generate_scene(st)
 			if scene is Node3D:
 				root = scene
-				var ap := _find_anim(root)
-				if ap:
-					root.set_meta("anim", ap)
-					for a in ap.get_animation_list():
-						if String(a).ends_with("idle"):
-							ap.get_animation(a).loop_mode = Animation.LOOP_LINEAR
-				root.set_meta("real", true)
-				root.set_meta("points", _attach_points(root, id))
-				Log.info("viewmodel %s: view.glb, clips %s" % [id, ap.get_animation_list() if ap else []])
+				_setup_real(root, id)
 			elif scene:
 				scene.free()
 		else:
@@ -334,6 +395,7 @@ func _process(delta: float) -> void:
 
 
 func _process_timed(delta: float) -> void:
+	_poll_vm_tasks()
 	if _current == null:
 		return
 	if main_camera and _light:
