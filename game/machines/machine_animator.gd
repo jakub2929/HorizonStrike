@@ -19,6 +19,7 @@ extends SkeletonModifier3D
 const Sheets := preload("res://core/sheets.gd")
 const Gaits := preload("res://machines/anim/gaits.gd")
 const Poses := preload("res://machines/anim/poses.gd")
+const FrameStats := preload("res://core/frame_stats.gd")
 
 const LAYER_WORLD := 1
 ## One physics tick (the machine moves in physics steps; feet must keep up with one step of travel).
@@ -570,7 +571,7 @@ func _is_ancestor_of_all(sk: Skeleton3D, b: int, bones: Array) -> bool:
 # ------------------------------------------------------------------ frame
 
 func _process_modification_with_delta(delta: float) -> void:
-	var t0 := Time.get_ticks_usec() if profile else 0
+	var t0 := Time.get_ticks_usec()
 	_lod_acc += delta
 	_lod_n += 1
 	var sk := get_skeleton()
@@ -586,6 +587,7 @@ func _process_modification_with_delta(delta: float) -> void:
 			_cached.resize(_touched.size())
 			for i in _touched.size():
 				_cached[i] = sk.get_bone_pose(_touched[i])
+	FrameStats.add("mach_anim", t0)
 	if profile:
 		prof_us += Time.get_ticks_usec() - t0
 		prof_calls += 1
@@ -609,7 +611,9 @@ func _modify(delta: float) -> void:
 	if sk == null or rig == null or rig.machine == null:
 		return
 	if not _initialized:
+		var t_init := Time.get_ticks_usec()
 		_init_rig(sk)
+		FrameStats.add("mach_anim_init", t_init)
 	if not _ok:
 		return
 	delta = clampf(delta, 0.0001, 0.1)
