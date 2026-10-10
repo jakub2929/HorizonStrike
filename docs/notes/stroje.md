@@ -165,3 +165,21 @@ anim/speeds/perception thresholds/attacks/herd/flee, machine_attacks.json. Newes
   low angles); (b) a design rule: an enclosed weak part gets a proxy hitbox projected to the nearest body surface
   (gameplay over fidelity); (c) svet checks whether the canister joint's placement (rest from the initial pose)
   matches HZD.
+- 2026-10-10 0.3 S1/S2 (work dirs now E:\meshy_work\stroje; C:\meshy\_tools\stroje is gone).
+  S1 game/machines/fx/impact_fx.gd: one shared node (created on first use under the scene root) with a pool of
+  fx.impact_sparks.max_active_emitters (32) emitters, each GPUParticles3D sparks + debris + an OmniLight flash;
+  normal hit 8 sparks + 2 debris (lifetime 0.35 s), weak spot 24 + 6 + 0.08 s flash (0.5 s) via amount_ratio (no
+  buffer reallocation); all busy -> the oldest emitter is reused. 3D sound fx.sound_impact_machine from
+  cache cs2/ui/snd/<event lowercased>_<n> (8 voices). ImpactFx.stats() -> {active_emitters, max_active_emitters,
+  spawned, reused, cost_ms_avg, cost_ms_max} for Game.fx_stats (hra). Hits without a hit point (grenade blast,
+  fire ticks) show at most one impact per 0.12 s per machine at the weak point / body centre facing the player.
+  machine.take_hit(weapon_id, base_damage, part, is_weak, hit_pos := Vector3.INF, hit_normal := Vector3.ZERO,
+  silent := false): the frozen signature plus an optional 7th `silent` (hra passes true for a silent strike).
+  Hit reaction unchanged.
+  S2 signal machine_killed(type, weapon, weak, silent) on every machine, emitted once in _die (weak = killing hit
+  on a weak spot, silent = take_hit's silent); also Game.emit_signal("machine_killed", ...) when Game declares it.
+  Accept: `machine_bench.gd -- --mock-data --fx-stress 100` -> 800 hits (200 weak) in 8 s, active emitters max
+  32/32, fx cost avg 0.049 ms/frame (worst frame 0.28 ms), PASS. Windowed run (mock) screenshots
+  E:\meshy_work\stroje\fxshots (sparks visible at the hit points). Bench death phase now also checks the
+  machine_killed arguments (["watcher","ak47",true,false] ...). Animation bench 6 machines PASS, --ai PASS,
+  smoke (mock) SMOKE OK.
