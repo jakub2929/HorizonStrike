@@ -76,8 +76,10 @@ func _run(ctx):
 		var takeoff: float = p.horizontal_speed
 		guard = 0
 		while not p.is_on_floor() and guard < 240 and Engine.get_physics_frames() < end_phys:
+			# one view correction per drawn frame (as t22): the game applies mouse motion per frame, and with
+			# --fixed-fps 30 two physics steps share a frame, so a correction per physics step overshot the turn
 			inp.strafe_look()
-			await ctx.physics_frames(1)
+			await ctx.frames(1)
 			guard += 1
 		inp.release(key)
 		var landing: float = p.horizontal_speed
@@ -93,6 +95,15 @@ func _run(ctx):
 	data.jumps_takeoff_landing = jumps
 	note("level %d: take-off / landing m/s per jump %s" % [level, str(jumps)])
 	check(">= 5 jumps in %d s" % int(CLIP_S), jumps.size() >= 5, str(jumps.size()))
+	# the clip must show the bhop it is about: speed gained by the air strafe input (level > 0 keeps it), never lost
+	var best := 0.0
+	for j in jumps:
+		best = maxf(best, float(j[1]))
+	var run_v := float(data.run_speed)
+	if level > 0:
+		check("level %d: air strafe input raised the landing speed above 1.3 x run speed" % level, best > run_v * 1.3, "max landing %.2f m/s, run %.2f" % [best, run_v])
+	else:
+		check("level 0: speed stays near run speed (no loss to a broken turn)", best > run_v * 0.9, "max landing %.2f m/s, run %.2f" % [best, run_v])
 	return true
 
 
