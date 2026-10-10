@@ -11,3 +11,8 @@ Formát: otázka → rozhodnutí → důvod.
   věrně podle HZD (varianta a) – kanystr se trefuje zespodu/zboku pod břichem, jako v Horizonu. Alternativa (b):
   „zástupný“ hitbox na povrchu těla pro hratelnost – připravená, nezapnutá. Důvod: věrnost Horizonu; t13 kritérium
   „slabé místo > tělo“ je splněné (4/4 zásahy).
+- Disk C: se během noci zaplnil (193 GB volných → 0,95 GB) testovacími cache agentů (_tools ~186 GB). Mazat nesmím a
+  přesun do C:\meshy\_to_delete místo neuvolní. → Rozhodnutí: 120 testovacích složek z C:\meshy\_tools přesouvám
+  (robocopy /MOVE, nic se nemaže) do E:\meshy_offload\_tools (E: má 512 GB volných). Ponechané na C: cache-dev,
+  release, records-0.2, autotest-0.2.0, research, vrf, dl, universal-modder, baseline-0.1.1. Ráno můžeš E:\meshy_offload
+  smazat nebo nechat. Seznam: C:\meshy\_tools\offload-list.txt, log: C:\meshy\_tools\logs\offload.log.
