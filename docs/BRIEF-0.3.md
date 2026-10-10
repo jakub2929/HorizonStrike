@@ -29,6 +29,19 @@ a „ano“ uživatele. Ekonomika za peníze, buy wheel a ostatní zbraně se ne
 - Dostaneš poškození: směrový indikátor, červená viněta podle zbývajících životů, aimpunch jako v CS2, zvuk.
 - Výkon: limity z 0.2 platí (≥ 60 fps průměr, 1% low ≥ 45, žádný snímek nad 50 ms).
 
+## Optimalizace (hra musí jít i na slabších PC než RTX 3060 Ti)
+- Nejdřív změřit na 0.2 a zapsat do MODLOG: RAM zvlášť hra a konvertor; rozpad paměti hry (textury, modely, data
+  buněk, skripty); čas GPU a CPU na snímek. Opravovat od největší položky.
+- Grafická nastavení v Esc menu, presety Low / Medium / High + ruční volby: limit fps (30/60/120/144/bez limitu,
+  výchozí 60) a VSync; render scale s FSR (50–100 %); kvalita a vzdálenost stínů; dohled a hustota vegetace;
+  LOD bias; SSAO, SSR, objemová mlha (zap/vyp). Ukládá se lokálně.
+- První spuštění: preset automaticky podle GPU a její VRAM; hráč ho může kdykoli změnit.
+- RAM: data buněk mimo dohled uvolnit z paměti (ne jen ze scény); textury a modely sdílet mezi buňkami;
+  konvertor po dokončení převodu uvolní paměť nebo se ukončí a spustí znovu až při potřebě.
+- Cíle (release, trasa přes 10 buněk): Low – GPU ≤ 5 ms/snímek při 1080p, RAM hry ≤ 2,5 GB, VRAM ≤ 1,5 GB;
+  High – limity výkonu z 0.2, RAM hry ≤ 3,5 GB; konvertor v nečinnosti ≤ 300 MB RAM. Když cíl nejde: jedna věta
+  proč a nejlepší dosažitelná hodnota.
+
 ## Autotest (+ celá dosavadní sada musí projít)
 1. Každý nůž ze seznamu se načte a má všechny pojmenované body z kontraktu.
 2. Výběr přes menu skutečným vstupem: zvolený nůž v ruce, po smrti a respawnu i po restartu hry pořád zvolený.
@@ -40,11 +53,16 @@ a „ano“ uživatele. Ekonomika za peníze, buy wheel a ostatní zbraně se ne
    se správným časováním, ne nastavením rychlosti.
 7. Efekty: zásah stroje spustí hitmarker a číslo; zásah hráče indikátor směru a vinětu (ověřit zobrazení).
 8. Výkon s efekty při boji se 3 stroji: limity z 0.2.
+9. Měření na trase pro Low i High: RAM hry, RAM konvertoru, VRAM, čas GPU a CPU na snímek, fps a 1% low; cíle musí
+   projít.
+10. Přepnutí presetu v menu skutečným vstupem se projeví hned a vydrží restart.
+11. Limit fps 60: průměr 60 ± 2 a vytížení GPU klesne proti „bez limitu“.
 Vše skutečným vstupem hráče.
 
 ## Záznamy
 Screenshot menu nožů a menu vylepšení; videa inspectu 3–5 s: Karambit, M9 Bayonet, Butterfly; video 15–20 s boje
-se strojem (hitmarkery, čísla, jiskry, zásah hráče); video 10 s bhopu na levelu 0 a 5 vedle sebe.
+se strojem (hitmarkery, čísla, jiskry, zásah hráče); video 10 s bhopu na levelu 0 a 5 vedle sebe; screenshoty ze stejné pozice v Low, Medium a High;
+tabulka 0.2 proti 0.3 (RAM, VRAM, čas GPU, fps) v SHRNUTI-0.3.md.
 
 ## Listing
 Doplnit nože, XP a vylepšení, efekty zásahů.
