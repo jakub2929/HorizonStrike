@@ -49,3 +49,4 @@ Když nevíš, kde jsi: přečti NOC.md a MODLOG.md a pokračuj od posledního z
 - 10:14 6,8s snímek: t15 běžel současně s mým přesunem 150 GB C:→E: (do 08:27:44) → pravděpodobně I/O zahlcení. Po t16 znovu t15 na klidném stroji; oprava na release/0.2 jen když se zopakuje.
 - 10:14 Sloučeno hra RAM (uvolňování meshů/textur s poslední buňkou, 0 duplicit) + diagnostika pomalých snímků. Běží: test t16 (17/20), vykon (nastavení), svet (špička RAM konvertoru).
 - 10:33 T6 0.2: 18/19 (t16 20/20 OK). t15 se znovu pustí 3× na klidném stroji po záznamech. Sloučeno hra I/O mimo hlavní vlákno.
+- 10:49 Sloučeno svet: špička konvertoru 1,22 GB při hře / 2,08 GB při bootstrapu (cíle 1,5 / 2,5).
