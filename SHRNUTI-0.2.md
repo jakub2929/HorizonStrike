@@ -53,12 +53,12 @@ XP, menu K, efekty ani grafická nastavení v exportu).
 | 0.2.0 opakování 3 | 77,7 / 70,8 fps | 85,0 / 47,1 fps | 35,2 ms | 1492 MiB |
 
 ## Záznamy (skutečné soubory)
-- Screenshoty před/po: `C:\meshy\_toolsecords-0.2inalefore\{mothers_heart,valley,rocks_close}.png`,
-  `C:\meshy\_toolsecords-0.2inalfter\{mothers_heart,valley,rocks_close}.png`
-- Videa: `C:\meshy\_toolsecords-0.2inalideo\` – `<stroj>_{walk,attack,death}.mp4` pro watcher, strider,
-  grazer, sawtooth, scrapper, broadhead (18 klipů) a `cell_crossing.mp4` (25,3 s)
-- Graf času snímků: `C:\meshy\_toolsecords-0.2inalrametime_0.1_vs_0.2.svg`
-- Výsledky: `C:\meshy\_toolsecords-0.2inalesults.json`, `results-t15-rerun-{1,2,3}.json`
+- Screenshoty před/po: `C:\meshy\_tools\records-0.2\finalefore\{mothers_heart,valley,rocks_close}.png`,
+  `C:\meshy\_tools\records-0.2\finalfter\{mothers_heart,valley,rocks_close}.png`
+- Videa: `C:\meshy\_tools\records-0.2\finalideo\` – `<stroj>_{walk,attack,death}.mp4` pro watcher, strider, grazer, sawtooth, scrapper,
+  broadhead (18 klipů) a `cell_crossing.mp4` (25,3 s)
+- Graf času snímků: `C:\meshy\_tools\records-0.2\finalrametime_0.1_vs_0.2.svg`
+- Výsledky: `C:\meshy\_tools\records-0.2\finalesults.json`, `C:\meshy\_tools\records-0.2\finalesults-t15-rerun-{1,2,3}.json`
 
 ## Nový text listingu
 Text a nové screenshoty se na Melty změní až při publikování (úprava textu i screenshotů se na živém listingu
