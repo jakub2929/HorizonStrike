@@ -53,11 +53,35 @@ func _ready() -> void:
 	set_stage("start", 0, 1)
 
 
+var _stages := {}     # stage -> [done, total] (the converter's CS2 and HZD parts report in parallel since 0.3)
+var _last := ""
+
+
+## Progress of a stage. Several stages can run at once: the label lists every unfinished one in STAGE_WEIGHT order
+## (stable, no flicker between interleaved events); the bar is the weighted sum of all stages and never goes back.
 func set_stage(stage: String, done: int, total: int) -> void:
-	_stage.text = "%s  (%d/%d)" % [STAGE_NAMES.get(stage, stage.capitalize()), done, total] if total > 1 else str(STAGE_NAMES.get(stage, stage.capitalize()))
-	var w: Array = STAGE_WEIGHT.get(stage, [0.0, 1.0])
-	var f := float(done) / maxf(float(total), 1.0)
-	_bar.value = maxf(_bar.value, lerpf(float(w[0]), float(w[1]), f))
+	_stages[stage] = [done, maxi(total, 1)]
+	_last = stage
+	var parts := PackedStringArray()
+	var order: Array = STAGE_WEIGHT.keys()
+	for s in _stages.keys():
+		if not order.has(s):
+			order.append(s)
+	for s in order:
+		if not _stages.has(s):
+			continue
+		var d: int = _stages[s][0]
+		var t: int = _stages[s][1]
+		if d >= t and s != _last:
+			continue
+		var name := str(STAGE_NAMES.get(s, str(s).capitalize()))
+		parts.append("%s  (%d/%d)" % [name, d, t] if t > 1 else name)
+	_stage.text = "   ·   ".join(parts)
+	var sum := 0.0
+	for s in _stages:
+		var w: Array = STAGE_WEIGHT.get(s, [0.0, 0.0])
+		sum += (float(w[1]) - float(w[0])) * clampf(float(_stages[s][0]) / float(_stages[s][1]), 0.0, 1.0)
+	_bar.value = maxf(_bar.value, sum)
 
 
 func set_detail(text: String) -> void:

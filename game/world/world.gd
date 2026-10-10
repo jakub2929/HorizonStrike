@@ -65,6 +65,7 @@ var _far_jobs := {}                # Vector2i -> {task, out: [Dictionary]}
 var _far_none := {}                # cells without an HLOD (not asked again)
 const MEM_REPORT_S := 15.0
 var _mem_timer := MEM_REPORT_S
+var loading_phase := true         # Main clears it when the precompile starts (streaming.main_thread_budget_loading_ms)
 var last_process_ms := 0.0        # this node's whole _process last frame (slow frame log)
 var last_work := ""                # --profile-cells: what the streaming main-thread work did last frame (steps > 1 ms)
 var _finish_detail := ""
@@ -427,7 +428,8 @@ func _poll_builds() -> void:
 ## All streaming work on the main thread shares one per-frame budget (streaming.main_thread_budget_ms): inserting the
 ## current cell step by step (one cell at a time), object collision around the player, freeing unloaded cells.
 func _main_thread_work(delta: float) -> void:
-	var budget_us := int(Sheets.sys_num("streaming.main_thread_budget_ms", 6.0) * 1000.0)
+	# the loading screen (until the precompile starts) gets a much larger budget: nobody plays yet
+	var budget_us := int(Sheets.sys_num("streaming.main_thread_budget_loading_ms" if loading_phase else "streaming.main_thread_budget_ms", 6.0) * 1000.0)
 	var t_start := Time.get_ticks_usec()
 	var deadline := t_start + budget_us
 	last_work = ""

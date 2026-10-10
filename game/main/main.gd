@@ -39,6 +39,7 @@ var index := {}
 var start_cell := Vector2i.ZERO
 var _t_start := 0.0
 var _bootstrap_id := -1
+var _t_bootstrapped := 0.0   # seconds (ticks) at "bootstrap done"
 var _knife_requests := {}    # converter request ids of proto.knives
 var _phase := "boot"
 var _error_shown := false
@@ -236,6 +237,7 @@ func _cache_playable() -> bool:
 
 func _on_bootstrapped() -> void:
 	_phase = "world"
+	_t_bootstrapped = Time.get_ticks_msec() / 1000.0
 	Sheets.load_resolved(Game.cache_root)
 	apply_render_settings()
 	for err in Sheets.resolved_errors:
@@ -372,6 +374,10 @@ func _spawn_player(pos: Vector3) -> void:
 		if world.pipeline_watch:
 			world.pipeline_watch.start()
 		Game.mark_world_ready())
+	world.loading_phase = false   # from here the in-play budget: the precompile needs fast frames
+	if loading:
+		loading.set_stage("cell", 1, 1)
+	Log.info("loading: start cells in, precompile starts (%.1f s after bootstrap done)" % (Time.get_ticks_msec() / 1000.0 - _t_bootstrapped))
 	pre.start()
 
 
@@ -543,6 +549,14 @@ func apply_render_settings() -> void:
 	_env.fog_height_density = Sheets.sys_num("render.fog_height_falloff", 0.0) * 0.02
 	_env.volumetric_fog_enabled = Sheets.sys_bool("render.volumetric_fog", false)
 	get_viewport().mesh_lod_threshold = Sheets.sys_num("render.lod_threshold_px", 12.0)
+	if args and args.gfx_low:
+		# dev measurement only (until the GraphicsSettings presets exist): a manual low configuration
+		get_viewport().scaling_3d_mode = Viewport.SCALING_3D_MODE_FSR
+		get_viewport().scaling_3d_scale = 0.5
+		get_viewport().mesh_lod_threshold = Sheets.sys_num("render.lod_threshold_px", 12.0) * 2.0
+		_sun.directional_shadow_max_distance = 50.0
+		RenderingServer.directional_shadow_atlas_set_size(1024, true)
+		Log.info("render: --gfx-low (render scale 0.5 FSR, shadows 50 m / 1024, LOD threshold x2)")
 	Log.info("render: sun elevation %.1f az %.1f, fog %.0f-%.0f m x%.2f, height fog %.0f m %.3f, tonemap %s" % [rad_to_deg(elev), rad_to_deg(az),
 		_env.fog_depth_begin, _env.fog_depth_end, _env.fog_density, _env.fog_height, _env.fog_height_density, Sheets.sys("render.tonemap")])
 
