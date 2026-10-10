@@ -13,6 +13,7 @@ const Spawner := preload("res://machines/spawner.gd")
 const Campfire := preload("res://world/campfire.gd")
 const CellProfiler := preload("res://world/cell_profiler.gd")
 const CellInserter := preload("res://world/cell_inserter.gd")
+const PipelineWatch := preload("res://world/pipeline_watch.gd")
 
 var cache_root := ""
 var index := {}
@@ -21,6 +22,7 @@ var converter: Node = null
 var meshes: RefCounted
 var spawner: Node
 var profiler: Node
+var pipeline_watch: Node       # started by Main when the precompile is done
 
 var valid_cells := {}          # Vector2i -> true (from index.json)
 var on_disk := {}              # Vector2i -> true
@@ -94,6 +96,10 @@ func setup(root: String, idx: Dictionary, conv: Node) -> void:
 		profiler.profile = bool(Game.args.get("profile_cells"))
 		profiler.quit_after = int(Game.args.get("quit_after_cells"))
 	add_child(profiler)
+	pipeline_watch = PipelineWatch.new()
+	pipeline_watch.name = "PipelineWatch"
+	pipeline_watch.profile = profiler.profile
+	add_child(pipeline_watch)
 	Log.info("world: cell_size=%.1f cells=%d on_disk=%d cache=%d bytes" % [cell_size, valid_cells.size(), on_disk.size(), _cache_bytes])
 
 

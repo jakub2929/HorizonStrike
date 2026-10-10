@@ -307,6 +307,8 @@ func _spawn_player(pos: Vector3) -> void:
 			loading = null
 		capture_mouse()
 		_throttle_converter()
+		if world.pipeline_watch:
+			world.pipeline_watch.start()
 		Game.mark_world_ready())
 	pre.start()
 
