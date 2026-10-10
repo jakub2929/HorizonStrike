@@ -116,6 +116,7 @@ internal sealed class Server
     private readonly PriorityQueue<Job, (int, long)> _queue = new();
     private readonly Dictionary<(int, int), Job> _pendingCells = new();
     private readonly HashSet<(int, int)> _runningCells = new();
+    private readonly Dictionary<string, Job> _knifeJobs = new(); // knife id -> its queued or running job (one per knife)
     private readonly SemaphoreSlim _signal = new(0);
     private long _seq;
     private int _allowed;  // jobs that may run at once (op "throttle"); <= _workers
@@ -141,6 +142,7 @@ internal sealed class Server
     {
         public int Prio { get; set; }
         public string? Name { get; init; }                // op knife: knife id
+        public List<long> Waiters { get; } = [];          // op knife: request ids that get this knife's done event
         public IReadOnlyList<string>? Names { get; init; } // op knives: requested ids (null = all)
     }
 
@@ -285,8 +287,20 @@ internal sealed class Server
                 else if (job.Op == "knives") { KnivesIndex(job, sink); continue; }
                 else if (job.Op == "knife")
                 {
-                    var (state, reason, wasCached, kb) = Knives.ConvertKnife(_ctx, job.Name!);
-                    _proto.Done(job.Id, kb, new JsonObject { ["knife"] = job.Name, ["state"] = state, ["reason"] = reason, ["cached"] = wasCached });
+                    List<long> waiters;
+                    try
+                    {
+                        var (state, reason, wasCached, kb) = Knives.ConvertKnife(_ctx, job.Name!);
+                        lock (_lock) { _knifeJobs.Remove(job.Name!); waiters = [.. job.Waiters]; }
+                        foreach (var w in waiters)
+                            _proto.Done(w, kb, new JsonObject { ["knife"] = job.Name, ["state"] = state, ["reason"] = reason, ["cached"] = wasCached });
+                    }
+                    catch (Exception kex)
+                    {
+                        lock (_lock) { _knifeJobs.Remove(job.Name!); waiters = [.. job.Waiters]; }
+                        _ctx.Log.Error($"knife {job.Name}: {kex}");
+                        foreach (var w in waiters) _proto.Error(w, kex.Message);
+                    }
                     continue;
                 }
                 else if (HzdConverter.CellUpToDate(_ctx, job.X, job.Y)) { bytes = 0; cached = true; } // converted by this HZD build already
@@ -318,7 +332,26 @@ internal sealed class Server
             ["knives"] = index["knives"]!.AsArray().Count, ["knives_ok"] = Knives.Count(index, "ok"),
             ["knives_failed"] = Knives.Count(index, "failed"), ["knives_pending"] = Knives.Count(index, "pending"), ["queued"] = ids.Count,
         });
-        foreach (var k in ids) Enqueue(new Job(job.Id, "knife", 0, 0, 0) { Prio = job.Prio, Name = k });
+        foreach (var k in ids) EnqueueKnife(job.Id, k, job.Prio);
+    }
+
+    // One job per knife: a knife already queued or running only gains the request (and a higher priority if asked)
+    private void EnqueueKnife(long requestId, string knife, int prio)
+    {
+        Job job;
+        lock (_lock)
+        {
+            if (_knifeJobs.TryGetValue(knife, out var existing))
+            {
+                existing.Waiters.Add(requestId);
+                if (prio < existing.Prio) { existing.Prio = prio; Requeue(); }
+                return;
+            }
+            job = new Job(requestId, "knife", 0, 0, 0) { Prio = prio, Name = knife };
+            job.Waiters.Add(requestId);
+            _knifeJobs[knife] = job;
+        }
+        Enqueue(job);
     }
 
     /// <summary>

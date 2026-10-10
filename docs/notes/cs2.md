@@ -111,3 +111,7 @@
   game_sounds_physics / game_sounds_weapons), named with ShortName like weapon snd/; null.vsnd tracks are skipped
   (none in these 7 events). cs2_format 3. Fresh cache E:\meshy_work\cs2-k2-1: 35 new files (+3 buy), all PCM WAV,
   2.3 MiB for ui/snd, Godot loads 38/38; weapons 14 items 0 problems; second run up to date.
+- 0.3 knife dedupe 2026-10-10: serve keeps one job per knife (queued or running); a later knives request adds its
+  request id to that job (and raises its priority) and gets the same done event; ConvertKnife re-checks the index
+  inside the session lock. Overlap test (selected "knife" prio -1 + all prio 100, fresh E:\meshy_work\cs2-knifedup-1):
+  22 conversions, none twice, "knife" done for both requests at 7.4 s, 0 non-JSON lines.
