@@ -71,8 +71,9 @@ func _process(_delta: float) -> void:
 	var now := Time.get_ticks_usec()
 	var dt := (now - _last_usec) / 1000.0 if _last_usec > 0 else 0.0
 	_last_usec = now
-	# every run (t15 runs without --profile-cells): a slow frame names the streaming work and world events before it
-	if dt > float(Sheets.sys_num("perf.max_load_frame_ms", 50.0)) and Game.is_world_ready:
+	# every run (t15 runs without --profile-cells): a slow frame (from 80 % of the t15 limit, to see the near misses)
+	# names the streaming work and world events before it
+	if dt > 0.8 * float(Sheets.sys_num("perf.max_load_frame_ms", 50.0)) and Game.is_world_ready:
 		Log.info("slow frame %.1f ms; machines %d; previous streaming work: %s; physics %.1f ms, process %.1f ms; recent: %s" % [dt, Game.machines.size(), world.last_work,
 			Performance.get_monitor(Performance.TIME_PHYSICS_PROCESS) * 1000.0, Performance.get_monitor(Performance.TIME_PROCESS) * 1000.0,
 			world.recent_events(int(dt) + 50)])

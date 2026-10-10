@@ -70,11 +70,15 @@ var _task_info := {}               # task id -> [kind, progress Array (written b
 var _stuck := false                # a worker task did not finish at quit (see Main.quit_game)
 const EVICT_RETRY_MS := 30000      # a cell that could not be evicted (in use) is skipped this long
 const EVICT_FRESH_S := 10.0        # files written this recently: a converter is still at the cell
+const EVICT_PER_CALL := 4          # cells tried per enforce_cap() (it runs every second; renames cost main-thread time)
 var _evict_retry := {}             # Vector2i -> ticks ms before which evict() leaves the cell alone
 var _trash_running: Array = [false]   # the worker emptying <cache>/trash is running
+var _trash_pin: Array = []            # trash folders whose cell.json meshes are to be pinned (next trash worker)
+var _trash_out: Array = []            # the trash worker's pins until _poll_trash() applied them
 var _gc_running: Array = [false]      # the mesh GC worker is running
 var _gc_out: Array = []               # its result slot until _poll_mesh_gc() applied it
 var _events: Array = []               # [ticks ms, text] of the last second's world events (slow frame log)
+var _col_worst := ""                  # slowest collision op of this frame (slow frame log)
 
 
 ## Records a world event for the slow frame log (cell_profiler.gd).
@@ -222,6 +226,7 @@ func _process(delta: float) -> void:
 		_evict_timer = 1.0
 		enforce_cap()
 	# a deferred mesh GC asks the converter again until it is idle and nothing is requested
+	_poll_trash()
 	_poll_mesh_gc()
 	_gc_timer -= delta
 	if _gc_needed and _gc_timer <= 0.0:
@@ -439,7 +444,7 @@ func _main_thread_work(delta: float) -> void:
 			break
 	var tc := Time.get_ticks_usec()
 	_collision_ring(delta, deadline)
-	last_work += "collision %.1f | " % ((Time.get_ticks_usec() - tc) / 1000.0)
+	last_work += "collision %.1f%s | " % [(Time.get_ticks_usec() - tc) / 1000.0, (" (" + _col_worst + ")") if _col_worst != "" else ""]
 	while not _free_tasks.is_empty() and WorkerThreadPool.is_task_completed(_free_tasks[0]):
 		_task_info.erase(_free_tasks[0])
 		WorkerThreadPool.wait_for_task_completion(_free_tasks.pop_front())
@@ -562,6 +567,8 @@ func _collision_ring(delta: float, deadline: int) -> void:
 	if _col_timer <= 0.0:
 		_col_timer = Sheets.sys_num("streaming.collision_update_s", 0.5)
 		_plan_collision_ops()
+	_col_worst = ""
+	var worst_us := 0
 	while not _col_ops.is_empty() and Time.get_ticks_usec() < deadline:
 		var op: Array = _col_ops[0]
 		var c: Vector2i = op[0]
@@ -571,6 +578,7 @@ func _collision_ring(delta: float, deadline: int) -> void:
 		var cc: Dictionary = _col[c]
 		var key: Vector2i = op[1]
 		var t0 := Time.get_ticks_usec()
+		var what := str(op[2])
 		match str(op[2]):
 			"add":
 				if (cc["bodies"] as Dictionary).has(key):
@@ -583,7 +591,10 @@ func _collision_ring(delta: float, deadline: int) -> void:
 						missing = str(it[0])
 						break
 				if missing != "":
-					meshes.get_shape(missing)
+					var sh: Shape3D = meshes.get_shape(missing)
+					if sh != null:
+						_warm_shape(sh)
+					what = "shape %s (%d tris)" % [missing, int(meshes.info(missing).get("tris", 0))]
 				else:
 					# then one body (<= SHAPES_PER_BODY shapes) per step: making all of a dense bucket at once was 15+ ms
 					_col_ops.pop_front()
@@ -600,13 +611,31 @@ func _collision_ring(delta: float, deadline: int) -> void:
 					for b in CellBuilder.make_bucket_bodies(items, meshes):
 						cc["bodies"][key].append(b)
 						(cc["parent"] as Node).add_child(b)
+					what = "body of %d shapes (%s)" % [items.size(), ", ".join(items.map(func(it): return str(it[0]).left(8)))]
 			_:
 				_col_ops.pop_front()
 				for b in cc["bodies"].get(key, []):
 					if is_instance_valid(b):
 						_graveyard.append(b)
 				cc["bodies"].erase(key)
-		profiler.add_main(c, "collision", (Time.get_ticks_usec() - t0) / 1000.0)
+		var us := Time.get_ticks_usec() - t0
+		if us > worst_us:
+			worst_us = us
+			_col_worst = "slowest op %s %.1f ms" % [what, us / 1000.0]
+		profiler.add_main(c, "collision", us / 1000.0)
+
+
+## Jolt builds a shape (trimesh BVH) when the first body using it enters the tree and keeps it with the Shape3D: a
+## bucket body with 16 new trimeshes was a 42 ms step (t15). A throwaway single-shape body (no layers) builds each
+## new shape in its own step; the graveyard frees the body within the budget.
+func _warm_shape(sh: Shape3D) -> void:
+	var b := StaticBody3D.new()
+	b.collision_layer = 0
+	b.collision_mask = 0
+	var o := b.create_shape_owner(b)
+	b.shape_owner_add_shape(o, sh)
+	add_child(b)
+	_graveyard.append(b)
 
 
 func _plan_collision_ops() -> void:
@@ -848,10 +877,12 @@ func enforce_cap() -> void:
 		if da != db:
 			return da > db
 		return int(loaded_at.get(a, 0)) < int(loaded_at.get(b, 0)))
+	var n := 0
 	for c in cands:
-		if _cache_bytes <= target:
+		if _cache_bytes <= target or n >= EVICT_PER_CALL:
 			break
 		evict(c)
+		n += 1
 	_gc_needed = true
 	_query_status()
 
@@ -873,9 +904,9 @@ func evict(c: Vector2i) -> void:
 		return
 	var bytes := FsUtil.dir_bytes(dir)
 	var cj := dir.path_join("cell.json")
-	var info = null
-	if converter and FileAccess.file_exists(cj) and float(FileAccess.get_modified_time(cj)) >= float(converter.started_unix) - 2.0:
-		info = FsUtil.read_json(cj)
+	# converted by the running converter: its meshes stay (the converter would not write them again); the cell.json
+	# (MBs) is parsed by the trash worker, not here
+	var pin: bool = converter != null and FileAccess.file_exists(cj) and float(FileAccess.get_modified_time(cj)) >= float(converter.started_unix) - 2.0
 	var trash_root := cache_root.path_join("trash")
 	DirAccess.make_dir_recursive_absolute(trash_root)
 	var trash := trash_root.path_join("cell_%d_%d_%d" % [c.x, c.y, Time.get_ticks_usec()])
@@ -884,8 +915,8 @@ func evict(c: Vector2i) -> void:
 		_evict_retry[c] = Time.get_ticks_msec() + EVICT_RETRY_MS
 		Log.info("cell %s not evicted now: folder in use (rename error %d, retry in %d s)" % [c, err, EVICT_RETRY_MS / 1000])
 		return
-	if typeof(info) == TYPE_DICTIONARY:
-		_cell_refs(info, _pinned_meshes, _pinned_tex)
+	if pin:
+		_trash_pin.append(trash)
 	if loaded.has(c):
 		_unload(c)   # only a direct call (dev tools); enforce_cap() never picks a loaded cell
 	_evict_retry.erase(c)
@@ -914,22 +945,47 @@ func _cell_busy(dir: String) -> String:
 
 
 ## Deletes <cache>/trash on a worker (cell folders renamed there by evict(); leftovers from a crash are retried at the
-## next eviction). The cache size follows from the next folder scan.
+## next eviction). Pinned folders' cell.json are read first; _poll_trash() pins their meshes. The cache size follows
+## from the next folder scan.
 func _empty_trash() -> void:
 	var trash_root := cache_root.path_join("trash")
 	if not DirAccess.dir_exists_absolute(trash_root) or _trash_running[0]:
 		return
+	var pins := _trash_pin.duplicate()
+	_trash_pin.clear()
 	var tprog: Array = ["queued"]
 	var running: Array = [true]
+	var out: Array = [{}]
 	_trash_running = running
+	_trash_out = out
 	var t := WorkerThreadPool.add_task(func():
 		tprog[0] = "started"
+		var m := {}
+		var tx := {}
+		for p in pins:
+			var info = FsUtil.read_json(str(p).path_join("cell.json"))
+			if typeof(info) == TYPE_DICTIONARY:
+				_cell_refs(info, m, tx)
+		out[0] = {"meshes": m, "tex": tx}
 		for sub in DirAccess.get_directories_at(trash_root):
 			FsUtil.remove_tree(trash_root.path_join(sub), trash_root)
 		tprog[0] = "done"
 		running[0] = false, true, "empty cache trash")
 	_free_tasks.append(t)
 	_task_info[t] = ["empty cache trash", tprog]
+
+
+## Main thread: pins the meshes of evicted cells the running converter made; trash that came in meanwhile goes next.
+func _poll_trash() -> void:
+	if _trash_running[0]:
+		return
+	if not _trash_out.is_empty():
+		var r: Dictionary = _trash_out[0]
+		_trash_out = []
+		_pinned_meshes.merge(r.get("meshes", {}))
+		_pinned_tex.merge(r.get("tex", {}))
+	if not _trash_pin.is_empty():
+		_empty_trash()
 
 
 func _query_status() -> void:
@@ -958,7 +1014,8 @@ static func _cell_refs(info: Dictionary, used: Dictionary, used_tex: Dictionary)
 ## deleting runs on a worker (on the main thread it was a 50 ms frame with a full cache); _poll_mesh_gc() then drops
 ## the deleted meshes from the library.
 func _mesh_gc() -> void:
-	if not requested.is_empty() or _gc_running[0]:
+	# evicted cells' pins must be in first (the trash worker reads them)
+	if not requested.is_empty() or _gc_running[0] or _trash_running[0] or not _trash_pin.is_empty() or not _trash_out.is_empty():
 		return
 	_gc_needed = false
 	var dirs: Array = []
