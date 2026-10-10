@@ -23,6 +23,8 @@ const Precompile := preload("res://world/precompile.gd")
 const MessageScreen := preload("res://ui/message_screen.gd")
 const SettingsMenu := preload("res://ui/settings_menu.gd")
 const AudioDirector := preload("res://audio/audio_director.gd")
+const Knives := preload("res://core/knives.gd")
+const UpgradesMenu := preload("res://ui/upgrades_menu.gd")
 
 const RUNNER := "res://autotest/runner.gd"
 
@@ -36,6 +38,7 @@ var index := {}
 var start_cell := Vector2i.ZERO
 var _t_start := 0.0
 var _bootstrap_id := -1
+var _knife_requests := {}    # converter request ids of proto.knives
 var _phase := "boot"
 var _error_shown := false
 var _respawn_left := -1.0
@@ -57,6 +60,10 @@ func _ready() -> void:
 	_engine_logger = load("res://core/engine_logger.gd").new()
 	OS.add_logger(_engine_logger)
 	InputSetup.setup()
+	if args.user_dir != "":
+		Paths.user_dir_override = Paths.norm(args.user_dir)
+		DirAccess.make_dir_recursive_absolute(Paths.user_dir_override)
+		Log.info("user dir %s" % Paths.user_dir_override)
 	Settings.load_from(Paths.settings_file(), Sheets.sys_num("cache.default_cap_gib", 4.0))
 	Game.cache_cap_bytes = int(Settings.get_value("cache_cap_bytes", int(4.0 * Settings.GIB)))
 	if args.cache_cap_mib > 0.0:
@@ -190,6 +197,9 @@ func _on_converter_event(e: Dictionary) -> void:
 		else:
 			Log.warn("converter exited")
 		return
+	if _knife_requests.has(id) or e.has("knife") or e.has("knives_ok"):
+		_on_knife_event(e)
+		return
 	if id != _bootstrap_id:
 		return
 	match ev:
@@ -240,10 +250,46 @@ func _on_bootstrapped() -> void:
 	add_child(world)
 	Game.world = world
 	world.setup(Game.cache_root, index, converter)
+	_request_knives()
 	Game.cell_loaded.connect(_on_cell_loaded)
 	if loading:
 		loading.set_stage("cell", 0, 1)
 	world.request_ring_now()
+
+
+## CS2 knives are converted on demand (hooks proto.knives): the saved knife first (prio -1, before cells), then the
+## index and every other knife after the cells (prio 100) to fill the Esc menu.
+func _request_knives() -> void:
+	if converter == null or not converter.has_method("send"):
+		return
+	var saved := Knives.saved()
+	_knife_requests[int(converter.send({"op": "knives", "ids": [saved], "prio": -1}))] = true
+	_knife_requests[int(converter.send({"op": "knives"}))] = true
+	Log.info("knives requested (saved choice %s first)" % saved)
+
+
+## Converter events of the knife jobs: index done {knives, knives_ok, ...}, per knife done {knife, state, ...}.
+func _on_knife_event(e: Dictionary) -> void:
+	var ev := str(e.get("event", ""))
+	if ev != "done" and ev != "error":
+		return
+	if ev == "error":
+		Log.warn("knife conversion error: %s" % e.get("message", ""))
+		return
+	if e.has("knife"):
+		Log.info("knife %s converted: %s%s%s" % [e["knife"], e.get("state", "?"), " (cached)" if e.get("cached", false) else "",
+			"" if e.get("reason") == null else " - " + str(e["reason"])])
+	else:
+		Log.info("knives index: %d knives, %d ok, %d failed, %d pending, %d queued" % [int(e.get("knives", 0)), int(e.get("knives_ok", 0)),
+			int(e.get("knives_failed", 0)), int(e.get("knives_pending", 0)), int(e.get("queued", 0))])
+	Knives.reload()
+	var sm := get_node_or_null("SettingsLayer")
+	if sm and sm.has_method("refresh_knives"):
+		sm.refresh_knives()
+	# the saved knife just became available: a drawn knife turns into it
+	var vm: Node = player.weapons.viewmodel if player and player.get("weapons") else null
+	if vm and vm.is_knife() and (str(vm.knife_model) != Knives.selected() or vm.showing_fallback()):
+		vm.refresh_knife()
 
 
 ## Once the world is playable the converter steps back (hooks proto.throttle; it already runs BelowNormal): fewer
@@ -288,6 +334,10 @@ func _spawn_player(pos: Vector3) -> void:
 	var sm := SettingsMenu.new()
 	sm.name = "SettingsLayer"
 	add_child(sm)
+	var um := UpgradesMenu.new()   # after the Esc menu: it sees Esc / K first while open
+	um.name = "UpgradesLayer"
+	add_child(um)
+	Game.upgrades_menu = um
 	SettingsMenu.apply_window_mode()
 	var ad := AudioDirector.new()
 	ad.name = "AudioDirector"

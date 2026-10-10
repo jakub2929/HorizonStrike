@@ -15,7 +15,8 @@ static func meta(rel_path: String) -> Dictionary:
 		return _meta[rel_path]
 	var m = FsUtil.read_json(Game.cache_root.path_join(rel_path))
 	var d: Dictionary = m if typeof(m) == TYPE_DICTIONARY else {}
-	_meta[rel_path] = d
+	if not d.is_empty():
+		_meta[rel_path] = d   # a missing meta.json is read again later (knives are converted while the game runs)
 	return d
 
 
@@ -82,7 +83,11 @@ static func machine_leg_chains(type: String) -> Array:
 
 # ------------------------------------------------------------------ weapons
 
+## Weapon id, or "knives/<id>" for a CS2 knife model (core/knives.gd): cs2/knives/<id>/ has the same layout and
+## meta.json contract as cs2/weapons/<id>/ (no sheet row: everything comes from its meta.json).
 static func weapon_dir(id: String) -> String:
+	if id.begins_with("knives/"):
+		return "cs2/" + id
 	return "cs2/weapons/%s" % id
 
 

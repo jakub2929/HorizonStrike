@@ -7,6 +7,7 @@ const Sheets := preload("res://core/sheets.gd")
 const Log := preload("res://core/log.gd")
 const WeaponAudio := preload("res://audio/weapon_audio.gd")
 const Content := preload("res://core/content.gd")
+const Combat := preload("res://core/combat.gd")
 
 const LAYER_WORLD := 1
 const HE_FUSE_S := 1.6
@@ -121,7 +122,7 @@ func _explode() -> void:
 			continue
 		var d: float = m.aim_point("body").distance_to(c)
 		if d < radius and _clear(c, m.aim_point("body"), m):
-			m.take_hit(weapon_id, dmg * (1.0 - d / radius), "body", false)
+			Combat.player_hit(m, weapon_id, dmg * (1.0 - d / radius), "body", false, m.aim_point("body"), (m.aim_point("body") - c).normalized())
 	var p: Node3D = Game.player
 	if p and p.is_alive():
 		var dp: float = p.head_position().distance_to(c)
@@ -179,7 +180,7 @@ func _burn(dt: float) -> void:
 			continue
 		var p: Vector3 = m.global_position
 		if Vector2(p.x - _fire_pos.x, p.z - _fire_pos.z).length() <= r + 0.5 and absf(p.y - _fire_pos.y) < 2.5:
-			m.take_hit(weapon_id, dps * dt, "body", false)
+			Combat.player_hit(m, weapon_id, dps * dt, "body", false, p, Vector3.UP)
 	var pl: Node3D = Game.player
 	if pl and pl.is_alive():
 		var pp := pl.global_position

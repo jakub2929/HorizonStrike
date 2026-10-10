@@ -346,3 +346,11 @@ Full per-site table: `docs/notes/svet.md`. No placement references `ai/groups`, 
   incl. LOH, working set trimmed): idle 4278/4250 MB -> 7/118 MB (working set/private); first request after release
   +0.45 s; optional --idle-exit-s (restart costs ~1.3 s, off by default). Peaks still 4.0-6.4 GB during bootstrap and
   4.5 GB while converting cells -> to reduce.
+- Merged hra H1–H5 (28da446): knife menu (Esc > Knife, rotating 3D preview, loadout.json, on-demand knife conversion,
+  F inspect), XP/levels/points/upgrades (progression.json, K menu + Esc, HUD bar + level-up), silent strike (one stab
+  kills; +130 XP on a watcher), damage upgrade x1.10 per level in Combat, bhop levels per sheet (level 0 clips every jump
+  10.16 -> 6.35 m/s; level N keeps N jumps), player-side effects (hitmarker normal/weak/kill, damage numbers + Esc
+  toggle, direction indicator, vignette, aimpunch, CS2 hit/hurt sounds), test API (--user-dir, knife_id,
+  horizontal_speed, aimpunch_deg, viewmodel clips, Game.progression/set_progression, fx_stats(), signals
+  machine_killed/player_hit_machine/player_hurt/level_up, HUD node names). Esc works in automated runs; settings.json
+  moves with --user-dir.

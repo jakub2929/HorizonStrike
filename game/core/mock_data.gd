@@ -271,6 +271,96 @@ static func write_meshes(cache_root: String) -> int:
 	return total
 
 
+## Mock CS2 knives (0.3, until the converter's cs2/knives lands): cs2/knives/index.json with three converted knives
+## and one failed, each cs2/knives/<id>/ with view.glb (a hand + blade, clips draw/idle/fire/fire2/inspect),
+## world.glb, meta.json, anim_events.json (empty: no sounds), icon.svg. Same layout and contract as the real ones.
+const MOCK_KNIVES := [
+	{"id": "mock_karambit", "name": "Mock Karambit", "blade": Color(0.85, 0.7, 0.3), "grip": Color(0.1, 0.1, 0.1), "len": 0.13, "bend": 35.0},
+	{"id": "mock_bayonet", "name": "Mock M9 Bayonet", "blade": Color(0.78, 0.8, 0.82), "grip": Color(0.15, 0.25, 0.55), "len": 0.22, "bend": 0.0},
+	{"id": "mock_butterfly", "name": "Mock Butterfly", "blade": Color(0.7, 0.72, 0.75), "grip": Color(0.6, 0.12, 0.1), "len": 0.17, "bend": 0.0},
+]
+
+
+static func write_knives(cache_root: String) -> int:
+	var base := cache_root.path_join("cs2/knives")
+	DirAccess.make_dir_recursive_absolute(base)
+	var index: Array = []
+	var total := 0
+	for k in MOCK_KNIVES:
+		var dir := base.path_join(str(k["id"]))
+		DirAccess.make_dir_recursive_absolute(dir)
+		total += _knife_glb(k, true, dir.path_join("view.glb"))
+		total += _knife_glb(k, false, dir.path_join("world.glb"))
+		FsUtil.write_json_atomic(dir.path_join("meta.json"), {"id": k["id"], "name": k["name"], "mock": true,
+			"content_model": {"view": "cs2/knives/%s/view.glb" % k["id"], "world": "cs2/knives/%s/world.glb" % k["id"]},
+			"bone_roles": {}, "points": {}, "sounds": "snd", "anim_events": "anim_events.json", "icon_file": "icon.svg"})
+		FsUtil.write_json_atomic(dir.path_join("anim_events.json"), {})
+		var f := FileAccess.open(dir.path_join("icon.svg"), FileAccess.WRITE)
+		if f:
+			f.store_string('<svg xmlns="http://www.w3.org/2000/svg" width="64" height="16"><rect x="0" y="5" width="44" height="6" fill="#c8c8c8"/><rect x="44" y="4" width="20" height="8" fill="#333"/></svg>')
+			f.close()
+		index.append({"id": k["id"], "display_name": k["name"], "state": "ok", "reason": null, "dir": "cs2/knives/" + str(k["id"]),
+			"clips": ["draw", "idle", "fire", "fire2", "inspect"]})
+	index.append({"id": "mock_broken", "display_name": "Mock Broken Knife", "state": "failed", "reason": "mock: not converted",
+		"dir": "cs2/knives/mock_broken", "clips": []})
+	FsUtil.write_json_atomic(base.path_join("index.json"), {"format": 1, "mock": true, "knives": index})
+	return total
+
+
+## view: a hand holding the knife in front of the eye (origin = eye, forward -Z) with the five clips; world: the knife.
+static func _knife_glb(k: Dictionary, view: bool, path: String) -> int:
+	var root := Node3D.new()
+	root.name = "Knife_" + str(k["id"])
+	var hand := Node3D.new()
+	hand.name = "Hand"
+	root.add_child(hand)
+	var len_m: float = k["len"]
+	var blade := BoxMesh.new()
+	blade.size = Vector3(0.008, 0.03, len_m)
+	_add_part(hand, blade, Transform3D(Basis(Vector3.RIGHT, deg_to_rad(float(k["bend"]))), Vector3(0, 0.005, -len_m * 0.5 - 0.05)), k["blade"])
+	var grip := BoxMesh.new()
+	grip.size = Vector3(0.022, 0.03, 0.11)
+	_add_part(hand, grip, Transform3D(Basis(), Vector3(0, 0, 0.02)), k["grip"])
+	if view:
+		var arm := BoxMesh.new()
+		arm.size = Vector3(0.07, 0.07, 0.25)
+		_add_part(hand, arm, Transform3D(Basis(), Vector3(0.02, -0.06, 0.17)), Color(0.18, 0.2, 0.16))
+		hand.position = Vector3(0.18, -0.17, -0.38)
+		var ap := AnimationPlayer.new()
+		ap.name = "AnimationPlayer"
+		root.add_child(ap)
+		var lib := AnimationLibrary.new()
+		var rest := hand.position
+		lib.add_animation("draw", _knife_clip(rest, [[0.0, Vector3(0, -0.25, 0.1), Vector3(-60, 0, 0)], [0.5, Vector3.ZERO, Vector3.ZERO]]))
+		lib.add_animation("idle", _knife_clip(rest, [[0.0, Vector3.ZERO, Vector3.ZERO], [1.0, Vector3(0, 0.004, 0), Vector3(1, 0, 0)], [2.0, Vector3.ZERO, Vector3.ZERO]]))
+		lib.add_animation("fire", _knife_clip(rest, [[0.0, Vector3.ZERO, Vector3.ZERO], [0.12, Vector3(-0.12, 0.03, -0.12), Vector3(0, 40, -30)], [0.35, Vector3.ZERO, Vector3.ZERO]]))
+		lib.add_animation("fire2", _knife_clip(rest, [[0.0, Vector3.ZERO, Vector3.ZERO], [0.25, Vector3(0, 0.02, -0.2), Vector3(-15, 0, 0)], [0.6, Vector3.ZERO, Vector3.ZERO]]))
+		lib.add_animation("inspect", _knife_clip(rest, [[0.0, Vector3.ZERO, Vector3.ZERO], [0.7, Vector3(-0.08, 0.06, 0.05), Vector3(0, -50, 80)],
+			[1.6, Vector3(-0.08, 0.06, 0.05), Vector3(0, -50, 260)], [2.5, Vector3.ZERO, Vector3.ZERO]]))
+		ap.add_animation_library("", lib)
+	var doc := GLTFDocument.new()
+	var state := GLTFState.new()
+	if doc.append_from_scene(root, state) == OK:
+		doc.write_to_filesystem(state, path)
+	root.free()
+	return FileAccess.get_file_as_bytes(path).size() if FileAccess.file_exists(path) else 0
+
+
+## keys: [[t, position offset from rest, rotation degrees]] on the node "Hand".
+static func _knife_clip(rest: Vector3, keys: Array) -> Animation:
+	var a := Animation.new()
+	var tp := a.add_track(Animation.TYPE_POSITION_3D)
+	a.track_set_path(tp, NodePath("Hand"))
+	var tr := a.add_track(Animation.TYPE_ROTATION_3D)
+	a.track_set_path(tr, NodePath("Hand"))
+	for kf in keys:
+		a.position_track_insert_key(tp, float(kf[0]), rest + (kf[1] as Vector3))
+		var d: Vector3 = kf[2]
+		a.rotation_track_insert_key(tr, float(kf[0]), Quaternion.from_euler(Vector3(deg_to_rad(d.x), deg_to_rad(d.y), deg_to_rad(d.z))))
+	a.length = float(keys[keys.size() - 1][0])
+	return a
+
+
 static func _sphere(r: float, h_scale: float) -> SphereMesh:
 	var s := SphereMesh.new()
 	s.radius = r
