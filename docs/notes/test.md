@@ -409,6 +409,30 @@ t04 FAIL (slot key: current stays ak47), t06 FAIL (crouch key: crouched = false;
   suite t15), frametimes-0.1.1.csv / -0.2.0.csv, results.json (suite 18 rows from the release + t16 row from
   build-b) and the per-run result files.
 
+### Final T6 on 0.2.0-final (`C:\meshy\_tools\release\0.2.0-final`, main 140134b; outputs under `E:\meshy_work\autotest-0.2.0-final`)
+- Suite as Melty launches it (`full`): 18/19 PASS, 0 engine errors. t16 PASS: 20/20 exit 0, 30 cells each, RSS
+  2732-2930 MB (run 1 2770), VRAM 2106-2116 MB, 0 errors (F10 fixed). t13: watcher 7/8, strider 8/8, grazer 8/8,
+  sawtooth 5/8, scrapper 7/8, broadhead 7/8 (weak > body on every body-only line). t14: building 39 315/39 326
+  (74 flagged excluded), rock 21 452/21 452, terrain 15/15.
+- t15 in the suite FAIL: 16 frames > 1 s (worst 14.4 s) with no streaming work in the game's slow-frame log -
+  overlapped the coordinator's 150 GB robocopy C: -> E: (until 08:27:44). Not counted.
+- t15 reruns on the quiet machine (only the run's own parent + converters):
+
+| run | start avg / 1 % low | route avg / 1 % low | worst load frame | VRAM start | frames > 1 s | result |
+|---|---|---|---|---|---|---|
+| run2 (others' Godot at start) | 66.0 / 48.9 | 77.5 / 44.4 | 39.8 ms | 1491.4 MiB | 0 | FAIL 1 % low |
+| rerun-1 | 77.1 / 70.6 | 85.3 / 49.0 | 37.9 ms | 1491.4 MiB | 0 | PASS |
+| rerun-2 | 77.1 / 70.5 | 83.9 / 44.4 | 35.1 ms | 1490.9 MiB | 0 | FAIL 1 % low (44.4 < 45) |
+| rerun-3 | 77.7 / 70.8 | 85.0 / 47.1 | 35.2 ms | 1491.9 MiB | 0 | PASS |
+
+  No frame > 50 ms in any rerun. Graph regenerated from 0.1.1 run h vs rerun-1.
+- t09 first launch with the fresh cache on E:: world_ready after 554 s (0.2.0 with the cache on C:: 85.5 s) -
+  weapons bootstrap took 10-45 s per weapon; not isolated whether E: or hra's converter throttle (watch item hra).
+- Runner: `--cache-cap-mib` is now forwarded to children (07e0ead; not in the 0.2.0-final exe, not needed there:
+  default cap used).
+- Records re-taken with 0.2.0-final (`rec`): r01 PASS (stddev 36.6 / 37.7 / 31.4), r03 PASS (25.3 s, not blank);
+  in `records-0.2\final\after\` and `final\video\cell_crossing.mp4`, earlier ones kept as `*_prev`.
+
 ## Log
 - 2026-10-09 runner, libs and all 13 scenario scripts written against the documented API; stub verification above.
 - 2026-10-09 pre-merge integration: hra's committed game (branch head 4ea177b, exported with `git archive` into a

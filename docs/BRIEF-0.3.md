@@ -41,6 +41,9 @@ a „ano“ uživatele. Ekonomika za peníze, buy wheel a ostatní zbraně se ne
 - Cíle (release, trasa přes 10 buněk): Low – GPU ≤ 5 ms/snímek při 1080p, RAM hry ≤ 2,5 GB, VRAM ≤ 1,5 GB;
   High – limity výkonu z 0.2, RAM hry ≤ 3,5 GB; konvertor v nečinnosti ≤ 300 MB RAM. Když cíl nejde: jedna věta
   proč a nejlepší dosažitelná hodnota.
+- Rychlejší první spuštění: převod zbraní CS2 je 58 s z 82 s. Na startu převést jen nůž a Glock, ostatní zbraně
+  převádět na pozadí. Buy wheel u položky, která ještě není převedená, ukáže „připravuje se“ a nákup zatím
+  nepovolí. Cíl: hratelné do 40 s (klidný stroj, čistá cache v %LOCALAPPDATA%, měřeno jako u 0.2).
 
 ## Autotest (+ celá dosavadní sada musí projít)
 1. Každý nůž ze seznamu se načte a má všechny pojmenované body z kontraktu.

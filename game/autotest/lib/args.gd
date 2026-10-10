@@ -1,7 +1,7 @@
 extends RefCounted
 ## Game command line (docs/ARCHITECTURE.md): args are accepted before and after "--".
 
-const VALUE_KEYS := ["--game", "--hzd", "--cache-dir", "--out"]
+const VALUE_KEYS := ["--game", "--hzd", "--cache-dir", "--out", "--cache-cap-mib"]
 const FLAG_KEYS := ["--mock-data"]
 
 var argv := PackedStringArray()
