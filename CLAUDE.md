@@ -65,6 +65,12 @@ everything on Melty. Report decisions you make in your final report so the orche
 - Weak spots are tested with a real shot through input, after checking that the first thing along the shot is the
   weak spot; report from how many of 8 directions it can be hit.
 
+## Release branches and stress runs
+- Each released version has a tag (vX.Y.Z-rc for the candidate) and a branch release/X.Y made FROM THAT TAG. Fixes for
+  a release go on release/X.Y (a fix branch from release/X.Y), then are merged into main too. A release is built from
+  its release branch only and must not contain later features.
+- The streaming stress run (t16) runs 5x, and only when the loading or quit code changed.
+
 ## Verification
 Done means demonstrated: run it and quote the actual output (converter exit + files written + sizes, Godot headless
 run log, screenshot path). Keep heavy logs in files and grep them.
