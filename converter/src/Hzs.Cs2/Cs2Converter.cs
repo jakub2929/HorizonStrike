@@ -26,7 +26,7 @@ public static class Cs2Converter
     /// Version of the cache/cs2 output layout written by this code; bump it whenever the output changes so caches
     /// made by an older converter from the same CS2 build are converted again. Stored as manifest.json cs2_format.
     /// </summary>
-    public const int Format = 2; // 2: meta.json (content contract)
+    public const int Format = 3; // 2: meta.json (content contract); 3: cs2/ui/snd feedback sounds
 
     /// <summary>Weapons (stats, world + view models, sounds, icons) for every row of sheets/weapons.json.</summary>
     public static long ConvertWeapons(ConvContext ctx, IProgressSink progress) =>

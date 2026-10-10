@@ -107,3 +107,7 @@
   Finishes: CS2 paint kits are composite materials (weapons/paints/**.vcompmat: include chain + loose variables,
   assembled by CS2's composite shaders from pattern, wear and grunge inputs); VRF 20 does not evaluate them -> not
   converted, default finish only (3 attempts: paint kit data, vcompmat decompile, VRF composite support).
+- 0.3 K2 2026-10-10: cs2/ui/snd feedback sounds = every systems fx.sound_* event (game_sounds_player /
+  game_sounds_physics / game_sounds_weapons), named with ShortName like weapon snd/; null.vsnd tracks are skipped
+  (none in these 7 events). cs2_format 3. Fresh cache E:\meshy_work\cs2-k2-1: 35 new files (+3 buy), all PCM WAV,
+  2.3 MiB for ui/snd, Godot loads 38/38; weapons 14 items 0 problems; second run up to date.
