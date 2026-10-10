@@ -119,13 +119,20 @@ func _kill_case(ctx, inp, kills, machine_type: String, part: String, weapon: Str
 	var n0: int = kills.events.size()
 	var res: Dictionary
 	if part == "body":
-		# body: the lower body point (from the front a watcher's eye sits in front of its body aim point), turned onto
-		# by relative mouse motion; one press of the fire button per shot
-		res = {"shots": 0, "hits": 0}
+		# body: a body point whose shot line first meets a non-weak body hitbox (from the front a watcher's eye sits in
+		# front of its body; lib/hitcheck.gd aim_body), turned onto by relative mouse motion; one press per shot
+		res = {"shots": 0, "hits": 0, "aim_failed": 0}
 		var interval: float = Combat.shot_interval(ctx, weapon)
 		var t_end := Time.get_ticks_msec() + 40000
 		while not Combat.is_dead(m) and int(res.shots) < 60 and Time.get_ticks_msec() < t_end:
-			await inp.aim_at_point(HitCheck.target_point(m, "body"), 0.002, 120)
+			var a: Dictionary = await HitCheck.aim_body(ctx, inp, m)
+			if not a.get("ok", false):
+				res.aim_failed = int(res.aim_failed) + 1
+				res.last_aim = str(a.get("by", a.get("why", "")))
+				if int(res.aim_failed) >= 10:
+					break
+				await ctx.wait(0.2)
+				continue
 			var s: Dictionary = await Combat.shoot(ctx, inp, m)
 			res.shots = int(res.shots) + 1
 			res.hits = int(res.hits) + (1 if s.hit else 0)
@@ -141,6 +148,10 @@ func _kill_case(ctx, inp, kills, machine_type: String, part: String, weapon: Str
 	var ev: Array = kills.events.slice(n0)
 	var out := {"machine": machine_type, "part": part, "weapon": weapon, "killed": not ev.is_empty(), "shots": res.get("shots"), "hits": res.get("hits"),
 		"xp": int(g.get("progression").xp) - xp0}
+	if res.has("aim_failed"):
+		out.aim_failed = res.aim_failed
+		if res.has("last_aim"):
+			out.last_aim = res.last_aim
 	if not ev.is_empty():
 		out.signal = ev[0].args
 		out.weak = bool(ev[0].args[2])

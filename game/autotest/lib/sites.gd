@@ -4,6 +4,42 @@ extends RefCounted
 const SITE_CELLS := [Vector2i(5, -2), Vector2i(3, -2)]  # sheet t05/t06/s03: real Watcher / Grazer sites
 
 
+static func ensure_cells(ctx, timeout_s: float = 240.0) -> Dictionary:
+	## the site cells are converted on demand: on a fresh cache (first run, release suite) they are not on disk yet when a
+	## site scenario starts near the start campfire. Setup: the player goes to each missing site cell (teleport) so the
+	## game requests it, until its cell.json exists. Mock data has no such cells: nothing to do there.
+	var out := {}
+	if ctx.args.has("--mock-data"):
+		return out
+	var cs := float(ctx.oracle.f(ctx.oracle.system("streaming.cell_size_m")))
+	for cell in SITE_CELLS:
+		if not ctx.oracle.cell_json(cell).is_empty():
+			continue
+		var t0 := Time.get_ticks_msec()
+		var c := preload("res://autotest/lib/route.gd").cell_center(cell, cs)
+		var p: Node = ctx.player
+		var was: Variant = p.get("invulnerable") if p != null and "invulnerable" in p else null
+		if was != null:
+			p.set("invulnerable", true)
+		# below the terrain: the game holds the player until the cell's ground exists and lifts him onto it
+		await ctx.call_api(ctx.game, "teleport", [c])
+		var ok: bool = await ctx.wait_until(func(): return not ctx.oracle.cell_json(cell).is_empty(), timeout_s)
+		var gy: Variant = null
+		var deadline := Time.get_ticks_msec() + 60000
+		while ok and gy == null and Time.get_ticks_msec() < deadline:
+			gy = await ctx.ground_y(c.x, c.z, 3000.0)
+			if gy == null:
+				await ctx.wait(0.5)
+		if gy != null:
+			await ctx.call_api(ctx.game, "teleport", [Vector3(c.x, float(gy) + 0.3, c.z)])
+			await ctx.wait(1.0)
+		if was != null:
+			p.set("invulnerable", was)
+		out[str(cell)] = {"converted": ok, "seconds": snappedf((Time.get_ticks_msec() - t0) / 1000.0, 0.1)}
+		ctx.note("site cell %s requested by going there: cell.json %s after %.1f s" % [str(cell), "present" if ok else "MISSING", (Time.get_ticks_msec() - t0) / 1000.0])
+	return out
+
+
 static func find_site(ctx, machine_type: String, min_count: int = 1, avoid_types: Array = [], avoid_m: float = 120.0) -> Dictionary:
 	## a spawn of machine_type (count >= min_count) in the site cells, preferring sites whose original HZD machine is
 	## this machine itself (e.g. a Grazer herd at an antelope site, not at a variant-B site); {} when the cache has none

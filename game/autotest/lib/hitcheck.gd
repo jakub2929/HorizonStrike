@@ -50,6 +50,14 @@ static func first_hit(ctx, m: Node, to: Vector3, part: String = "body") -> Dicti
 	var who: String = (owner_m as Node).name if owner_m is Node else ("a node under the target" if mine else "no machine")
 	var label := "%s (part '%s'%s of %s)" % [n.name, hit_part, ", weak" if hit_weak else "", who]
 	var ok: bool = mine and (hit_part == part if part != "body" else (hit_part != "" and not hit_weak))
+	var dist: float = cam.global_position.distance_to(hit.position)
+	if ok and part == "body":
+		# the game's trace (player/weapons.gd) gives the hit to a weak spot of the same machine when it lies within
+		# WEAK_SLACK_M behind the body surface or inside one of its body boxes: a body shot must have neither on its line
+		var w := weak_behind(ctx, m, q.from, q.to, hit.position)
+		if w != "":
+			ok = false
+			label += "; " + w
 	if not ok and mine and part != "body" and hit_part != "" and not hit_weak and n is CollisionObject3D:
 		# first hit is a body box of the target: the weak spot counts only if its hitbox lies INSIDE that box where the
 		# ray meets it (the game's rule: weak wins inside an enclosing body box), not behind it
@@ -66,7 +74,78 @@ static func first_hit(ctx, m: Node, to: Vector3, part: String = "body") -> Dicti
 			var inside := inside_shapes(n as CollisionObject3D, hit2.position)
 			label += "; next: %s at %.2f m further, %s it" % [(n2 as Node).name, (hit2.position as Vector3).distance_to(hit.position), "inside" if inside else "behind"]
 			ok = inside
-	return {"clear": ok, "by": label}
+	return {"clear": ok, "by": label, "dist": dist, "pos": hit.position}
+
+
+const WEAK_SLACK_M := 0.15  # player/weapons.gd WEAK_SLACK_M: a weak spot this close behind a body surface takes the hit
+
+
+static func weak_behind(ctx, m: Node, from: Vector3, to: Vector3, body_hit: Vector3) -> String:
+	## "" when no weak hitbox of m takes a shot that first meets m's body at body_hit (game rule above), else which one
+	var q := PhysicsRayQueryParameters3D.create(from, to)
+	q.collide_with_areas = true
+	q.collide_with_bodies = false
+	var ex: Array[RID] = ctx.player_rids()
+	for i in 32:
+		q.exclude = ex
+		var h: Dictionary = ctx.runner.get_viewport().get_world_3d().direct_space_state.intersect_ray(q)
+		if h.is_empty():
+			return ""
+		var n: Variant = h.get("collider")
+		if not (n is CollisionObject3D):
+			return ""
+		var node := n as Node
+		if node.has_meta("machine") and node.get_meta("machine") == m and bool(node.get_meta("weak", false)):
+			var d_body := from.distance_to(body_hit)
+			var d_weak := from.distance_to(h.position)
+			if d_weak <= d_body + WEAK_SLACK_M:
+				return "weak %s %.2f m behind the body surface" % [node.get_meta("part", ""), d_weak - d_body]
+			for co in m.find_children("*", "CollisionObject3D", true, false):
+				if (co as Node).has_meta("part") and not bool((co as Node).get_meta("weak", false)) and inside_shapes(co as CollisionObject3D, h.position):
+					return "weak %s inside body box %s" % [node.get_meta("part", ""), (co as Node).name]
+			return ""
+		ex.append((n as CollisionObject3D).get_rid())
+	return ""
+
+
+static func aim_body(ctx, inp, m: Node, max_dist: float = INF, margin_m: float = 0.05) -> Dictionary:
+	## turns the camera (relative mouse motion) onto a point of m's body that a shot from the camera meets first as a
+	## non-weak body hitbox (no weak spot taking it by the game's rule), within max_dist (knife reach), also margin_m
+	## up/down/left/right of it (weapon spread, aim tolerance); checked again along the camera's real view line after
+	## aiming. {ok, point, dist, by, tried}
+	var cam: Camera3D = ctx.player_camera()
+	if cam == null or not is_instance_valid(m):
+		return {"ok": false, "why": "no camera / machine"}
+	var cands := []
+	for pt in body_points(m):
+		var r: Dictionary = first_hit(ctx, m, pt, "body")
+		if not r.clear or float(r.dist) > max_dist:
+			continue
+		var d: Vector3 = (pt - cam.global_position).normalized()
+		var right := d.cross(Vector3.UP).normalized()
+		var up := right.cross(d).normalized()
+		var all_clear := true
+		for off in [right, -right, up, -up]:
+			var r2: Dictionary = first_hit(ctx, m, pt + off * margin_m, "body")
+			if not r2.clear or float(r2.dist) > max_dist:
+				all_clear = false
+				break
+		if all_clear:
+			cands.append({"pt": pt, "dist": float(r.dist)})
+	cands.sort_custom(func(x, y): return x.dist < y.dist)
+	var last := {}
+	for c in cands.slice(0, 6):
+		var aim: Dictionary = await inp.aim_at_point(c.pt, 0.0015, 160)
+		await ctx.physics_frames(1)
+		var fwd := -cam.global_transform.basis.z
+		var check: Dictionary = first_hit(ctx, m, cam.global_position + fwd * cam.global_position.distance_to(c.pt), "body")
+		last = {"ok": bool(check.clear) and float(check.get("dist", INF)) <= max_dist and bool(aim.get("ok", false)), "point": c.pt,
+			"dist": snappedf(float(check.get("dist", -1.0)), 0.01), "by": check.by, "aim": aim, "tried": cands.size()}
+		if last.ok:
+			return last
+	if last.is_empty():
+		return {"ok": false, "why": "no body point with a clear first hit within %.2f m (%d points)" % [max_dist, body_points(m).size()]}
+	return last
 
 
 static func body_points(m: Node) -> Array:

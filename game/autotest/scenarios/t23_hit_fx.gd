@@ -47,9 +47,11 @@ func _run(ctx):
 	var body: Dictionary = await _shoot(ctx, inp, hits, m, "body", names)
 	data.body_hit = body
 	check("body hit: hitmarker shown (normal style) within 2 frames", body.hit and not body.weak and body.marker_frames >= 0 and body.marker_frames <= 2 and body.style == "normal" and body.marker_pixels, str(body))
-	check("body hit: damage number shown with the dealt value", body.number_text == str(int(round(body.dealt))) and body.number_visible, "label '%s' visible %s, dealt %.2f" % [body.number_text, str(body.number_visible), body.dealt])
+	check("body hit: damage number shown with the dealt value", body.hit and body.number_text == str(int(round(float(body.get("dealt", -1.0))))) and body.number_visible, "label '%s' visible %s, dealt %.2f" % [body.number_text, str(body.number_visible), float(body.get("dealt", -1.0))])
 	await ctx.wait(0.8)
-	# weak hit
+	# weak hit (a fresh watcher: every sub-test starts at full health - a 110-damage eye shot kills a 90-health watcher,
+	# and a dead machine takes no further hit)
+	m = await _fresh(ctx, m)
 	var weak_part := str(m.call("weak_spots")[0]) if m.has_method("weak_spots") and not m.call("weak_spots").is_empty() else ""
 	var weak: Dictionary = await _shoot(ctx, inp, hits, m, weak_part, names)
 	data.weak_hit = weak
@@ -58,6 +60,7 @@ func _run(ctx):
 	await ctx.wait(0.8)
 
 	# damage numbers off through the Esc menu, one hit, on again
+	m = await _fresh(ctx, m)
 	var tog: bool = await _toggle_numbers(ctx, inp)
 	var off_state := _numbers_setting(ctx)
 	inp.capture_for_look()
@@ -112,7 +115,12 @@ func _shoot(ctx, inp, hits, m: Node, part: String, names: Dictionary) -> Diction
 	var out := {"hit": false, "weak": false, "part": part, "marker_frames": -1, "style": "", "number_text": "", "number_visible": false, "marker_pixels": false}
 	for attempt in 5:
 		if part == "body":
-			await inp.aim_at_point(HitCheck.target_point(m, "body"), 0.002, 120)
+			# a body point whose shot line first meets a non-weak body hitbox (lib/hitcheck.gd aim_body), by mouse motion
+			var a: Dictionary = await HitCheck.aim_body(ctx, inp, m)
+			out.aim = str(a.get("by", a.get("why", "")))
+			if not a.get("ok", false):
+				await ctx.wait(0.3)
+				continue
 		else:
 			await ctx.call_api(g, "aim_at", [m, part])
 			await ctx.physics_frames(1)
@@ -293,3 +301,13 @@ func _frame(ctx) -> Image:
 		return null
 	await RenderingServer.frame_post_draw
 	return ctx.runner.get_viewport().get_texture().get_image()
+
+
+func _fresh(ctx, old: Node) -> Node:
+	## replaces the watcher by a fresh one (AI off) at the same distance in front
+	var base: Vector3 = ctx.forward()
+	ctx.despawn(old)
+	await ctx.wait(0.2)
+	var m: Node = await ctx.spawn_ahead("watcher", 8.0, 0.0, false, base)
+	await ctx.wait(0.8)
+	return m

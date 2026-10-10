@@ -72,6 +72,10 @@ const HOSTED := {"s02": "t05"}
 ## set for child processes so they run their scenarios in-process (the command line stays as in the sheet)
 const CHILD_ENV := "HZS_AUTOTEST_CHILD"
 const CHILD_TIMEOUT_S := {"t08": 240.0, "t09": 5400.0}
+## scenarios that buy guns: on a fresh cache the weapons outside the start loadout convert in the background after
+## world_ready (buy wheel "Preparing..."), so these wait until every weapon is ready (setup wait, not a bypass)
+const NEEDS_WEAPONS := ["t02", "t03", "s01", "t07", "t24", "r07", "r07clip"]
+const WEAPONS_WAIT_S := 900.0
 const MARKER := ".hzs_autotest_fresh"
 
 var ctx
@@ -216,6 +220,9 @@ func _run_here(id: String) -> void:
 		_put(_row_result(id, {"pass": false, "details": {"summary": "scenario not implemented"}}))
 		return
 	var scn = SCENARIOS[host_id].new()
+	await _take_focus(id)
+	if id in NEEDS_WEAPONS or host_id in NEEDS_WEAPONS:
+		await _wait_weapons(id)
 	ctx.extra_results = {}
 	ctx.begin_scenario()
 	ctx.errlog.take()
@@ -244,6 +251,34 @@ func _run_here(id: String) -> void:
 		if HOSTED[hid] == host_id and ctx.wanted.has(hid) and not _has_result(hid):
 			var why := "not produced: host %s %s" % [host_id, "did not finish" if not box.done else "ended before this capture"]
 			_put(_row_result(hid, {"pass": false, "details": {"summary": why, "host_summary": res.get("details", {}).get("summary", "")}}))
+
+
+## A child process that ended can keep the OS focus (Windows gives it to the window below, not back to this one);
+## the player's window has the focus in play, and without it Windows does not capture the mouse, so mouse look
+## (aiming, air strafe) and held keys would do nothing. Environment setup before each scenario, not a gameplay call.
+func _take_focus(id: String) -> void:
+	if DisplayServer.get_name() == "headless":
+		return
+	var had := get_window().has_focus()
+	if not had:
+		DisplayServer.window_move_to_foreground()
+		for i in 30:
+			await get_tree().process_frame
+			if get_window().has_focus():
+				break
+	if not had:
+		ctx.note("%s: window focus taken back: %s" % [id, str(get_window().has_focus())])
+
+
+func _wait_weapons(id: String) -> void:
+	var WeaponAssets := preload("res://core/weapon_assets.gd")
+	var t0 := Time.get_ticks_msec()
+	var pend: Array = WeaponAssets.pending()
+	if pend.is_empty():
+		return
+	ctx.note("%s: waiting for weapons to convert %s" % [id, str(pend)])
+	await ctx.wait_until(func(): return WeaponAssets.pending().is_empty(), WEAPONS_WAIT_S)
+	ctx.note("%s: weapons ready after %.1f s, still pending %s" % [id, (Time.get_ticks_msec() - t0) / 1000.0, str(WeaponAssets.pending())])
 
 
 func _drive(scn, box: Dictionary) -> void:

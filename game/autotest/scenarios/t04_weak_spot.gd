@@ -10,6 +10,7 @@ extends "res://autotest/lib/scenario.gd"
 const Combat := preload("res://autotest/lib/combat.gd")
 const InputSim := preload("res://autotest/lib/inputsim.gd")
 const Frame := preload("res://autotest/lib/frame.gd")
+const HitCheck := preload("res://autotest/lib/hitcheck.gd")
 const DIST_M := 10.0
 
 
@@ -125,10 +126,21 @@ func _shot(ctx, m: Node, part: String, min_damage: float = 0.0) -> Dictionary:
 	var moves := []
 	var base_off: Vector3 = ctx.player_pos() - (m as Node3D).global_position
 	base_off.y = 0.0
+	var inp = InputSim.new(ctx)
+	var body_aim := {}
 	for attempt in 9:
-		await _aim(ctx, m, part)
-		await ctx.physics_frames(2)
-		los = _los(ctx, m, _target_point(m, part), part)
+		if part == "body":
+			# a body point whose shot line first meets a non-weak body hitbox, also by the game's rule that a weak spot
+			# within 0.15 m behind the body surface or inside a body box takes the hit (from the front the watcher's eye
+			# does: lib/hitcheck.gd aim_body, by mouse motion)
+			inp.capture_for_look()
+			body_aim = await HitCheck.aim_body(ctx, inp, m)
+			await ctx.physics_frames(2)
+			los = {"clear": bool(body_aim.get("ok", false)), "by": str(body_aim.get("by", body_aim.get("why", "")))}
+		else:
+			await _aim(ctx, m, part)
+			await ctx.physics_frames(2)
+			los = _los(ctx, m, _target_point(m, part), part)
 		if los.clear:
 			break
 		moves.append(los.by)
@@ -146,7 +158,6 @@ func _shot(ctx, m: Node, part: String, min_damage: float = 0.0) -> Dictionary:
 	# CS inaccuracy (spread + first-shot inaccuracy) at 10 m can put a bullet beside a small weak spot: a shot that
 	# misses, or (aimed at a weak spot) does less than min_damage = body-level damage, is retried - 3 shots at most,
 	# waiting for the accuracy to recover; earlier shots are recorded, the measured damage is the last shot's
-	var inp = InputSim.new(ctx)
 	var d: Dictionary = {}
 	var misses := []
 	for attempt in 3:
@@ -157,7 +168,10 @@ func _shot(ctx, m: Node, part: String, min_damage: float = 0.0) -> Dictionary:
 		if is_instance_valid(m) and float(m.get("health")) <= 0.0:
 			break
 		await ctx.wait(Combat.shot_interval(ctx, "glock"))
-		await _aim(ctx, m, part)
+		if part == "body":
+			body_aim = await HitCheck.aim_body(ctx, inp, m)
+		else:
+			await _aim(ctx, m, part)
 		await ctx.physics_frames(2)
 	var miss_by := ""
 	if not d.hit:
@@ -166,6 +180,9 @@ func _shot(ctx, m: Node, part: String, min_damage: float = 0.0) -> Dictionary:
 	var after := float(m.get("health")) if is_instance_valid(m) else 0.0
 	var dist: float = cam_pos.distance_to(_target_point(m, part)) if is_instance_valid(m) else -1.0
 	var how := "camera to the aimed point"
+	if part == "body" and body_aim.get("ok", false):
+		dist = float(body_aim.dist)
+		how = "camera to the body surface the shot line meets"
 	# without the exact hit distance the hit lies somewhere on the machine: its AABB gives the distance range
 	var box: AABB = Frame.global_aabb(m) if is_instance_valid(m) else AABB()
 	var dmin := INF
