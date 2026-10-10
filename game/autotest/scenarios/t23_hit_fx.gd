@@ -24,9 +24,9 @@ func _run(ctx):
 		return false
 	var o = ctx.oracle
 	var inp = InputSim.new(ctx)
-	if InputSim.headless_look():
-		note("--headless: no mouse capture, the camera is pointed as setup (look_at_point) instead of by mouse motion")
-		data.headless_setup_look = true
+	# aiming is mouse motion: --headless has no mouse capture, so this test needs a window run
+	if not check("window run (aiming by mouse motion needs a captured mouse)", not InputSim.headless_look()):
+		return false
 	var hud: Node = g.get("hud")
 	var names := {}
 	for n in ["Hitmarker", "DamageNumbers", "DamageIndicator", "Vignette"]:

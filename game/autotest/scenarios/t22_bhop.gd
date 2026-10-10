@@ -28,9 +28,9 @@ func _run(ctx):
 		return false
 	var o = ctx.oracle
 	var inp = InputSim.new(ctx)
-	if InputSim.headless_look():
-		note("--headless: no mouse capture, the camera is pointed as setup (look_at_point) instead of by mouse motion")
-		data.headless_setup_look = true
+	# the air strafe under test is mouse motion: --headless has no mouse capture, so the game ignores it there
+	if not check("window run (mouse look needs a captured mouse; --headless cannot test the air strafe)", not InputSim.headless_look()):
+		return false
 	# setup: uncapped frame rate (input is read between physics steps), invulnerable, machines nearby frozen
 	var gs: Node = ctx.tree.root.get_node_or_null("GraphicsSettings")
 	var gfx0 := {}

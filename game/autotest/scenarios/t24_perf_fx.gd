@@ -57,9 +57,9 @@ func _run(ctx):
 	if not check("AK-47 bought (setup)", bought, "after %.0f s" % data.buy_wait_s):
 		return false
 	var inp = InputSim.new(ctx)
-	if InputSim.headless_look():
-		note("--headless: no mouse capture, the camera is pointed as setup (look_at_point) instead of by mouse motion")
-		data.headless_setup_look = true
+	# aiming is mouse motion: --headless has no mouse capture, so this test needs a window run
+	if not check("window run (aiming by mouse motion needs a captured mouse)", not InputSim.headless_look()):
+		return false
 	inp.capture_for_look()
 	check("AK-47 in hand (slot key)", await inp.equip("ak47"), str(p.get("current_weapon")))
 

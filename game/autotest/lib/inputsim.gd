@@ -213,10 +213,7 @@ func strafe_look(target_offset_rad: float = 0.0) -> float:
 		return 0.0
 	var heading := atan2(-v.x, -v.z) + target_offset_rad
 	if headless_look():
-		var err := wrapf(heading - yaw_pitch().x, -PI, PI)
-		var eye: Vector3 = ctx.player_camera().global_position
-		ctx.player.call("look_at_point", eye + Vector3(-sin(heading), 0.0, -cos(heading)) * 10.0)
-		return err
+		return wrapf(heading - yaw_pitch().x, -PI, PI)   # no mouse capture: the view cannot be turned by input
 	return look_step(heading, 0.0, 600.0).x
 
 
@@ -271,8 +268,8 @@ func look(dx: float, dy: float) -> void:
 
 
 static func headless_look() -> bool:
-	## --headless: no mouse capture, the game's mouse look never turns the camera (aim_at_point / strafe_look fall
-	## back to pointing the camera as setup; the result details say so)
+	## --headless: no mouse capture, the game's mouse look never turns the camera (aim_at_point fails, strafe_look
+	## does not turn): tests that aim or strafe need a window run
 	return DisplayServer.get_name() == "headless"
 
 
@@ -325,11 +322,9 @@ func aim_at_point(p: Vector3, tol_rad: float = 0.002, max_frames: int = 240) -> 
 	if cam == null:
 		return {"ok": false, "why": "no camera"}
 	if headless_look():
-		# --headless has no mouse capture, so mouse-look events are ignored by the game: the camera is pointed as
-		# setup (the same path Game.aim_at uses); windowed runs always turn it by relative mouse motion
-		ctx.player.call("look_at_point", p)
-		await ctx.frames(1)
-		return {"ok": true, "headless_setup_look": true}
+		# --headless has no mouse capture, so the game ignores mouse-look events; aiming is never done by setup
+		# instead (CLAUDE.md: tests drive the player's input) -> tests that aim need a window run
+		return {"ok": false, "why": "--headless: no mouse capture, aiming by mouse motion needs a window run"}
 	var err := Vector2(INF, INF)
 	for i in max_frames:
 		var before := yaw_pitch()

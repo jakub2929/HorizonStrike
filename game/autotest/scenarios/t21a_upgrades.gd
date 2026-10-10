@@ -62,9 +62,9 @@ func _run(ctx):
 	var o = ctx.oracle
 	var p: Node = ctx.player
 	var inp = InputSim.new(ctx)
-	if InputSim.headless_look():
-		note("--headless: no mouse capture, the camera is pointed as setup (look_at_point) instead of by mouse motion")
-		data.headless_setup_look = true
+	# aiming is mouse motion: --headless has no mouse capture, so this test needs a window run
+	if not check("window run (aiming by mouse motion needs a captured mouse)", not InputSim.headless_look()):
+		return false
 	p.set("invulnerable", true)
 	g.call("set_progression", {"xp": 0, "level": 0, "points": 2, "upgrades": {"damage": 0, "max_health": 0, "bhop": 0}})
 	await ctx.frames(2)

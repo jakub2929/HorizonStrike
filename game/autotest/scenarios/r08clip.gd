@@ -2,8 +2,8 @@ extends "res://autotest/lib/scenario.gd"
 ## r08clip (movie-maker child of r08, bhop level from env HZS_R08_LEVEL set by Game.set_progression as setup, own
 ## --user-dir): the same start pose and input script for every level. Knife out (3), W held to run speed, then a jump
 ## chain for 10 s: space on the first physics frame the player is grounded after a landing, in the air A or D held with
-## mouse motion turning the same way (air strafe), the side alternating per jump. After the first take-off the speed
-## is set to BOOST x run speed (setup, same for every level) so the levels differ visibly. Speeds are logged.
+## mouse motion keeping the view on the velocity (synced air strafe, as t22), the side alternating per jump. The
+## player gains the speed only by this input (never set in code); window run only. Speeds are logged.
 
 const InputSim := preload("res://autotest/lib/inputsim.gd")
 const RecClip := preload("res://autotest/lib/recclip.gd")
@@ -11,8 +11,6 @@ const Movie := preload("res://autotest/lib/movie.gd")
 const SITE := Vector3(2582.0, 178.0, 780.0)  # open snow field south of FE_Antelope_Scout (cell 5,-2), as r02clip
 const YAW_DEG := 0.0                          # start view: -Z
 const CLIP_S := 10.0
-const TURN_DEG_S := 100.0                     # air strafe turn rate
-const BOOST := 1.6                            # setup speed after the first take-off, x run speed
 
 var clips := {}
 
@@ -29,6 +27,8 @@ func _run(ctx):
 	data.level = level
 	if not check("world_ready", await ctx.need_world(1400.0)):
 		return _why(ctx, "world not ready")
+	if not check("window run (the air strafe is mouse motion; --headless has no mouse capture)", not InputSim.headless_look()):
+		return _why(ctx, "headless")
 	var g: Node = ctx.game
 	var p: Node = ctx.player
 	if not api_check(ctx.missing_api(g, [], ["teleport", "set_progression"]) + ctx.missing_api(p, ["horizontal_speed"])):
@@ -61,23 +61,10 @@ func _run(ctx):
 	inp.press("move_forward")
 	await ctx.wait(0.7)
 	var side := -1
-	var px_per_phys: float = deg_to_rad(TURN_DEG_S) / tps / maxf(inp.rad_per_px, 0.0001)
-	# first jump from running; once airborne the speed is raised to BOOST x the run speed (setup, the same for every
-	# level, as dev/bhop_input_driver.gd): the air strafe input alone kept the run speed (headless check: 6.40 m/s on
-	# every landing), so without it level 0 and level 5 would look the same
+	# first jump from running; from then on only the air strafe input (A / D + mouse motion) adds speed
+	data.run_speed = snappedf(float(p.horizontal_speed), 0.01)
 	await _jump(ctx, inp)
 	inp.release("move_forward")
-	var g0 := 0
-	while p.is_on_floor() and g0 < 20:
-		await ctx.physics_frames(1)
-		g0 += 1
-	var hv := Vector3(p.velocity.x, 0.0, p.velocity.z)
-	data.run_speed = snappedf(hv.length(), 0.01)
-	if hv.length() > 0.5:
-		hv = hv.normalized() * hv.length() * BOOST
-		p.velocity.x = hv.x
-		p.velocity.z = hv.z
-	data.boost_speed = snappedf(hv.length(), 0.01)
 	while Engine.get_physics_frames() < end_phys:
 		# air: wait to leave the ground, then strafe until the landing
 		var key := "move_left" if side < 0 else "move_right"
@@ -89,7 +76,7 @@ func _run(ctx):
 		var takeoff: float = p.horizontal_speed
 		guard = 0
 		while not p.is_on_floor() and guard < 240 and Engine.get_physics_frames() < end_phys:
-			inp.look(side * px_per_phys, 0.0)
+			inp.strafe_look()
 			await ctx.physics_frames(1)
 			guard += 1
 		inp.release(key)

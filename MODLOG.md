@@ -424,3 +424,15 @@ Full per-site table: `docs/notes/svet.md`. No placement references `ai/groups`, 
   far_albedo_max_px 512 kept (107 -> 6.7 MiB on 40 far cells; 256 saves only 5 MiB more). r08 recording: after the
   first take-off the speed is set to 1.6 x run speed for both levels (setup; air strafe alone stayed at run speed) –
   the video shows the clip rule, not how fast a player gains speed.
+- XP values (user asked which hold): all follow D58 = xp_reward x (1 + bonuses), xp_reward = 100 x kill_reward_mult.
+  The earlier "+130 on a watcher" (hra, silent strike) and "+120" (weak-spot kill) were on a Watcher (xp_reward 100);
+  t20 kills a Grazer for the weak-spot case (150 x 1.2 = 180) and a Broadhead for the silent strike (200 x 1.3 = 260).
+  Both sets are correct; no value changed.
+- Bhop air strafe (user: gaining speed by A/D + mouse turn is the point of the upgrade). player.gd already has the
+  Source/CS air acceleration (air_accelerate 12, air_max_wishspeed 30 u, wish speed uncapped in the accel term);
+  mouse look only acts while the mouse is captured, and --headless has no capture, so r08's headless check (6.40 m/s
+  every landing) never turned the view. Fix in the tests, not the game: inputsim.aim_at_point / strafe_look no longer
+  point the camera as setup in --headless (that was an input bypass) – aiming and strafing tests (t20–t24, r08) now
+  FAIL in --headless with "window run" and must run windowed; r08clip no longer sets the speed (BOOST 1.6 removed),
+  it gains speed only by A/D + mouse motion synced to the velocity (as t22). Window run must show air strafe raising
+  speed above run speed by real input; if it does not, the game gets CS2 air acceleration fixes (sheet first).
