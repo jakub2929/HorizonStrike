@@ -97,6 +97,10 @@ func _finish() -> void:
 	_machines.clear()
 	if viewmodel and viewmodel.has_method("end_preload"):
 		viewmodel.end_preload()
+	# hidden now: the graveyard frees the ~1200 stage quads only within the streaming budget, so while cells still
+	# insert (or the tree is paused by a menu) the grid stayed visible 3 m in front of the start view - rows of small
+	# squares over the scene (0.3.0 knife / upgrades menu screenshots)
+	_stage.visible = false
 	_stage = null
 	if meshes and meshes.has_method("keep_alive"):
 		meshes.keep_alive(_variants)

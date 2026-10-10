@@ -247,6 +247,14 @@ Rules I follow: no class_name lookups across files (everything via preload, so a
 - Not changed (owners): one mesh release of a cell can be 17-30 ms (mesh_library.release drops textures/meshes on
   the main thread) and a collision shape build 10-12 ms; both are single steps - candidates for vykon/svet.
 
+### 0.3.0 fix: rows of small squares behind the menus (branch fix-03-menu-boxes from release/0.3 = v0.3.0)
+- Cause: world/precompile.gd's stage (a 24-column grid of 6 cm quads, 0.08 m apart, 3 m in front of the start
+  camera: 384 feature variants + 2 per world material + terrain/water quads) was only handed to the world graveyard
+  at the end of the loading screen, never hidden. The graveyard frees within the streaming budget after cell
+  inserts, so while the request ring keeps inserting - and not at all while a menu pauses the tree - the grid stays
+  in the start view, partly freed (rows of different lengths; grey = dummy-texture variants, textured = real
+  world materials). r05 opens the menus right after the start (waits only for the knife), at the start pose.
+- Fix: `_stage.visible = false` in _finish before it is buried (one visibility pass under the loading screen).
 ## Notes for teammates (relay via main)
 - test (0.3 API): `--user-dir <dir>` (settings.json, loadout.json, progression.json there); Game.knife_ids(),
   Game.knife_selected(), Game.knife_model() (model in hand), Game.knife_last_anim(), Game.last_anim_request();
