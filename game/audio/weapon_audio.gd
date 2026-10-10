@@ -15,6 +15,7 @@ var _players: Array[AudioStreamPlayer] = []
 var _next := 0
 var _scheduled: Array = []   # [time, weapon, event]
 var _events_json := {}       # weapon -> anim_events dict
+var _warmed := {}            # content id -> true: sounds loaded or being loaded
 
 
 func _ready() -> void:
@@ -158,6 +159,7 @@ func _process(_delta: float) -> void:
 ## Loading time: every sound file of the weapon (the knife slot: its model's and the weapon's own) into memory.
 func preload_weapon(id: String) -> void:
 	var cid := Knives.content_id(id)
+	_warmed[cid] = true
 	SoundLib.preload_dir(snd_dir(cid))
 	if cid != id:
 		SoundLib.preload_dir(snd_dir(id))
@@ -165,6 +167,17 @@ func preload_weapon(id: String) -> void:
 
 
 var _snd_tasks: Array = []   # [task, out {path: stream}] sounds of weapons converted after the start
+
+
+## A weapon given in play (bought): its sound files are read on a worker now (once), not from disk at its first shots
+## (~4 ms a shot for the first shots of a bought AK-47, 0.3 t24).
+func warm(id: String) -> void:
+	var cid := Knives.content_id(id)
+	if _warmed.has(cid) or not DirAccess.dir_exists_absolute(snd_dir(cid)):
+		return   # not converted yet: Game.weapon_ready loads them when it is
+	_warmed[cid] = true
+	_on_weapon_ready(id)
+	_anim_events(id)
 
 
 ## Game.weapon_ready: the weapon's sound files are read on a worker and put into the cache on the main thread.

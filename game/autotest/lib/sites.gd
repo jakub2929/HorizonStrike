@@ -4,6 +4,44 @@ extends RefCounted
 const SITE_CELLS := [Vector2i(5, -2), Vector2i(3, -2)]  # sheet t05/t06/s03: real Watcher / Grazer sites
 
 
+## open snow field south of FE_Antelope_Scout (cell 5,-2): the fixed test field of t04 and t13
+const TEST_FIELD := Vector3(2582.0, 178.0, 780.0)
+
+
+static func go_test_field(ctx, ring_m: float) -> Dictionary:
+	## setup for shooting tests, independent of where earlier scenarios left the player: the site cells exist (fresh
+	## cache), the player is on TEST_FIELD's cell once it is loaded, then on the nearest ground point with a clear ring of
+	## ring_m (ctx.clear_spot), standing still. {pos, clear, tried, cells}
+	var g: Node = ctx.game
+	var cells: Dictionary = await ensure_cells(ctx)
+	var out := {"cells": cells}
+	await ctx.call_api(g, "teleport", [TEST_FIELD])
+	var c: Variant = ctx.cell_of(TEST_FIELD)
+	var w: Variant = g.get("world") if "world" in g else null
+	if w is Object and w.has_method("is_cell_loaded") and c != null:
+		await ctx.wait_until(func(): return bool(w.call("is_cell_loaded", c)), 300.0)
+	await ctx.wait(2.0)
+	# the field's own herd (FE_Antelope_Scout) stays where it is: AI off while the scenario runs (ctx restores it)
+	var frozen := 0
+	for m in g.get("machines"):
+		if is_instance_valid(m) and not ctx.spawned.has(m) and (m as Node3D).global_position.distance_to(TEST_FIELD) < 200.0:
+			ctx.set_ai(m, false)
+			frozen += 1
+	out.frozen_world_machines = frozen
+	var gy: Variant = await ctx.ground_y(TEST_FIELD.x, TEST_FIELD.z)
+	var center := Vector3(TEST_FIELD.x, float(gy) if gy != null else TEST_FIELD.y, TEST_FIELD.z)
+	var spot: Dictionary = await ctx.clear_spot(center, ring_m)
+	out.pos = spot.pos
+	out.clear = spot.clear
+	out.tried = spot.tried
+	await ctx.call_api(g, "teleport", [(spot.pos as Vector3) + Vector3(0, 0.05, 0)])
+	var p: Node = ctx.player
+	await ctx.physics_frames(3)
+	await ctx.wait_until(func(): return p.get("_hold_until_ground") != true and p.call("is_on_floor"), 30.0)
+	await ctx.wait(0.5)
+	return out
+
+
 static func ensure_cells(ctx, timeout_s: float = 240.0) -> Dictionary:
 	## the site cells are converted on demand: on a fresh cache (first run, release suite) they are not on disk yet when a
 	## site scenario starts near the start campfire. Setup: the player goes to each missing site cell (teleport) so the

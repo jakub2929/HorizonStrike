@@ -496,3 +496,13 @@ one cache `E:\meshy_work\test03-cache-1` (fresh at the first run), outputs `E:\m
 - Sequence t06,t17..t23 in one process (`test03-fix-seq-1`): 8/8 PASS.
 - Not fixed (out of scope, same cause as t20): t04 fails on the dev cache test03-cache-1 with the old and the new
   hitcheck alike (body shot = eye kill, 90 dmg); it passed in the release suite on a fresh cache.
+- rc2 suite t04/t13 (analysed from E:\meshy_work\autotest-0.3.0-rc2\func and the game log, no run): t04 spawned its
+  watchers 10 m ahead of wherever s01 left the player (2495.9/2494.3 vs 2490.1 alone) and both died by weak hits
+  ("xp +120 (watcher kill with glock, weak spot)" at 15:23:49.035); t13's Watcher_2091 was "killed by deagle (weak
+  true)" at 15:26:08.913, 0.37 s after the first ring teleport and before any test shot of that direction (it was spawned
+  with its 90 HP, BIG_HP was only set right before each shot), so all 8 directions met a dead machine ("nothing").
+  Changes (not yet run): Sites.go_test_field (fixed field, site cells ensured, cell loaded, clear ring, field herd AI
+  off) for t04 and t13 with a fixed direction; HitCheck.steady before measured shots (no jump/landing/move
+  inaccuracy); aim_body margin = (inaccuracy_stand + spread) x distance + 2 cm (Glock at 9.6 m: 9.3 cm, was 5 cm);
+  t13 BIG_HP from the spawn on, every hit logged, a machine dead before a direction is reported with its hits and
+  respawned; expected damage x the profile's damage upgrade (release runs use the player's profile).

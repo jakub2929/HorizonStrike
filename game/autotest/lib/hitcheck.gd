@@ -108,11 +108,59 @@ static func weak_behind(ctx, m: Node, from: Vector3, to: Vector3, body_hit: Vect
 	return ""
 
 
-static func aim_body(ctx, inp, m: Node, max_dist: float = INF, margin_m: float = 0.05) -> Dictionary:
+static func steady(ctx, timeout_s: float = 15.0) -> Dictionary:
+	## setup wait before a measured shot: the player stands on loaded ground (not held after a teleport, not in the air,
+	## not moving) and the landing penalty has decayed - CS inaccuracy adds inaccuracy_jump (0.088 rad Glock: 74 cm at
+	## 8 m) while airborne and inaccuracy_move while moving, which puts a body-aimed bullet on a weak spot
+	var p: Node = ctx.player
+	var t0 := Time.get_ticks_msec()
+	var still := func() -> bool:
+		return p != null and p.get("_hold_until_ground") != true and p.call("is_on_floor") and float(p.get("horizontal_speed")) < 0.05
+	var ok: bool = await ctx.wait_until(still, timeout_s)
+	if ok:
+		await ctx.wait(0.4)   # land penalty decays at 3/s (player.gd)
+	return {"ok": ok, "seconds": snappedf((Time.get_ticks_msec() - t0) / 1000.0, 0.01)}
+
+
+static func damage_mult(ctx) -> float:
+	## the player's damage upgrade (0.3: upgrades.damage, applied before armour and weak-spot multipliers) as it stands in
+	## the profile this run uses - expected damage values include it instead of rewriting the player's progression
+	var g: Node = ctx.game
+	var prog: Variant = g.get("progression") if g != null and "progression" in g else null
+	if not (prog is Dictionary):
+		return 1.0
+	var lvl := int((prog.get("upgrades", {}) as Dictionary).get("damage", 0)) if prog.get("upgrades") is Dictionary else 0
+	var row: Variant = ctx.oracle.system("upgrades.damage") if SystemsSheet.ROWS.has("upgrades.damage") else null
+	var pct := float(row.get("pct_per_level", 0)) if row is Dictionary else 0.0
+	return 1.0 + pct / 100.0 * lvl
+
+
+static func spread_margin(ctx, dist: float) -> float:
+	## how far a bullet of the weapon in hand can land from the aimed line at dist, standing still (CS: inaccuracy_stand
+	## (crouch when crouched) + spread, radians, primary mode) + 2 cm aim tolerance; knives and grenades: 3 cm
+	var p: Node = ctx.player
+	var id := str(p.get("current_weapon")) if p != null else ""
+	var o = ctx.oracle
+	var row: Dictionary = WeaponsSheet.ROWS.get(id, {})
+	if id == "" or str(row.get("category", "")) in ["knife", "grenade", "equipment"]:
+		return 0.03
+	var crouched: bool = p != null and bool(p.get("crouched"))
+	var inacc: float = o.num(o.weapon(id, "inaccuracy_crouch" if crouched else "inaccuracy_stand"), 0)
+	var spread: float = o.num(o.weapon(id, "spread"), 0)
+	if is_nan(inacc):
+		inacc = 0.01
+	if is_nan(spread):
+		spread = 0.0
+	return (inacc + spread) * dist + 0.02
+
+
+static func aim_body(ctx, inp, m: Node, max_dist: float = INF, margin_m: float = -1.0) -> Dictionary:
 	## turns the camera (relative mouse motion) onto a point of m's body that a shot from the camera meets first as a
 	## non-weak body hitbox (no weak spot taking it by the game's rule), within max_dist (knife reach), also margin_m
-	## up/down/left/right of it (weapon spread, aim tolerance); checked again along the camera's real view line after
-	## aiming. {ok, point, dist, by, tried}
+	## up/down/left/right of it (default: spread_margin of the weapon in hand at that distance); waits first until the
+	## player stands still (steady); checked again along the camera's real view line after aiming.
+	## {ok, point, dist, margin_m, by, tried, steady}
+	var st: Dictionary = await steady(ctx)
 	var cam: Camera3D = ctx.player_camera()
 	if cam == null or not is_instance_valid(m):
 		return {"ok": false, "why": "no camera / machine"}
@@ -121,17 +169,18 @@ static func aim_body(ctx, inp, m: Node, max_dist: float = INF, margin_m: float =
 		var r: Dictionary = first_hit(ctx, m, pt, "body")
 		if not r.clear or float(r.dist) > max_dist:
 			continue
+		var margin: float = margin_m if margin_m >= 0.0 else spread_margin(ctx, float(r.dist))
 		var d: Vector3 = (pt - cam.global_position).normalized()
 		var right := d.cross(Vector3.UP).normalized()
 		var up := right.cross(d).normalized()
 		var all_clear := true
-		for off in [right, -right, up, -up]:
-			var r2: Dictionary = first_hit(ctx, m, pt + off * margin_m, "body")
+		for off in [right, -right, up, -up, (right + up).normalized(), (right - up).normalized(), (-right + up).normalized(), (-right - up).normalized()]:
+			var r2: Dictionary = first_hit(ctx, m, pt + off * margin, "body")
 			if not r2.clear or float(r2.dist) > max_dist:
 				all_clear = false
 				break
 		if all_clear:
-			cands.append({"pt": pt, "dist": float(r.dist)})
+			cands.append({"pt": pt, "dist": float(r.dist), "margin": margin})
 	cands.sort_custom(func(x, y): return x.dist < y.dist)
 	var last := {}
 	for c in cands.slice(0, 6):
@@ -140,11 +189,12 @@ static func aim_body(ctx, inp, m: Node, max_dist: float = INF, margin_m: float =
 		var fwd := -cam.global_transform.basis.z
 		var check: Dictionary = first_hit(ctx, m, cam.global_position + fwd * cam.global_position.distance_to(c.pt), "body")
 		last = {"ok": bool(check.clear) and float(check.get("dist", INF)) <= max_dist and bool(aim.get("ok", false)), "point": c.pt,
-			"dist": snappedf(float(check.get("dist", -1.0)), 0.01), "by": check.by, "aim": aim, "tried": cands.size()}
+			"dist": snappedf(float(check.get("dist", -1.0)), 0.01), "margin_m": snappedf(float(c.margin), 0.001), "by": check.by, "aim": aim,
+			"tried": cands.size(), "steady": st}
 		if last.ok:
 			return last
 	if last.is_empty():
-		return {"ok": false, "why": "no body point with a clear first hit within %.2f m (%d points)" % [max_dist, body_points(m).size()]}
+		return {"ok": false, "why": "no body point with a clear first hit within %.2f m and the spread margin (%d points)" % [max_dist, body_points(m).size()], "steady": st}
 	return last
 
 

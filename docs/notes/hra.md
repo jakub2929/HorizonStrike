@@ -216,6 +216,22 @@ Rules I follow: no class_name lookups across files (everything via preload, so a
 - Dev drivers (real input, mock data): dev/knife_input.gd, progress_input.gd, bhop_input.gd (speed above run speed =
   setup push; jumps by key), fx_input.gd (hurt part = damage call with a machine source as setup).
 
+### 0.3 fix: cost of a shot (t24, branch fix-03-shot-cost from release/0.3)
+- core/shot_stats.gd (permanent, cheap): weapons.fire() parts (trace, impact_noise, hit = take_hit +
+  on_player_hit, tracer, recoil_noise, viewmodel incl. vm_fire_fx, audio) and the frames +1..+4 after a shot vs the
+  rest (wall ms, GPU ms of the main + viewmodel viewport, process, render CPU, pipeline compilations). Log:
+  `shot N frame +k: ...` for the first 3 shots, `shot cost after N shots: ...` + `shot cost frames ...` every 40.
+- Cause (dev editor, before): tracer 8.5 ms and muzzle flash/shell 8.3 ms of MAIN THREAD per shot, +5 pipeline
+  compilations per shot - a new StandardMaterial3D (+ mesh, light) per shot costs a pipeline compile each time even
+  with identical parameters. GPU time did not move (13.6 ms on shot and non-shot frames). First hit: take_hit
+  27.7 ms = machines/fx/impact_fx.gd built on first use (32 emitters); first shots of a bought weapon: ~4 ms
+  sound read from disk.
+- Fix: tracer pool (12, one unit-line ArrayMesh + one material, stretched by the transform, hidden after 50 ms);
+  per weapon model a hidden flash (OmniLight + sprite, shared mesh/material) on the muzzle point, shell pool (6,
+  shared mesh/material); flash + shells drawn during the loading-screen preload; ImpactFx.instance() at player
+  setup; weapon_audio.warm(id) on give() (bought weapon: sounds on a worker). Effects unchanged.
+- Rule: nothing per shot may create a Material/Mesh/Light - pool it and share one material.
+
 ## Notes for teammates (relay via main)
 - test (0.3 API): `--user-dir <dir>` (settings.json, loadout.json, progression.json there); Game.knife_ids(),
   Game.knife_selected(), Game.knife_model() (model in hand), Game.knife_last_anim(), Game.last_anim_request();
