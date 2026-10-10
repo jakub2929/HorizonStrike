@@ -393,3 +393,12 @@ Full per-site table: `docs/notes/svet.md`. No placement references `ai/groups`, 
   9.8 s (sequential); then 11.4 s start-cell insertion before precompile (1.3 s). Next: parallel CS2/HZD bootstrap
   (svet) and a large insertion budget during the loading screen (hra).
 - Merged svet 3c1a25f: CS2 start loadout converts in its own thread while the worker does HZD machines/audio/index/start cell; bootstrap 25–27 s -> 15–18 s (clean cache, shared machine), byte-identical output, peak ~2.05 GB (bootstrap cap).
+- 2026-10-10 (new chat) History scan before push: origin/main 45638b3..main (incl. release/0.2, v0.2.0-rc and the
+  merged vykon branch) = 727 new blobs, only .gd/.cs/.json/.md/.py/.cfg/.godot/.txt + LibAtrac9 MIT LICENSE; no
+  binary blob, no image/sound/model magic, no items_game-like keys, no path-list dump (only sheet asset paths, D26).
+- Merged vykon dfb42e8 via orch-merge-vykon (23f2051): conflicts in main.gd (attach_environment hook + --gfx-low dev
+  override after it), settings_menu.gd (Damage numbers / Upgrades / Knife + Graphics button), systems.* regenerated.
+  All six GRAPHICS HOOK lines present. Dev editor --mock-data t01 + t03 PASS.
+- D63 fx.aimpunch kick values are design (CS2 has no aimpunch data; decay = public CS2 recoil-decay cvar defaults).
+  Sheet cells movement.bhop_clip_speed_mult (D59), combat.silent_strike_mult (D60), fx.aimpunch (D63) marked
+  verified as design values -> preflight sheets CLEAN (4328/4328).
