@@ -49,8 +49,8 @@ func _run(ctx):
 	for k in corners:
 		var a: Vector3 = k.corner - k.out * INSIDE_M
 		var b: Vector3 = k.corner + k.out * BEYOND_M
-		var ga: Variant = await ctx.ground_y(a.x, a.z)
-		var gb: Variant = await ctx.ground_y(b.x, b.z)
+		var ga: Variant = await _height(ctx, w, a)
+		var gb: Variant = await _height(ctx, w, b)
 		if ga == null or gb == null:
 			continue
 		a.y = float(ga)
@@ -66,7 +66,10 @@ func _run(ctx):
 		return false
 	data.corner = str(best.corner)
 	data.path_ratio = snappedf(float(best.ratio), 0.01)
-	var start: Vector3 = best.a + Vector3(0, 0.05, 0)
+	var start: Vector3 = best.a + Vector3(0, 0.5, 0)
+	await ctx.call_api(g, "teleport", [start])
+	await ctx.wait(2.0)
+	# ground collision is built near the player only: set the start again once it is there
 	await ctx.call_api(g, "teleport", [start])
 	await ctx.wait(2.0)
 	var path: Array = best.path
@@ -112,3 +115,12 @@ func _run(ctx):
 	data.walked_m = snappedf(start.distance_to(ctx.player_pos()), 0.1)
 	check("2 cell borders crossed in 25 s", cells.size() - 1 >= 2, str(data.cells))
 	return true
+
+
+static func _height(ctx, w: Variant, p: Vector3) -> Variant:
+	## terrain height from the loaded cell data (collision exists near the player only), else a physics ray
+	if w is Object and (w as Object).has_method("height_at"):
+		var h := float((w as Object).call("height_at", p))
+		if not is_nan(h):
+			return h
+	return await ctx.ground_y(p.x, p.z)
