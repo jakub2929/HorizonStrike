@@ -32,7 +32,27 @@ def role_of(name: str) -> str:
     return "other"
 
 
-def tree(root: psutil.Process):
+class NameWatch:
+    """--names mode: every running process whose name starts with one of the prefixes (passive, never killed)."""
+
+    def __init__(self, prefixes):
+        self.prefixes = [p.lower() for p in prefixes]
+
+    def procs(self):
+        out = []
+        for p in psutil.process_iter(["name"]):
+            n = (p.info["name"] or "").lower()
+            if any(n.startswith(x) for x in self.prefixes):
+                out.append(p)
+        return out
+
+    def is_running(self):
+        return True
+
+
+def tree(root):
+    if isinstance(root, NameWatch):
+        return root.procs()
     procs = [root]
     try:
         procs += root.children(recursive=True)
@@ -47,12 +67,15 @@ def main() -> int:
     ap.add_argument("--pid", type=int, default=0)
     ap.add_argument("--interval", type=float, default=1.0)
     ap.add_argument("--timeout", type=float, default=1800.0)
+    ap.add_argument("--names", default="", help="passive: sample every process named <prefix>* (comma list)")
     ap.add_argument("cmd", nargs=argparse.REMAINDER)
     a = ap.parse_args()
     cmd = a.cmd[1:] if a.cmd and a.cmd[0] == "--" else a.cmd
     os.makedirs(a.out, exist_ok=True)
     started = None
-    if a.pid:
+    if a.names:
+        root = NameWatch(a.names.split(","))
+    elif a.pid:
         root = psutil.Process(a.pid)
     elif cmd:
         log = open(os.path.join(a.out, "console.log"), "w", encoding="utf-8", errors="replace")

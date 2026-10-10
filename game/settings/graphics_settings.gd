@@ -139,15 +139,7 @@ func set_value(key: String, value: Variant) -> void:
 	if not (key in OPTION_KEYS or key == "fps_limit" or key == "vsync"):
 		push_warning("graphics: unknown setting %s" % key)
 		return
-	match typeof(get(key)):
-		TYPE_BOOL:
-			set(key, bool(value))
-		TYPE_INT:
-			set(key, int(value))
-		TYPE_FLOAT:
-			set(key, float(value))
-		_:
-			set(key, str(value))
+	_assign(key, value)
 	_clamp()
 	if key == "fps_limit":
 		_fps_override = -1
@@ -174,16 +166,40 @@ func _set_preset_values(name: String) -> void:
 	var p: Dictionary = presets().get(name, {})
 	for k in OPTION_KEYS:
 		if p.has(k):
-			var cur: Variant = get(k)
-			match typeof(cur):
-				TYPE_BOOL:
-					set(k, bool(p[k]))
-				TYPE_FLOAT:
-					set(k, float(p[k]))
-				_:
-					set(k, str(p[k]))
+			_assign(k, p[k])
 	_clamp()
 	preset = name
+
+
+## Sets a setting from a sheet / file / menu value converted to the setting's own type; a value that cannot be
+## converted (e.g. "ssao": "maybe" in a hand-edited file) keeps the current one.
+func _assign(key: String, v: Variant) -> void:
+	var cur: Variant = get(key)
+	var num := typeof(v) == TYPE_INT or typeof(v) == TYPE_FLOAT
+	var s := str(v).strip_edges().to_lower()
+	match typeof(cur):
+		TYPE_BOOL:
+			if typeof(v) == TYPE_BOOL:
+				set(key, v)
+			elif num:
+				set(key, float(v) != 0.0)
+			elif s in ["true", "on", "yes", "1"]:
+				set(key, true)
+			elif s in ["false", "off", "no", "0"]:
+				set(key, false)
+		TYPE_INT:
+			if num or typeof(v) == TYPE_BOOL:
+				set(key, int(v))
+			elif s.is_valid_float():
+				set(key, int(s.to_float()))
+		TYPE_FLOAT:
+			if num:
+				set(key, float(v))
+			elif s.is_valid_float():
+				set(key, s.to_float())
+		_:
+			if v != null:
+				set(key, str(v))
 
 
 func _matching_preset() -> String:
@@ -230,7 +246,8 @@ func describe() -> String:
 func _load() -> bool:
 	if not FileAccess.file_exists(_path):
 		return false
-	var parsed: Variant = JSON.parse_string(FileAccess.get_file_as_string(_path))
+	var json := JSON.new()   # parse() reports errors to us only (parse_string logs an engine error)
+	var parsed: Variant = json.data if json.parse(FileAccess.get_file_as_string(_path)) == OK else null
 	if typeof(parsed) != TYPE_DICTIONARY:
 		push_warning("graphics: %s is not valid JSON, auto preset again" % _path)
 		return false
@@ -240,15 +257,7 @@ func _load() -> bool:
 		_set_preset_values(name)
 	for k in OPTION_KEYS + ["fps_limit", "vsync"]:
 		if d.has(k) and d[k] != null:
-			match typeof(get(k)):
-				TYPE_BOOL:
-					set(k, bool(d[k]))
-				TYPE_INT:
-					set(k, int(d[k]))
-				TYPE_FLOAT:
-					set(k, float(d[k]))
-				_:
-					set(k, str(d[k]))
+			_assign(k, d[k])
 	_clamp()
 	preset = _matching_preset()
 	if d.get("auto") is Dictionary:
