@@ -482,3 +482,13 @@ Full per-site table: `docs/notes/svet.md`. No placement references `ai/groups`, 
   t03, t17, t26 PASS; t22 FAIL once while the user worked on the PC (focus loss releases held keys) – rerun pending.
 - Menu screenshots show rows of light rounded boxes behind the dimmed Esc/knife/upgrades menus (also in hra's 09:17
   shot, so since the 0.3 menus); engine screenshot = displayed image. hra investigates (fix-03-menu-boxes).
+- Menu boxes (hra 59c8141): the shader warm-up stage (~1200 6 cm quads, 3 m before the start camera) was handed to the
+  graveyard without hiding it; the graveyard frees only within the streaming budget and not while paused, so menus
+  opened soon after the start showed rows of boxes. Fix: _stage.visible = false in precompile._finish (rule: anything
+  built only for warm-up is hidden at once). Tag v0.3.0-rc5; rc5 t01, t18, t21, t26, r05 PASS (menu PNGs clean);
+  t16 not run (user: loading-screen UI change; CLAUDE.md t16 rule refined). Package HorizonStrike-0.3.0.zip from rc5,
+  83 111 716 B, sha256 45916d5b… Tag v0.3.0 (local, unpushed) points to the commit before this fix.
+- User's cache and profile restored from prev-0.3rc-1440 (21:35); test profile in prev-0.3rc-testprofile-2135.
+  Test-cache hazard: a parent test process and its child both start converters on the same --cache-dir (test03-cache-1
+  start cell 4_-3 broken since 21:02: only cell.json left) – give children their own cache or no converter.
+- User decisions: Low RAM 2.67 GB accepted; 0.3.0 is uploaded as a draft only after 0.2.0 passes Melty review.
