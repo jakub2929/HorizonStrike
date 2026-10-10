@@ -342,3 +342,7 @@ Full per-site table: `docs/notes/svet.md`. No placement references `ai/groups`, 
 - D60 Silent strike = knife stab into an unaware machine outside its vision cone, damage x5 (design).
 - D61 Hit sounds = CS2 *.AttackerFeedback / *.Victim events + SolidMetal.BulletImpact.
 - D62 Player profile in loadout.json + progression.json (%LOCALAPPDATA% or --user-dir), never in the cache.
+- Merged svet d39d662: converter idle release (after 5 s idle: archives closed, mesh exporter dropped, heap compacted
+  incl. LOH, working set trimmed): idle 4278/4250 MB -> 7/118 MB (working set/private); first request after release
+  +0.45 s; optional --idle-exit-s (restart costs ~1.3 s, off by default). Peaks still 4.0-6.4 GB during bootstrap and
+  4.5 GB while converting cells -> to reduce.
