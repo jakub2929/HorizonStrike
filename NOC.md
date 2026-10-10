@@ -31,3 +31,4 @@ Když nevíš, kde jsi: přečti NOC.md a MODLOG.md a pokračuj od posledního z
 - 03:16 Release 0.2.0 postaven (_tools/release/0.2.0, zip 82,8 MB, sha256 d151bce2…827f), package preflight CLEAN; Melty inspect/validate OK, one_click yes. Běží: test T6 (celý autotest + t16 20× + čistá baseline + nové záznamy). Upload až po T6.
 - 06:11 T6: 17/19 PASS. Opravit: F10 (úklid cache maže buňku, kterou trasa potřebuje → hra), t15 jeden snímek 51,7 ms (→ hra), Sawtooth slabé místo 4/8 (→ stroje). Pak rebuild 0.2.0 a znovu celá sada.
 - 06:12 Průběžné SHRNUTI-0.2.md zapsáno (17/19, opravné kolo běží). Listing 0.2 návrh v docs/listing.md (jen prokázané věci). Viditelné vady ve finálních snímcích (modré stíny, šedý pruh na horizontu, lesklý sníh) předány hra.
+- 06:23 stroje: Sawtooth 3–4/8 je věrné umístění kanystru pod hrudí (3 pokusy, vráceno) → rozhodnutí v OTAZKY.md: ponechat. Běží: hra (F10, 51,7 ms, vzhled).
