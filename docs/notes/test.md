@@ -440,3 +440,40 @@ t04 FAIL (slot key: current stays ak47), t06 FAIL (crouch key: crouched = false;
   `C:\meshy\_tools\cache-test-real`, converter built from my merged main). Fixes on my side from these runs: t03 start
   money from prices, LOS-checked spawns, tapping, kill_award_class fallback, t10 "already loaded", user args to
   children, s03 view point, sites prefer the own HZD type, no fall damage from site teleports.
+
+## 0.3 autotests t17–t24
+Branch `test-0.3` (from main 23f2051). Dev editor, real CS2 (`--game`) + HZD, converter built in the worktree,
+one cache `E:\meshy_work\test03-cache-1` (fresh at the first run), outputs `E:\meshy_work\test03-<run>`.
+- Harness: runner runs a child row whose `--autotest` names parts (t18 -> t18a, t21 -> t21a) as part A then the next
+  letter (t18b, t21b), each a new process with the row's args (same `--user-dir`), and combines them. inputsim: click
+  Controls by name, ItemList rows (wheel scroll until the list itself reports the row under the point), raw keys,
+  synced air strafe (`strafe_look`). lib/knifemenu.gd: Esc > Knife > row > Esc. ctx.Rec takes 6 signal args (it took 4:
+  `player_hit_machine` has 5, so every hit record was lost - test bug, fixed).
+- `--headless`: no mouse capture, so the game ignores mouse-look; aim_at_point / strafe_look point the camera as setup
+  there (noted in the details); GUI mouse clicks do not reach Controls headless (Esc/K keys do) and nothing is drawn.
+  Menu, pixel and perf checks need windowed runs.
+- Sheet t24: added `--user-dir <out>/user24` (the row's setup says children use their own profile; without it the
+  fps-limit/VSync setup would be saved into the player's graphics.json).
+- t17 PASS windowed (`test03-t17-2`): 22/22 knives ok on CS2 b25815307, every one chosen by Esc/click/Esc and in hand,
+  bone_roles bones of the knife row and meta.json in the skeleton (86-90 bones), required clips present, 0 failed.
+- t18 PASS windowed (`test03-a-1`): Karambit chosen by menu, in hand before and after kill_player + respawn (key 3),
+  loadout.json `knife_karambit`; part B (new process, same user dir) draws it after the restart.
+- t19 windowed (`test03-a-1`): menu + inspect OK for all 22 (inspect clip 0.14-0.18 s after F, >= 1 s); slash damage
+  not recorded (the Rec bug above) - run killed at 13:00 by the coordinator stop on windowed runs; re-run pending.
+- t20 PASS headless (`test03-h-3`): watcher body kill +100, grazer weak kill +180, broadhead silent strike (knife stab,
+  rear body) +260, level 1 -> 2 at 750 xp with +1 point and the LevelUpNotice shown.
+- t21 headless (`test03-h-1`): base Glock body hit 13.31; K opens the menu, but the clicks cannot be delivered headless
+  -> pending windowed.
+- t22 PASS headless (`test03-h-19`, camera turned as setup instead of mouse motion): level 0 7.83->6.35, 8.28->6.35;
+  level 1 jump 1 7.83->7.83, jump 2 9.50->6.35; level 5 jumps 1-5 keep 7.77/9.43/10.88/12.03/13.22, jump 6
+  14.20->6.35; every jump 13-21 ms after its landing (1 grounded step), every air phase +0.97..2.1 m/s. Open ground:
+  the start settlement and HZD rocks overlap the terrain (a geometric "flat" spot left the player stuck inside a mesh),
+  so candidates are checked by input (1 s of W moves > 2 m, a jump lifts > 0.8 m); one strafe key per level keeps the
+  chain circling on the spot.
+- t23 headless smoke (`test03-h-22`): hitmarker normal/weak, number '13' for 12.96 dealt, particles weak 30 > normal 10,
+  indicator bearing error 0 deg, aimpunch 0.48 -> 0, hurt sound, vignette 0.516 at 22 % > 0.239 at 92 %; toggle click
+  and pixel checks need a window.
+- t24 headless smoke (`test03-h-21`): AK bought, 3 scrappers, 35 bursts, 10 hits (5 weak), sparks/numbers > 0. Window /
+  VSync / fps numbers only mean something windowed.
+- Paused by the coordinator (no windowed runs): t19, t21, t23, t24 windowed, t20/t22 with real mouse motion, t01/t03
+  windowed (t01 PASS headless, t03 needs wheel clicks).

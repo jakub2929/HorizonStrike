@@ -34,10 +34,21 @@ const SCENARIOS := {
 	"r02": preload("res://autotest/scenarios/r02_machine_videos.gd"),
 	"r03": preload("res://autotest/scenarios/r03_cell_crossing.gd"),
 	"r04": preload("res://autotest/scenarios/r04_frametime_graph.gd"),
+	"t17": preload("res://autotest/scenarios/t17_knives_load.gd"),
+	"t19": preload("res://autotest/scenarios/t19_knife_damage.gd"),
+	"t20": preload("res://autotest/scenarios/t20_kill_xp.gd"),
+	"t22": preload("res://autotest/scenarios/t22_bhop.gd"),
+	"t23": preload("res://autotest/scenarios/t23_hit_fx.gd"),
+	"t24": preload("res://autotest/scenarios/t24_perf_fx.gd"),
 	## no sheet rows: child parts started by t16 / r02 / r03 themselves (lib/movie.gd for the recordings)
 	"t16run": preload("res://autotest/scenarios/t16run.gd"),
 	"r02clip": preload("res://autotest/scenarios/r02clip.gd"),
 	"r03walk": preload("res://autotest/scenarios/r03walk.gd"),
+	## restart tests: part A then part B in new processes with the same --user-dir (runner _child_parts)
+	"t18a": preload("res://autotest/scenarios/t18a_knife_choice.gd"),
+	"t18b": preload("res://autotest/scenarios/t18b_knife_restart.gd"),
+	"t21a": preload("res://autotest/scenarios/t21a_upgrades.gd"),
+	"t21b": preload("res://autotest/scenarios/t21b_upgrades_restart.gd"),
 }
 ## rows produced inside another scenario's run (sheet: s02 "taken inside t05")
 const HOSTED := {"s02": "t05"}
@@ -107,7 +118,12 @@ func _main() -> void:
 		var host: String = HOSTED.get(id, id)
 		var row: Dictionary = AutotestSheet.row(host)
 		if row.get("process") == "child" and not is_child:
-			_limit_s += _child_timeout(_child_lead(host)) + 30.0
+			var lead := _child_lead(host)
+			if lead.is_empty():
+				for part in _child_parts(host):
+					_limit_s += _child_timeout({"id": host, "extra_args": ["--autotest", part]}) + 30.0
+			else:
+				_limit_s += _child_timeout(lead) + 30.0
 		elif SCENARIOS.has(host):
 			_limit_s += SCENARIOS[host].new().timeout_s + 10.0
 	ctx.note("scenarios: %s (global limit %d s)" % [",".join(ids), int(_limit_s)])
@@ -230,10 +246,67 @@ func _child_lead(id: String) -> Dictionary:
 	return {}
 
 
+func _child_parts(id: String) -> PackedStringArray:
+	## a child row whose --autotest list names parts instead of itself (t18: "t18a"): the listed parts, each followed by
+	## its next letter while a scenario exists for it (t18a -> t18b). Each part runs in its own new process, one after
+	## the other, with the row's arguments (same --user-dir): restart tests (sheet t18, t21 "child A then child B").
+	var out := PackedStringArray()
+	var row: Dictionary = AutotestSheet.row(id)
+	var ea: Array = row.get("extra_args", [])
+	var i := ea.find("--autotest")
+	if row.get("process") != "child" or i < 0 or i + 1 >= ea.size():
+		return out
+	var listed: PackedStringArray = str(ea[i + 1]).split(",", false)
+	if listed.has(id):
+		return out
+	for p in listed:
+		var part := p
+		while SCENARIOS.has(part) and not out.has(part):
+			out.append(part)
+			var last := part.unicode_at(part.length() - 1)
+			if last < 97 or last >= 122:
+				break
+			part = part.substr(0, part.length() - 1) + String.chr(last + 1)
+	return out
+
+
+func _run_child_parts(id: String, parts: PackedStringArray) -> Dictionary:
+	## runs the parts in a row (each a new process, same row arguments, own --out <out>/<id>/<part>) and combines them
+	## into the row's result: pass when every part passed
+	var row: Dictionary = AutotestSheet.row(id)
+	var per := {}
+	var summaries := []
+	var ok := true
+	for part in parts:
+		var ea: Array = (row.get("extra_args", []) as Array).duplicate()
+		ea[ea.find("--autotest") + 1] = part
+		var oi := ea.find("--out")
+		var out := "<out>/%s/%s" % [id, part]
+		if oi >= 0:
+			ea[oi + 1] = out
+		else:
+			ea.append_array(["--out", out])
+		var rows: Array = await _launch_child({"id": id, "extra_args": ea})
+		var r: Dictionary = rows[0] if not rows.is_empty() else {"pass": false, "details": {"summary": "no result"}}
+		ok = ok and bool(r.get("pass", false))
+		per[part] = r.get("details", {})
+		var s: String = str(r.details.get("summary", "")) if r.get("details") is Dictionary else str(r.get("details"))
+		summaries.append("%s %s: %s" % [part, "PASS" if r.get("pass", false) else "FAIL", s])
+		ctx.note("%s part %s: %s" % [id, part, summaries[-1]])
+	return _row_result(id, {"pass": ok, "details": {"summary": " | ".join(summaries), "parts": per}})
+
+
 func _run_child(id: String) -> Array:
 	var lead := _child_lead(id)
 	if lead.is_empty():
+		var parts := _child_parts(id)
+		if not parts.is_empty():
+			return [await _run_child_parts(id, parts)]
 		return [_row_result(id, {"pass": false, "details": {"summary": "no child launch row in sheets/autotest.json"}})]
+	return await _launch_child(lead)
+
+
+func _launch_child(lead: Dictionary) -> Array:
 	var extra := PackedStringArray()
 	for a in lead.extra_args:
 		extra.append(str(a).replace("<out>", ctx.out_dir))
