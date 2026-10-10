@@ -266,6 +266,13 @@ func get_entry(id: String) -> Dictionary:
 		Log.info("mesh %s built in %.1f ms (%s, %d tris, %d surfaces)" % [id, dt, "glb reader" if typeof(p) == TYPE_DICTIONARY and not (p as Dictionary).is_empty() else "GLTFDocument fallback",
 			int(entry.get("tris", 0)), (entry["mesh"] as Mesh).get_surface_count() if entry.has("mesh") else 0])
 	_entries[id] = entry
+	counters["mesh_builds"] += 1
+	if _released_mesh.erase(id):
+		counters["mesh_rebuilds"] += 1   # released with its last cell, needed again
+	elif _ever_mesh.has(id):
+		counters["dup_mesh"] += 1        # a second build of a resident mesh: must stay 0
+	_ever_mesh[id] = true
+	_add_deps(id, p)
 	_mutex.lock()
 	_parsed.erase(id)
 	_built[id] = true
@@ -322,9 +329,13 @@ func _build(p: Dictionary, id: String) -> Dictionary:
 	return {"mesh": mesh, "aabb": p["aabb"], "plant": p["alpha"], "tris": p["tris"], "faces": p.get("faces", PackedVector3Array())}
 
 
-func _material(m: Dictionary) -> Material:
-	var key := "%s|%s|%s|%s|%s|%s|%s|%s|%s|%s" % [m["image"], m["color"], m["alpha"], m["double_sided"], m["cutoff"],
+static func _material_key(m: Dictionary) -> String:
+	return "%s|%s|%s|%s|%s|%s|%s|%s|%s|%s" % [m["image"], m["color"], m["alpha"], m["double_sided"], m["cutoff"],
 		m.get("normal", ""), m.get("orm", ""), m.get("occlusion", ""), m["roughness"], m["metallic"]]
+
+
+func _material(m: Dictionary) -> Material:
+	var key := _material_key(m)
 	if _materials.has(key):
 		return _materials[key]
 	var mat := build_material(m, _texture)
@@ -404,6 +415,12 @@ func _texture(tex_name: String) -> Texture2D:
 	var t0 := Time.get_ticks_usec()
 	var tex: Texture2D = ImageTexture.create_from_image(img) if img != null else null
 	stat_tex_upload_ms += (Time.get_ticks_usec() - t0) / 1000.0
+	counters["tex_uploads"] += 1
+	if _released_tex.erase(tex_name):
+		counters["tex_reuploads"] += 1   # released with its last cell, needed again
+	elif _ever_tex.has(tex_name):
+		counters["dup_tex"] += 1         # a second upload of a resident texture: must stay 0
+	_ever_tex[tex_name] = true
 	_textures[tex_name] = tex
 	_mutex.lock()
 	_images.erase(tex_name)
@@ -481,13 +498,159 @@ static func _info_of(p: Dictionary, faces: bool) -> Dictionary:
 
 
 func forget(id: String) -> void:
-	_entries.erase(id)
-	_shapes.erase(id)
-	_partial.erase(id)
+	_release_mesh(id)
+
+
+# ------------------------------------------------------------------ sharing and release (0.3 RAM)
+# A mesh (ArrayMesh, collision shape, parsed arrays) is held once per id while any cell that uses it is prepared,
+# being inserted or loaded (acquire / release per cell); its materials and textures are held once per key / name
+# while any held mesh uses them. When the last user goes, everything of it is dropped (the nodes still showing it
+# keep their own references until they are freed). counters prove one load per id: an upload of something that is
+# resident would be a duplicate (dup_* stays 0); reloads after a release are counted apart.
+
+var counters := {"mesh_builds": 0, "mesh_rebuilds": 0, "tex_uploads": 0, "tex_reuploads": 0, "dup_mesh": 0, "dup_tex": 0,
+	"mesh_releases": 0, "tex_releases": 0, "mat_releases": 0}
+var _released_mesh := {}
+var _released_tex := {}
+var _refs := {}        # mesh id -> number of cells holding it                       (main)
+var _owner_ids := {}   # cell -> Array of mesh ids it holds                          (main)
+var _deps := {}        # mesh id -> {keys: material keys, texs: texture names}       (main)
+var _mat_refs := {}    # material key -> held meshes using it                        (main)
+var _tex_refs := {}    # texture name -> held meshes using it                        (main)
+var _ever_mesh := {}
+var _ever_tex := {}
+
+
+## Main thread: `owner` (a cell) holds these meshes from now on (replaces what it held before).
+func acquire(owner: Variant, ids: Array) -> void:
+	release(owner)
+	var held: Array = []
+	for raw in ids:
+		var id := str(raw)
+		_refs[id] = int(_refs.get(id, 0)) + 1
+		held.append(id)
+	_owner_ids[owner] = held
+
+
+## Main thread: `owner` lets go; meshes nobody holds any more are dropped.
+func release(owner: Variant) -> void:
+	if not _owner_ids.has(owner):
+		return
+	for id in _owner_ids[owner]:
+		var n := int(_refs.get(id, 0)) - 1
+		if n > 0:
+			_refs[id] = n
+		else:
+			_refs.erase(id)
+			_release_mesh(id)
+	_owner_ids.erase(owner)
+
+
+## Main thread: ids of the list that are neither built nor parsed (released since a worker skipped them as built):
+## they must be prepared again on a worker before the cell is inserted.
+func missing(ids: Array) -> Array:
+	var out: Array = []
 	_mutex.lock()
+	for raw in ids:
+		var id := str(raw)
+		if _entries.has(id) or _built.has(id) or _parsed.has(id):
+			continue
+		out.append(id)
+	_mutex.unlock()
+	return out
+
+
+func _add_deps(id: String, p: Variant) -> void:
+	if _deps.has(id) or typeof(p) != TYPE_DICTIONARY or (p as Dictionary).is_empty():
+		return
+	var keys: Array = []
+	var texs: Array = []
+	for m in p.get("materials", []):
+		var k := _material_key(m)
+		if not keys.has(k):
+			keys.append(k)
+		for n in _map_names(m):
+			if not texs.has(n):
+				texs.append(n)
+	for k in keys:
+		_mat_refs[k] = int(_mat_refs.get(k, 0)) + 1
+	for n in texs:
+		_tex_refs[n] = int(_tex_refs.get(n, 0)) + 1
+	_deps[id] = {"keys": keys, "texs": texs}
+
+
+func _release_mesh(id: String) -> void:
+	var p: Variant = null
+	_mutex.lock()
+	p = _parsed.get(id)
 	_parsed.erase(id)
 	_built.erase(id)
 	_mutex.unlock()
+	if _entries.has(id) or _shapes.has(id) or _partial.has(id):
+		counters["mesh_releases"] += 1
+		if _ever_mesh.has(id):
+			_released_mesh[id] = true
+	_entries.erase(id)
+	_shapes.erase(id)
+	_partial.erase(id)
+	var deps: Dictionary = _deps.get(id, {})
+	_deps.erase(id)
+	for k in deps.get("keys", []):
+		var n := int(_mat_refs.get(k, 0)) - 1
+		if n > 0:
+			_mat_refs[k] = n
+		else:
+			_mat_refs.erase(k)
+			if _materials.erase(k):
+				counters["mat_releases"] += 1
+	var texs: Array = deps.get("texs", [])
+	if deps.is_empty() and typeof(p) == TYPE_DICTIONARY:
+		# never built (insertion dropped): textures it uploaded ahead have no holder
+		for m in (p as Dictionary).get("materials", []):
+			texs.append_array(_map_names(m))
+	for t in texs:
+		var n := int(_tex_refs.get(t, 0)) - (0 if deps.is_empty() else 1)
+		if n > 0:
+			_tex_refs[t] = n
+			continue
+		_tex_refs.erase(t)
+		var had := _textures.erase(t)
+		_mutex.lock()
+		_tex_built.erase(t)
+		_images.erase(t)
+		_mutex.unlock()
+		if had:
+			counters["tex_releases"] += 1
+			_released_tex[t] = true
+
+
+## Main thread: sizes for the memory report.
+func memory_stats() -> Dictionary:
+	_mutex.lock()
+	var parsed := 0
+	for id in _parsed:
+		if _parsed[id] != null:
+			parsed += 1
+	var images := _images.size()
+	var img_bytes := 0
+	for n in _images:
+		if _images[n] != null:
+			img_bytes += (_images[n] as Image).get_data_size()
+	_mutex.unlock()
+	var face_bytes := 0
+	for id in _entries:
+		face_bytes += (_entries[id].get("faces", PackedVector3Array()) as PackedVector3Array).size() * 12
+	var shape_bytes := 0
+	for id in _shapes:
+		var sh: Shape3D = _shapes[id]
+		if sh is ConcavePolygonShape3D:
+			shape_bytes += (sh as ConcavePolygonShape3D).get_faces().size() * 12
+	var d := {"meshes": _entries.size(), "held": _refs.size(), "parsed": parsed, "partial": _partial.size(), "shapes": _shapes.size(),
+		"textures": _textures.size(), "images": images, "materials": _materials.size(),
+		"images_mb": snappedf(img_bytes / 1048576.0, 0.1), "faces_mb": snappedf(face_bytes / 1048576.0, 0.1),
+		"shape_faces_mb": snappedf(shape_bytes / 1048576.0, 0.1)}
+	d.merge(counters)
+	return d
 
 
 func loaded_ids() -> Array:

@@ -63,6 +63,8 @@ var _graveyard: Array = []         # nodes of unloaded cells, freed a few per fr
 var far := {}                     # Vector2i -> Node3D far version of a cell (coarse terrain + HLOD proxy)
 var _far_jobs := {}                # Vector2i -> {task, out: [Dictionary]}
 var _far_none := {}                # cells without an HLOD (not asked again)
+const MEM_REPORT_S := 15.0
+var _mem_timer := MEM_REPORT_S
 var last_process_ms := 0.0        # this node's whole _process last frame (slow frame log)
 var last_work := ""                # --profile-cells: what the streaming main-thread work did last frame (steps > 1 ms)
 var _finish_detail := ""
@@ -217,6 +219,10 @@ func _process(delta: float) -> void:
 
 
 func _process_inner(delta: float) -> void:
+	_mem_timer -= delta
+	if _mem_timer <= 0.0:
+		_mem_timer = MEM_REPORT_S
+		Log.info("mem: %s" % JSON.stringify(memory_report()))
 	_poll_builds()
 	_main_thread_work(delta)
 	_stream_timer -= delta
@@ -377,6 +383,12 @@ func _start_build(c: Vector2i) -> void:
 func _poll_builds() -> void:
 	for c in building.keys():
 		var job: Dictionary = building[c]
+		if job["stage"] == "reprep":
+			if WorkerThreadPool.is_task_completed(job["task"]):
+				WorkerThreadPool.wait_for_task_completion(job["task"])
+				_task_info.erase(job["task"])
+				job["stage"] = "ready"
+			continue
 		if job["stage"] != "prepare":
 			continue
 		if not WorkerThreadPool.is_task_completed(job["task"]):
@@ -386,6 +398,20 @@ func _poll_builds() -> void:
 		job["result"] = job["out"][0]
 		job["stage"] = "ready"
 		var data: Dictionary = job["result"]
+		if data.has("info"):
+			# the cell holds its meshes from now on (mesh_library.gd sharing / release); meshes released while the
+			# worker counted them as built are prepared again on a worker, never on the main thread
+			meshes.acquire(c, data.get("mesh_ids", []))
+			var again: Array = meshes.missing(data.get("mesh_ids", []))
+			if not again.is_empty():
+				var lib := meshes
+				var rprog: Array = ["queued"]
+				job["task"] = WorkerThreadPool.add_task(func():
+					rprog[0] = "started"
+					lib.prepare(again, rprog)
+					rprog[0] = "done", false, "cell %s meshes again" % c)
+				_task_info[job["task"]] = ["prepare again %s (%d meshes)" % [c, again.size()], rprog]
+				job["stage"] = "reprep"
 		if not data.has("info"):
 			building.erase(c)
 			if not FileAccess.file_exists(cell_dir(c).path_join("cell.json")):
@@ -407,7 +433,10 @@ func _main_thread_work(delta: float) -> void:
 	var unload_r := int(Sheets.sys_num("streaming.unload_ring", 3))
 	if _inserter and cheb(_inserter.cell, pc) > unload_r:
 		Log.info("cell %s insertion dropped (out of range)" % _inserter.cell)
+		meshes.release(_inserter.cell)
 		_bury(_inserter.root)
+		_drop_later([building.get(_inserter.cell), cell_data.get(_inserter.cell), _inserter.data], "dropped insert %s" % _inserter.cell)
+		_inserter.data = {}
 		building.erase(_inserter.cell)
 		cell_data.erase(_inserter.cell)
 		_ground.erase(_inserter.cell)
@@ -474,6 +503,21 @@ func _main_thread_work(delta: float) -> void:
 	last_work += "free %d %.1f | total %.1f" % [freed, (Time.get_ticks_usec() - tc) / 1000.0, (Time.get_ticks_usec() - t_start) / 1000.0]
 
 
+## Drops the last references of large data (prepared cells: transforms, buffers, heights) on a worker: freeing them
+## on the main thread was tens of ms per cell.
+func _drop_later(items: Array, what: String) -> void:
+	var holder: Array = items.filter(func(x): return x != null)
+	if holder.is_empty():
+		return
+	var dprog: Array = ["queued"]
+	var t := WorkerThreadPool.add_task(func():
+		dprog[0] = "started"
+		holder.clear()
+		dprog[0] = "done", true, "drop " + what)
+	_free_tasks.append(t)
+	_task_info[t] = ["drop " + what, dprog]
+
+
 ## Starts inserting the nearest ready cell.
 func _begin_insert(pc: Vector2i, unload_r: int) -> void:
 	var best := Vector2i.ZERO
@@ -484,7 +528,9 @@ func _begin_insert(pc: Vector2i, unload_r: int) -> void:
 			continue
 		var d := cheb(c, pc)
 		if d > unload_r:
+			_drop_later([job], "dropped build %s" % c)   # its prepared data is large: freed on a worker
 			building.erase(c)
+			meshes.release(c)
 			continue
 		if d < best_d:
 			best_d = d
@@ -730,6 +776,7 @@ static func _veg_count(veg: Dictionary) -> int:
 
 
 func _unload(c: Vector2i) -> void:
+	meshes.release(c)   # meshes, materials and textures no other cell holds leave RAM and VRAM with this cell
 	var node: Node = loaded.get(c)
 	loaded.erase(c)
 	_ground.erase(c)
@@ -762,7 +809,7 @@ func _exit_tree() -> void:
 	var t0 := Time.get_ticks_msec()
 	var tasks: Array = []
 	for c in building.keys():
-		if building[c]["stage"] == "prepare":
+		if building[c]["stage"] in ["prepare", "reprep"]:
 			tasks.append(building[c]["task"])
 	if _size_task >= 0:
 		tasks.append(_size_task)
@@ -802,6 +849,31 @@ func spawn_machine(type: String, pos: Vector3) -> Node:
 
 
 # ------------------------------------------------------------------ cache size / eviction
+
+## RAM / VRAM picture of the world (0.3 optimisation; logged every MEM_REPORT_S as `mem: {...}`): Godot's static
+## memory, video memory, object counts, the mesh library (resident / held / released / reloaded / duplicates) and the
+## per-cell data still in memory.
+func memory_report() -> Dictionary:
+	var d := {"static_mb": snappedf(Performance.get_monitor(Performance.MEMORY_STATIC) / 1048576.0, 0.1),
+		"vram_tex_mb": snappedf(Performance.get_monitor(Performance.RENDER_TEXTURE_MEM_USED) / 1048576.0, 0.1),
+		"vram_buf_mb": snappedf(Performance.get_monitor(Performance.RENDER_BUFFER_MEM_USED) / 1048576.0, 0.1),
+		"objects": int(Performance.get_monitor(Performance.OBJECT_COUNT)), "resources": int(Performance.get_monitor(Performance.OBJECT_RESOURCE_COUNT)),
+		"nodes": int(Performance.get_monitor(Performance.OBJECT_NODE_COUNT)),
+		"cells_loaded": loaded.size(), "cell_data": cell_data.size(), "col": _col.size(), "far": far.size(),
+		"building": building.size(), "graveyard": _graveyard.size()}
+	var col_items := 0
+	for c in _col:
+		for k in _col[c]["buckets"]:
+			col_items += (_col[c]["buckets"][k] as Array).size()
+	var heights := 0
+	for c in cell_data:
+		heights += (cell_data[c]["heights"] as PackedFloat32Array).size() if cell_data[c]["heights"] is PackedFloat32Array else 0
+	d["col_items"] = col_items
+	d["col_bodies"] = _col.values().reduce(func(a, cc): return a + (cc["bodies"] as Dictionary).size(), 0)
+	d["heights_mb"] = snappedf(heights * 4 / 1048576.0, 0.1)
+	d["lib"] = meshes.memory_stats() if meshes else {}
+	return d
+
 
 func cache_bytes() -> int:
 	return _cache_bytes
