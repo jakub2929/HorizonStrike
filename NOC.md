@@ -48,3 +48,4 @@ Když nevíš, kde jsi: přečti NOC.md a MODLOG.md a pokračuj od posledního z
 - 10:11 Tag v0.2.0-rc (140134b) + větev release/0.2. Oprava 6,8s záseku půjde na release/0.2 (hra), pak t15 (+t16 5× při změně načítání), build z release/0.2, kontrola že v něm není nic z 0.3, koncept na Melty. Pravidlo t16 5× v CLAUDE.md.
 - 10:14 6,8s snímek: t15 běžel současně s mým přesunem 150 GB C:→E: (do 08:27:44) → pravděpodobně I/O zahlcení. Po t16 znovu t15 na klidném stroji; oprava na release/0.2 jen když se zopakuje.
 - 10:14 Sloučeno hra RAM (uvolňování meshů/textur s poslední buňkou, 0 duplicit) + diagnostika pomalých snímků. Běží: test t16 (17/20), vykon (nastavení), svet (špička RAM konvertoru).
+- 10:33 T6 0.2: 18/19 (t16 20/20 OK). t15 se znovu pustí 3× na klidném stroji po záznamech. Sloučeno hra I/O mimo hlavní vlákno.

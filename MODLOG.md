@@ -366,3 +366,8 @@ Full per-site table: `docs/notes/svet.md`. No placement references `ai/groups`, 
   and released with the last holder (RAM + VRAM), re-prepared on a worker if needed again; dup_mesh/dup_tex counters
   stay 0; dropped build data freed on a worker; `mem:` report every 15 s. Headless 20-cell route: 1845 meshes released,
   0 duplicates; static memory 1.2–1.56 GB headless (measurable cell arrays ~165 MB; rest nodes/physics/renderer).
+- Merged hra 2475370: settings/loadout/progression writes on a background thread; eviction checks + rename on a
+  worker; converted-cell size via async scan; knife index re-read on a worker; music/ambience loaded on a worker;
+  hit/weapon sounds preloaded on the loading screen; fixed a quit crash from un-awaited knife-index tasks.
+- 0.2 final T6 suite (release 0.2.0-final): 18/19 PASS – all 14 old + t12, t13, t14 + t16 (20/20 runs, 30 cells each,
+  exit 0, 0 errors, RSS 2.73–2.93 GB, VRAM ~2.11 GB); t15 FAIL on one 6.8 s frame during the disk offload -> re-run 3x.
