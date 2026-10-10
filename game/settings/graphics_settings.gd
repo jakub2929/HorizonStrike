@@ -22,7 +22,7 @@ const VEG_GROUP := "gfx_vegetation"
 const VEG_CHANNELS := ["trees", "blockbush", "undergrowth", "stealthplants"]
 ## Manual options (keys of graphics.presets entries + fps_limit, vsync).
 const OPTION_KEYS := ["render_scale", "fsr", "shadow_quality", "shadow_distance", "veg_distance", "veg_density",
-	"lod_bias", "ssao", "ssr", "volumetric_fog"]
+	"lod_bias", "ssao", "ssr", "volumetric_fog", "texture_quality"]
 
 var preset := "high"           ## low / medium / high / custom
 var fps_limit := 60            ## Engine.max_fps, 0 = unlimited
@@ -37,6 +37,7 @@ var lod_bias := 1.0            ## mesh_lod_threshold = render.lod_threshold_px /
 var ssao := false
 var ssr := false
 var volumetric_fog := false
+var texture_quality := "full"  ## full / half: world mesh textures loaded at full or half size (newly loaded areas)
 var auto_info := {}            ## first-start detection: {gpu, vram_mib, type, preset, reason}
 
 var _path := ""
@@ -233,12 +234,20 @@ func _clamp() -> void:
 	veg_density = clampf(veg_density, 0.0, 1.0)
 	lod_bias = clampf(lod_bias, 0.1, 8.0)
 	fps_limit = maxi(fps_limit, 0)
+	if not texture_quality in ["full", "half"]:
+		texture_quality = "full"
 
 
 func describe() -> String:
-	return "fps %s, vsync %s, scale %.2f%s, shadows %s %.0f m, vegetation x%.2f distance x%.2f density, lod bias %.2f, ssao %s, ssr %s, volumetric fog %s" % [
+	return "fps %s, vsync %s, scale %.2f%s, shadows %s %.0f m, vegetation x%.2f distance x%.2f density, lod bias %.2f, ssao %s, ssr %s, volumetric fog %s, textures %s" % [
 		"unlimited" if fps_limit == 0 else str(fps_limit), vsync, render_scale, " fsr" if fsr else "", shadow_quality,
-		shadow_distance, veg_distance, veg_density, lod_bias, ssao, ssr, volumetric_fog]
+		shadow_distance, veg_distance, veg_density, lod_bias, ssao, ssr, volumetric_fog, texture_quality]
+
+
+## GRAPHICS HOOK target (mesh_library._load_image, cell workers): a world mesh texture as the setting wants it.
+## Thread-safe (reads one string). Takes effect for textures loaded after the change.
+func world_texture(img: Image) -> Image:
+	return drop_top_mips(img, 1) if texture_quality == "half" else img
 
 
 # ------------------------------------------------------------------ persistence

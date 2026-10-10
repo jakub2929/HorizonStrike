@@ -6,7 +6,8 @@ extends CanvasLayer
 ## Every choice is a toggle button (no popups), so tests can click it by name:
 ##   GraphicsMenu, PresetLow/PresetMedium/PresetHigh, PresetLabel, FpsLimit_<n> (0 = unlimited), VSync,
 ##   RenderScale (HSlider) + RenderScaleLabel, Fsr, ShadowQuality_<off|low|medium|high>, ShadowDistance_<m>,
-##   VegDistance_<x100>, VegDensity_<x100>, LodBias_<x100>, Ssao, Ssr, VolumetricFog, GpuLabel, GraphicsBack.
+##   VegDistance_<x100>, VegDensity_<x100>, LodBias_<x100>, TextureQuality_<full|half>, Ssao, Ssr, VolumetricFog,
+##   GpuLabel, GraphicsBack.
 
 const GS := preload("res://settings/graphics_settings.gd")
 
@@ -122,6 +123,7 @@ func _ready() -> void:
 		_num_labels(GS.list_row("graphics.veg_density_steps", [0.25, 0.5, 0.75, 1.0]), " %", 100.0))
 	_choice_row(grid, "LOD bias", "lod_bias", "LodBias",
 		_num_labels(GS.list_row("graphics.lod_bias_steps", [0.5, 0.75, 1.0, 1.5]), " %", 100.0))
+	_choice_row(grid, "Textures (new areas)", "texture_quality", "TextureQuality", {"full": "Full", "half": "Half"})
 	_check_row(grid, "SSAO", "ssao", "Ssao")
 	_check_row(grid, "SSR", "ssr", "Ssr")
 	_check_row(grid, "Volumetric fog", "volumetric_fog", "VolumetricFog")
