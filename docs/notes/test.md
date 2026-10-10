@@ -477,3 +477,22 @@ one cache `E:\meshy_work\test03-cache-1` (fresh at the first run), outputs `E:\m
   VSync / fps numbers only mean something windowed.
 - Paused by the coordinator (no windowed runs): t19, t21, t23, t24 windowed, t20/t22 with real mouse motion, t01/t03
   windowed (t01 PASS headless, t03 needs wheel clicks).
+
+### 0.3.0-rc flaky tests (branch test-0.3-fix from fix-03-runner-focus)
+- t19 slash -1: the camera was pointed by Game.aim_at at the watcher's body aim point, whose shot line often meets
+  nothing within the knife reach (1.6 m). aim_body (lib/hitcheck.gd) now picks a body point the trace meets first as a
+  non-weak body hitbox within reach - 0.15 m (+-5 cm margin), aims by mouse motion and checks the real view line again;
+  a miss = another press. Dev: 22/22 knives 42.5 with 1 press each.
+- t20 body kill hit the eye (+120): from the front the eye lies in front of / inside the body boxes; the game's trace gives
+  the hit to a weak spot within 0.15 m behind the body surface or inside a body box. first_hit("body") now applies that
+  rule (weak_behind) and aim_body avoids such lines. Release "60 shots 0 hits" = mouse not captured without window focus
+  (fixed by the runner focus commit).
+- t23: script error = `body.dealt` read when the body shot missed; "numbers off" failure = the weak hit (110) killed the
+  90-health watcher, the next shot hit nothing. Fresh watcher per sub-test, body via aim_body.
+- t06: on a fresh cache the site cells (5,-2)/(3,-2) are not converted yet, so grazers were spawned at the start
+  settlement and fled into walls (+7..18 m); Sites.ensure_cells goes there first (cell.json after 16-28 s). Crouch: the
+  back-off teleport put the player into a cell still loading (cell (5,-3) loaded 19 s later); the game holds him without
+  movement until its ground exists, so the held Ctrl did nothing for 10 s; t06 now waits for the ground after teleports.
+- Sequence t06,t17..t23 in one process (`test03-fix-seq-1`): 8/8 PASS.
+- Not fixed (out of scope, same cause as t20): t04 fails on the dev cache test03-cache-1 with the old and the new
+  hitcheck alike (body shot = eye kill, 90 dmg); it passed in the release suite on a fresh cache.
