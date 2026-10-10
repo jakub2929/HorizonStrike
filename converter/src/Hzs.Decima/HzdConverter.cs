@@ -135,7 +135,7 @@ public static class HzdConverter
     /// <summary>One world cell: terrain, instances, vegetation, campfires, spawns (hzd/cells/X_Y/).</summary>
     public static long ConvertCell(ConvContext ctx, int x, int y, IProgressSink progress)
     {
-        var bytes = World.CellConverter.Convert(ctx, new Resolver(Archive(ctx)), x, y, progress);
+        var bytes = World.CellConverter.Convert(ctx, World.CellConverter.SharedResolver(Archive(ctx)), x, y, progress);
         if (!Stamped(ctx)) Stamp(ctx);
         return bytes;
     }

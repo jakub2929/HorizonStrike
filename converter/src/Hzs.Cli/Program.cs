@@ -152,6 +152,7 @@ internal sealed class Server
         var threads = Enumerable.Range(0, _workers).Select(i => new Thread(Worker) { IsBackground = true, Name = $"conv{i}", Priority = ThreadPriority.BelowNormal }).ToList();
         threads.ForEach(t => t.Start());
         new Thread(IdleWatch) { IsBackground = true, Name = "idle", Priority = ThreadPriority.BelowNormal }.Start();
+        Hzs.Decima.Memory.StartGovernor(_ctx.Log.Info); // private memory soft cap (perf.converter_soft_cap_mb)
         string? line;
         while ((line = input.ReadLine()) is not null)
         {
@@ -301,6 +302,7 @@ internal sealed class Server
             }
             finally
             {
+                AfterJob(job.Op);
                 lock (_lock) { _running--; _lastActivity = Environment.TickCount64; _released = false; Monitor.PulseAll(_lock); }
                 if (job.Op == "cell") lock (_lock) _runningCells.Remove((job.X, job.Y));
                 if (job.Op == "bootstrap") lock (_lock) { _bootstrapActive--; Monitor.PulseAll(_lock); }
@@ -357,13 +359,25 @@ internal sealed class Server
         }
     }
 
+    // the job's garbage is freed now (perf.converter_soft_cap_mb), not at the next gen-2 budget
+    private void AfterJob(string what)
+    {
+        var (before, after) = Hzs.Decima.Memory.AfterJob();
+        if (after != before) _ctx.Log.Info($"{what}: private {before} -> {after} MB (compacted)");
+    }
+
     private long Bootstrap(Job job, IProgressSink sink)
     {
+        using var cap = Hzs.Decima.ConversionLimits.BeginBootstrap(); // loading screen: the larger memory soft cap
         long bytes = 0;
         bytes += Cs2Converter.ConvertWeapons(_ctx, sink);
+        AfterJob("weapons");
         bytes += HzdConverter.ConvertMachines(_ctx, sink);
+        AfterJob("machines");
         bytes += HzdConverter.ConvertAudio(_ctx, sink);
+        AfterJob("audio");
         bytes += HzdConverter.BuildIndex(_ctx, sink);
+        AfterJob("index");
         lock (_lock) { _bootstrapped = true; Monitor.PulseAll(_lock); }
         var (sx, sy) = HzdConverter.StartCell(_ctx);
         var r = job.Radius;
@@ -376,7 +390,10 @@ internal sealed class Server
         {
             sink.Report("start-area", i++, cells.Count);
             if (!HzdConverter.CellUpToDate(_ctx, x, y))
+            {
                 bytes += HzdConverter.ConvertCell(_ctx, x, y, sink);
+                AfterJob($"start-area cell {x},{y}");
+            }
         }
         sink.Report("start-area", cells.Count, cells.Count);
         return bytes;

@@ -12,7 +12,7 @@ namespace Hzs.Decima.Assets;
 /// </summary>
 public sealed class Materials(Resolver res, int maxPx)
 {
-    private readonly ConcurrentDictionary<string, Image?> _images = new();
+    private readonly ImageCache _images = new(ConversionLimits.ImageCacheBytes); // bounded: callers that keep results pass `known`
     private readonly ConcurrentDictionary<string, bool> _ok = new();
     private static readonly string[] Tiers = HzdNames.List("materials.tiers");
     private static readonly string[] Bad = HzdNames.List("materials.never_base_color");
@@ -52,14 +52,9 @@ public sealed class Materials(Resolver res, int maxPx)
                         if (!ok) continue;
                         if (known?.Invoke(key) == true) return new Choice(key, null, pass == 2);
                     }
-                    var img = _images.GetOrAdd(key, _ => pass == 1 ? ColorOf(r, alphaRef) : AoStone(r));
+                    var img = _images.GetOrAdd(key, () => pass == 1 ? ColorOf(r, alphaRef) : AoStone(r));
                     _ok[key] = img is not null;
-                    if (img is not null)
-                    {
-                        if (_images.Count > 48) _images.Clear(); // bounded: callers that keep results pass `known`
-                        return new Choice(key, img, pass == 2);
-                    }
-                    _images.TryRemove(key, out _);
+                    if (img is not null) return new Choice(key, img, pass == 2);
                 }
         return null;
     }
