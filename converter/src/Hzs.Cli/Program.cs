@@ -127,6 +127,7 @@ internal sealed class Server
     private bool _released = true;                          // caches already released since the last activity
     private bool _bootstrapped;
     private int _bootstrapActive; // queued or running bootstrap jobs: cells wait for them (start area first)
+    private int _bootstrapCs2;    // bootstraps whose CS2 part still runs: knife / weapon jobs wait for it
 
     public Server(ConvContext ctx, int workers, int idleReleaseS = 5, int idleExitS = 0)
     {
@@ -297,7 +298,7 @@ internal sealed class Server
                     if (skipped.Count > 0) { Monitor.Wait(_lock, 200); _signal.Release(); }
                     continue;
                 }
-                if (job.Op is "knives" or "knife" or "weapon" && _bootstrapActive > 0 && !_bootstrapped)
+                if (job.Op is "knives" or "knife" or "weapon" && _bootstrapActive > 0 && (!_bootstrapped || _bootstrapCs2 > 0))
                 {
                     // knife and weapon work waits for the bootstrap too (the start of play comes first)
                     _queue.Enqueue(job, (job.Prio, Interlocked.Increment(ref _seq))); Monitor.Wait(_lock, 200); _signal.Release(); continue;
@@ -442,12 +443,40 @@ internal sealed class Server
         if (after != before) _ctx.Log.Info($"{what}: private {before} -> {after} MB (compacted)");
     }
 
+    /// <summary>
+    /// Bootstrap = CS2 start loadout + HZD shared data (machines, audio, index) and the start area. The two parts share
+    /// nothing, so the CS2 part runs on its own thread (its session lock still serialises all CS2 work) while this worker
+    /// converts the HZD part; the job is done when both are. Progress events of both parts interleave (stage "weapons"
+    /// next to "machines" ... "start-area"). Cells may start after the index as before; knife / weapon jobs wait for the
+    /// CS2 part.
+    /// </summary>
     private long Bootstrap(Job job, IProgressSink sink)
     {
         using var cap = Hzs.Decima.ConversionLimits.BeginBootstrap(); // loading screen: the larger memory soft cap
+        long cs2Bytes = 0;
+        Exception? cs2Error = null;
+        lock (_lock) _bootstrapCs2++;
+        var cs2 = new Thread(() =>
+        {
+            try
+            {
+                cs2Bytes = Cs2Converter.ConvertWeapons(_ctx, sink);
+                AfterJob("weapons");
+            }
+            catch (Exception ex) { cs2Error = ex; }
+            finally { lock (_lock) { _bootstrapCs2--; Monitor.PulseAll(_lock); } }
+        }) { IsBackground = true, Name = "bootstrap-cs2", Priority = ThreadPriority.BelowNormal };
+        cs2.Start();
+        long bytes;
+        try { bytes = BootstrapHzd(job, sink); }
+        finally { cs2.Join(); }
+        if (cs2Error is not null) System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(cs2Error).Throw();
+        return bytes + cs2Bytes;
+    }
+
+    private long BootstrapHzd(Job job, IProgressSink sink)
+    {
         long bytes = 0;
-        bytes += Cs2Converter.ConvertWeapons(_ctx, sink);
-        AfterJob("weapons");
         bytes += HzdConverter.ConvertMachines(_ctx, sink);
         AfterJob("machines");
         bytes += HzdConverter.ConvertAudio(_ctx, sink);
