@@ -9,6 +9,7 @@ const Proc := preload("res://autotest/lib/proc.gd")
 var gpu: Array = []   # per row of `rows`
 var cpu: Array = []
 var cpu_parts: Array = []   # [process_ms, physics_ms, render_cpu_ms] per row (diagnosis of cpu_ms)
+var draws: Array = []       # [draw calls, primitives] per row
 var mem: Array = []   # [t_s, phase, game_mb, converter_mb, vram_mb]
 var sampling := false
 var _vps: Array = []
@@ -46,6 +47,7 @@ func _process(delta: float) -> void:
 	gpu.append(snappedf(g, 0.001))
 	cpu.append(snappedf(pr + ph + rc, 0.001))
 	cpu_parts.append([snappedf(pr, 0.001), snappedf(ph, 0.001), snappedf(rc, 0.001)])
+	draws.append([int(Performance.get_monitor(Performance.RENDER_TOTAL_DRAW_CALLS_IN_FRAME)), int(Performance.get_monitor(Performance.RENDER_TOTAL_PRIMITIVES_IN_FRAME))])
 
 
 func write_csv(path: String) -> bool:
@@ -78,6 +80,8 @@ func gpu_stats(phase_name: String) -> Dictionary:
 	var gs: Array = []
 	var cs: Array = []
 	var parts := [0.0, 0.0, 0.0]
+	var dsum := 0.0
+	var psum := 0.0
 	var wall_ms := 0.0
 	for i in rows.size():
 		if rows[i][2] != phase_name or i >= gpu.size():
@@ -86,6 +90,9 @@ func gpu_stats(phase_name: String) -> Dictionary:
 		cs.append(cpu[i])
 		for k in 3:
 			parts[k] += float(cpu_parts[i][k])
+		if i < draws.size():
+			dsum += draws[i][0]
+			psum += draws[i][1]
 		wall_ms += float(rows[i][1])
 	if gs.is_empty():
 		return {"frames": 0}
@@ -98,7 +105,8 @@ func gpu_stats(phase_name: String) -> Dictionary:
 		"cpu_ms_avg": snappedf(csum / cs.size(), 0.01), "cpu_ms_p99": snappedf(cs[k], 0.01),
 		"gpu_busy_ms_per_s": snappedf(gsum / maxf(wall_ms / 1000.0, 0.001), 0.1), "frame_ms_avg": snappedf(wall_ms / gs.size(), 0.01),
 		"process_ms_avg": snappedf(parts[0] / gs.size(), 0.01), "physics_ms_avg": snappedf(parts[1] / gs.size(), 0.01),
-		"render_cpu_ms_avg": snappedf(parts[2] / gs.size(), 0.01)}
+		"render_cpu_ms_avg": snappedf(parts[2] / gs.size(), 0.01), "draw_calls_avg": roundi(dsum / gs.size()),
+		"primitives_avg": roundi(psum / gs.size())}
 
 
 func mem_stats(phases: Array = []) -> Dictionary:

@@ -8,6 +8,7 @@ extends Node
 ##   attach_environment(env, sun)   - main.gd apply_render_settings: SSAO, SSR, volumetric fog, sun shadow
 ##                                    on/off, splits and distance
 ##   track_chunk(mmi, chunk_name)   - cell_builder.make_chunk: scattered vegetation fade distance and density
+##   full_cell_ring()               - world.gd: full cells unload beyond it (far / HLOD cells stay to unload_ring)
 ##
 ## Command line (this run only, nothing saved): --gfx-preset low|medium|high, --fps-limit <n> (0 = unlimited).
 
@@ -22,7 +23,7 @@ const VEG_GROUP := "gfx_vegetation"
 const VEG_CHANNELS := ["trees", "blockbush", "undergrowth", "stealthplants"]
 ## Manual options (keys of graphics.presets entries + fps_limit, vsync).
 const OPTION_KEYS := ["render_scale", "fsr", "shadow_quality", "shadow_distance", "veg_distance", "veg_density",
-	"lod_bias", "ssao", "ssr", "volumetric_fog", "texture_quality"]
+	"lod_bias", "ssao", "ssr", "volumetric_fog", "texture_quality", "full_ring"]
 
 var preset := "high"           ## low / medium / high / custom
 var fps_limit := 60            ## Engine.max_fps, 0 = unlimited
@@ -38,6 +39,7 @@ var ssao := false
 var ssr := false
 var volumetric_fog := false
 var texture_quality := "full"  ## full / half: world mesh textures loaded at full or half size (newly loaded areas)
+var full_ring := 3             ## full cells up to this ring, far (HLOD) cells beyond up to streaming.unload_ring
 var auto_info := {}            ## first-start detection: {gpu, vram_mib, type, preset, reason}
 
 var _path := ""
@@ -236,12 +238,19 @@ func _clamp() -> void:
 	fps_limit = maxi(fps_limit, 0)
 	if not texture_quality in ["full", "half"]:
 		texture_quality = "full"
+	full_ring = clampi(full_ring, int(Sheets.sys_num("streaming.load_ring", 1)) + 1, int(Sheets.sys_num("streaming.unload_ring", 3)))
 
 
 func describe() -> String:
-	return "fps %s, vsync %s, scale %.2f%s, shadows %s %.0f m, vegetation x%.2f distance x%.2f density, lod bias %.2f, ssao %s, ssr %s, volumetric fog %s, textures %s" % [
+	return "fps %s, vsync %s, scale %.2f%s, shadows %s %.0f m, vegetation x%.2f distance x%.2f density, lod bias %.2f, ssao %s, ssr %s, volumetric fog %s, textures %s, full cells ring %d" % [
 		"unlimited" if fps_limit == 0 else str(fps_limit), vsync, render_scale, " fsr" if fsr else "", shadow_quality,
-		shadow_distance, veg_distance, veg_density, lod_bias, ssao, ssr, volumetric_fog, texture_quality]
+		shadow_distance, veg_distance, veg_density, lod_bias, ssao, ssr, volumetric_fog, texture_quality, full_ring]
+
+
+## GRAPHICS HOOK target (world.gd streaming): full cells beyond this Chebyshev ring are unloaded (their far / HLOD
+## version shows up to streaming.unload_ring). Read every streaming update, so a preset change applies at once.
+func full_cell_ring() -> int:
+	return full_ring
 
 
 ## GRAPHICS HOOK target (mesh_library._load_image, cell workers): a world mesh texture as the setting wants it.

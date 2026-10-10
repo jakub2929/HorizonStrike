@@ -11,6 +11,9 @@ extends Node
 ##                        process_ms, physics_ms, draw_calls, primitives, objects, cell, cells_loaded, building, heavy
 ##   mem_<pid>.csv        every 5 s: static memory, video/texture/buffer memory, object/resource/node counts, cells,
 ##                        mesh library counts
+##   passes_<pid>.json   with --perf-probe-passes: GPU time per renderer timestamp segment (RenderingDevice captured
+##                        timestamps, named by the engine: shadows, opaque, sky, post ...) and per viewport, averaged
+##                        per frame; segments are attributed to the timestamp that starts them
 ##   breakdown_<pid>.json heavy memory breakdown 20 s after world_ready and every --perf-probe-heavy-s (120) s:
 ##                        textures (RenderingServer.texture_debug_usage by owner), collision shapes, cell data,
 ##                        prepared cells, MultiMesh instances, machines, baseline before the world (engine+scripts)
@@ -33,6 +36,12 @@ var _vps: Array = []      # viewport RIDs with render time measuring on
 var _vp_scan := 0.0
 var _heavy_frame := false
 var _lines := PackedStringArray()
+var _passes := false
+var _pass_us := {}        # segment name -> total GPU usec
+var _pass_frames := 0
+var _vp_gpu := {}         # viewport name -> total GPU ms
+var _vp_names := {}       # RID -> name
+var _next_pass_write := 30.0
 
 
 func _ready() -> void:
@@ -45,6 +54,7 @@ func _ready() -> void:
 	if h != "":
 		_heavy_every = maxf(float(h), 10.0)
 	_active = true
+	_passes = OS.get_cmdline_user_args().has("--perf-probe-passes") or OS.get_cmdline_args().has("--perf-probe-passes")
 	_out = _out.replace("\\", "/")
 	DirAccess.make_dir_recursive_absolute(_out)
 	var pid := OS.get_process_id()
@@ -94,8 +104,14 @@ func _process(delta: float) -> void:
 	var gpu := 0.0
 	var cpu := RenderingServer.get_frame_setup_time_cpu()
 	for rid in _vps:
-		gpu += RenderingServer.viewport_get_measured_render_time_gpu(rid)
+		var vg := RenderingServer.viewport_get_measured_render_time_gpu(rid)
+		gpu += vg
 		cpu += RenderingServer.viewport_get_measured_render_time_cpu(rid)
+		if _passes:
+			var vn: String = _vp_names.get(rid, "?")
+			_vp_gpu[vn] = float(_vp_gpu.get(vn, 0.0)) + vg
+	if _passes:
+		_capture_passes(t)
 	var w := _world()
 	var cell := ""
 	var loaded := 0
@@ -138,6 +154,40 @@ func _scan_viewports() -> void:
 		var rid: RID = (v as Viewport).get_viewport_rid()
 		RenderingServer.viewport_set_measure_render_time(rid, true)
 		_vps.append(rid)
+		_vp_names[rid] = "root" if v == get_tree().root else str((v as Node).get_path()).get_file()
+
+
+## RenderingDevice timestamps of the last captured frame: segment i = timestamp i .. i+1, named by timestamp i.
+func _capture_passes(t: float) -> void:
+	var rd := RenderingServer.get_rendering_device()
+	if rd == null:
+		return
+	var n := rd.get_captured_timestamps_count()
+	if n < 2:
+		return
+	_pass_frames += 1
+	for i in range(n - 1):
+		var nm := rd.get_captured_timestamp_name(i)
+		var d := rd.get_captured_timestamp_gpu_time(i + 1) - rd.get_captured_timestamp_gpu_time(i)
+		_pass_us[nm] = int(_pass_us.get(nm, 0)) + d
+	if t >= _next_pass_write:
+		_next_pass_write = t + 30.0
+		_write_passes()
+
+
+func _write_passes() -> void:
+	if _pass_frames == 0:
+		return
+	var segs := []
+	for k in _pass_us:
+		segs.append({"name": k, "ms_per_frame": snappedf(_pass_us[k] / 1000.0 / _pass_frames, 0.001)})
+	segs.sort_custom(func(a, b): return a.ms_per_frame > b.ms_per_frame)
+	var vps := {}
+	for k in _vp_gpu:
+		vps[k] = snappedf(_vp_gpu[k] / max(_pass_frames, 1), 0.001)
+	var f := FileAccess.open(_out.path_join("passes_%d.json" % OS.get_process_id()), FileAccess.WRITE)
+	if f:
+		f.store_string(JSON.stringify({"frames": _pass_frames, "viewports_ms_per_frame": vps, "segments": segs}, " "))
 
 
 func _flush() -> void:
@@ -355,5 +405,7 @@ func _exit_tree() -> void:
 	if not _active:
 		return
 	_flush()
+	if _passes:
+		_write_passes()
 	if _mem:
 		_mem.flush()

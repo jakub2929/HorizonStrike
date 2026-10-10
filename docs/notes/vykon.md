@@ -72,3 +72,37 @@ Source of truth for my running decisions. Newest entries at the bottom of "Log".
   scrapper or watcher in one shot, so a new wave is spawned when one is down). Aim by Game.aim_at as lib/combat.gd;
   the closed-loop mouse aim missed every shot while aimpunch kicked the view.
 - Paused by the coordinator (windowed): t25 (Low + High), r05, r06, r09 and the movie runs of r07, r08.
+
+## fix-03-low-preset (from release/0.3 6322918; dev editor, release converter 0.3.0-rc2, cache E:\meshy_work\test03-cache-1)
+- Where Low's GPU time goes (dev/gpu_ablation.gd, Low, 7 poses, E:\meshy_work\vykon03-ablation-1..4): Godot 4.7
+  exposes no per-pass timestamps to scripts (RenderingDevice captured timestamps = viewport begin/end only), so
+  items are switched off one at a time. Root viewport 6.9 ms, viewmodel viewport 0.2 ms. Full-cell instances
+  4.4-7.9 ms of 7.5-11.3 ms; trees 0.5-3.8; sun shadows 1.1-2.4; terrain 0.2-0.6; far cells, sky, fog, FXAA, lights,
+  machines ~0; render scale 0.67 -> 0.5 only -0.2..-0.3 ms (not pixel bound); FSR -> bilinear -0.1..-0.2.
+  Inside instances: the player's cell 6.5-7.4 ms at the start whatever the view direction -> cell_builder's 512 m
+  (>= 12 m meshes) / 256 m chunks: a MultiMesh is culled and LOD-selected as one, so every big instance of the cell was
+  vertex-processed at LOD0 in every pass. Candidate preset values (lod bias 0.25/0.125, instance range x0.7/x0.5,
+  no sun shadows, scale 0.5) together saved at most 1.6-4.1 ms -> not enough.
+- Fix (coordinator approved): render.instance_chunk_max_m 128 caps the chunk edge in cell_builder._lod_class (all
+  presets). Same Low preset, GPU per pose 10.1/10.0/9.7/9.1 (start) -> 6.0/5.7/5.4/5.4, mothers_heart 7.5 -> 3.2,
+  valley 8.8 -> 2.5, rocks_close 11.3 -> 2.8 ms.
+- RAM: graphics.presets full_ring (Low 2, Medium/High 3) via GraphicsSettings.full_cell_ring() in world.gd; far/HLOD
+  ring stays streaming.unload_ring 3 (horizon kept). Windowed effect small: Low peak 2778 -> 2753-2770 MiB.
+  staging buffer 128 -> 32 MB (project setting, tried once, reverted): 2734 MiB (-30). Memory map of the Low game
+  mid-route (psutil): working set 2688 MiB = mapped images 599 (Godot editor exe 174, NVIDIA driver DLLs ~330) +
+  private; Godot static ~1.0 GB (15 cells loaded, 31k nodes); the rest is driver / Vulkan allocations. Low and High
+  peak the same before the fix (2778 / 2775 MiB): the preset levers do not reach it. Not met: best 2734-2770 MiB dev
+  (release template ~90 MiB less: rc2 2684 vs dev 2778 before).
+- t25 dev before (release/0.3 source exported to E:\meshy_work\vykon03-before-src, same converter/cache) vs after:
+  Low GPU 7.45 -> 3.28 / 3.27 ms (p99 15.25 -> 9.75 / 8.28), fps 119.4 -> 206.4 / 190.4, VRAM 1517 -> 1473 / 1478,
+  RAM 2778 -> 2770 / 2753; High fps 83.1 -> 154.7 / 157.6, 1 % low 47.5 -> 57.8 / 60.5, GPU 11.39 -> 5.13 / 4.96 ms,
+  RAM 2775 -> 2847 / 2860, VRAM 1753 -> 1753; worst load frame High 32.1 -> 57.9 (run 1 FAIL) / 48.4 (run 2 PASS),
+  both at the same spot (t ~227 s, cell 0,-2: 13-machine site activation + a 11.7 ms collision op; before 42.2 ms
+  there, outside the load window). Draw calls avg Low 904 -> 987, High 1022 -> 1293-1319.
+- Cell insert (main thread per cell, "cell phases"): multimesh median 33 -> 41 ms (+24 %, in 6 ms budget steps),
+  add_child 1.1 -> 1.1, insert wall median 1.7 -> 1.8-1.9 s.
+- t15 PASS (start 127.0 / 109.5, route 160.6 / 66.0, worst load 37.1 ms), t26 PASS, t16 (HZS_T16_RUNS=2) PASS
+  (30 cells, RSS 2902 / 2921 MB, VRAM 1227, 0 errors).
+- Visual: Low screenshots before/after E:\meshy_work\vykon03-low-shots\{before,after}: identical apart from more
+  trees in the valley view after (128 m vegetation chunks are faded by their own distance instead of a 512 m
+  chunk's centre).
