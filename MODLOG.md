@@ -362,3 +362,7 @@ Full per-site table: `docs/notes/svet.md`. No placement references `ai/groups`, 
   same window, with almost no streaming work in them. The orchestrator's disk offload (robocopy of ~150 GB C: -> E:)
   ran 07:44–08:27:44, overlapping t15 (08:20:08–08:28:57) -> system-wide I/O stalls are the most likely cause. Plan:
   re-run t15 on the unchanged 0.2.0-final build on a quiet machine after t16; fix on release/0.2 only if it reproduces.
+- Merged hra 0.3 RAM (142b839, 7ee19bc) + slow-frame diagnostics (4760186): meshes/materials/textures held per cell
+  and released with the last holder (RAM + VRAM), re-prepared on a worker if needed again; dup_mesh/dup_tex counters
+  stay 0; dropped build data freed on a worker; `mem:` report every 15 s. Headless 20-cell route: 1845 meshes released,
+  0 duplicates; static memory 1.2–1.56 GB headless (measurable cell arrays ~165 MB; rest nodes/physics/renderer).
